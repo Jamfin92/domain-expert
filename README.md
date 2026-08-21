@@ -29,7 +29,7 @@ answer is right. A model that both writes and grades measures nothing.
 |---|---|
 | M1 — entity graphs, multiple choice | done |
 | M2 — short answer, cloze, SQL over a seeded database | done |
-| M3 — server, web UI, Electron shell | next |
+| M3 — server, web UI, Electron shell | done |
 | M4 — Node backends, data structures | planned |
 | M5 — React clients, cross-layer links | planned |
 | M6 — agent-authored questions, STE checks | planned |
@@ -65,6 +65,36 @@ pnpm psq quiz --repo <path> --n 10
 Add `--seed <n>` to fix the generator seed and `--rows <n>` to change how many
 rows are seeded. The same repo and seed always give the same questions in the
 same order, and the same database down to the byte.
+
+## The app
+
+```bash
+pnpm dev:all      # API on 8092, UI on 5173, one Ctrl-C stops both
+pnpm build:web    # then: pnpm dev:server serves the UI itself on 8092
+pnpm desktop      # the Electron app
+```
+
+One core, one UI, two shells. All the work lives in `packages/*`; the CLI, the
+server and the desktop app are consumers.
+
+| Shell | Runs | Gets |
+|---|---|---|
+| `apps/server` | localhost, or hosted later | the JSON API |
+| `apps/web` | browser, both shells | the React UI, one codebase |
+| `apps/desktop` | Electron | folder picker, open-in-editor, dock presence |
+
+Electron boots the same express app on a free port and points a window at it.
+The UI feature-detects the bridge — `window.psq?.pickFolder()` exists there and
+is absent in a browser, which falls back to a path input. Electron is about a
+hundred lines, not a second application.
+
+Why not Electron alone: **an Electron app cannot be served**, which forecloses
+running psq in the cloud later. Why not the browser alone: a browser cannot
+return a real filesystem path, and pointing psq at a repo is the first thing
+you do. Offline does not separate the two — a localhost server is offline.
+
+The server grades every answer. Questions reach the client without their
+answers, so the score means something.
 
 ## SQL questions
 
@@ -184,8 +214,9 @@ The command exits non-zero on any finding.
 ## Development
 
 ```bash
-pnpm typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
+pnpm typecheck   # root, web and desktop
 pnpm test        # vitest, hermetic
+pnpm build       # typecheck, then the web and desktop bundles
 ```
 
 There is no linter. `tsc` under `strict` is the gate.
@@ -205,10 +236,16 @@ pnpm test                    # 55 tests
 ```
 packages/schema     zod contract, no I/O
 packages/extract    C# lexer, structural reader, EF fluent reader
-packages/graph      invariants, degrees, shortest path, mermaid
-packages/quiz       generators, grader, selftest, selection
+packages/graph      invariants, degrees, shortest path, layout, mermaid
+packages/quiz       generators, grader, selftest, seeding, SQL sandbox
 apps/cli            hand-rolled argv
+apps/server         express, the JSON API
+apps/web            Vite, React 19, Tailwind v4, shadcn
+apps/desktop        Electron main and preload
 test/fixtures       self-contained EF project
 ```
+
+The web UI has no automated tests yet. It is typechecked, built, and verified
+by rendering it headlessly against a real repo. The API beneath it has 17.
 
 Packages export `./src/index.ts` directly. There is no build step.

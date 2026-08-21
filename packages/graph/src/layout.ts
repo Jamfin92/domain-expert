@@ -40,12 +40,19 @@ export interface Layout {
   height: number;
 }
 
-const NODE_WIDTH = 180;
-const MIN_HEIGHT = 56;
-const ROW_HEIGHT = 14;
-const GAP_X = 44;
-const GAP_Y = 96;
-const PAD = 40;
+/**
+ * A deep graph costs height, and height is what forces the fit-to-view scale
+ * down until the labels stop being readable. corpus-repo-a is 9 levels deep,
+ * so every pixel per level is multiplied by nine. Box height still varies with
+ * property count, because that carries real information, but it is capped.
+ */
+const NODE_WIDTH = 172;
+const MIN_HEIGHT = 48;
+const ROW_HEIGHT = 10;
+const MAX_ROWS_SHOWN = 4;
+const GAP_X = 40;
+const GAP_Y = 58;
+const PAD = 28;
 
 /**
  * Assign each entity a level: a principal is always above every entity that
@@ -151,7 +158,7 @@ export function layout(g: EntityGraph, rowCounts?: Map<string, number>): Layout 
   const heightOf = (name: string): number => {
     const e = g.entities.find((x) => x.name === name);
     const scalars = e ? e.properties.filter((p) => !p.isNavigation).length : 0;
-    return MIN_HEIGHT + Math.min(scalars, 8) * ROW_HEIGHT;
+    return MIN_HEIGHT + Math.min(scalars, MAX_ROWS_SHOWN) * ROW_HEIGHT;
   };
 
   const levelKeys = [...byLevel.keys()].sort((a, b) => a - b);

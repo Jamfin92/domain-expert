@@ -1,0 +1,153 @@
+/**
+ * Typed client for the psq API.
+ *
+ * Note what is absent: no answers, no reference queries. The server grades, so
+ * the client never holds anything it could cheat with.
+ */
+
+export interface RepoSummary {
+  id: string;
+  path: string;
+  name: string;
+  contextName: string | null;
+  entities: number;
+  relations: number;
+  questions: number;
+  warnings: string[];
+  seededRows: number;
+  openedAt: string;
+}
+
+export interface LayoutNode {
+  name: string; x: number; y: number; width: number; height: number;
+  level: number; degree: number; rowCount: number;
+}
+export interface LayoutEdge {
+  id: string; from: string; to: string; label: string;
+  required: boolean; inferred: boolean;
+}
+export interface Layout {
+  nodes: LayoutNode[]; edges: LayoutEdge[]; width: number; height: number;
+}
+
+export interface PublicQuestion {
+  id: string;
+  section: string;
+  kind: "mcq" | "cloze" | "short" | "sql";
+  gradeMode: "token" | "exec" | "choice";
+  generator: string;
+  prompt: string;
+  choices?: string[];
+  subjects: string[];
+  templated?: boolean;
+}
+
+export interface GradeResult {
+  questionId: string;
+  correct: boolean;
+  detail: string;
+}
+
+export interface AnswerOutcome {
+  result: GradeResult;
+  modelAnswer: string;
+  rationale: string;
+  done: boolean;
+}
+
+export interface QuizState {
+  session: {
+    id: string; repoId: string; total: number; index: number;
+    correct: number; results: GradeResult[];
+  };
+  questions: PublicQuestion[];
+  weakAreas: Array<{ subject: string; missed: number }>;
+}
+
+export interface EntityProperty {
+  name: string; type: string; nullable: boolean; isPrimaryKey: boolean;
+  isForeignKey: boolean; isNavigation: boolean; isCollection: boolean;
+}
+export interface Entity {
+  name: string; file: string; tableName: string; dbSetName: string | null;
+  keys: string[]; properties: EntityProperty[];
+}
+export interface Relation {
+  id: string; principal: string; dependent: string;
+  foreignKeyProperty: string | null; cardinality: string; required: boolean;
+  deleteBehavior: string; deleteBehaviorSource: string; source: string;
+}
+export interface EntityGraph {
+  repo: string; contextName: string | null;
+  entities: Entity[]; relations: Relation[]; warnings: string[];
+}
+
+class ApiError extends Error {}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+  });
+  const text = await res.text();
+  let body: unknown = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = text;
+  }
+  if (!res.ok) {
+    const message =
+      body && typeof body === "object" && "error" in body
+        ? String((body as { error: unknown }).error)
+        : `Request failed (${res.status})`;
+    throw new ApiError(message);
+  }
+  return body as T;
+}
+
+export const api = {
+  health: () => call<{ ok: boolean; repos: number }>("/api/health"),
+
+  listRepos: () => call<{ repos: RepoSummary[] }>("/api/repos"),
+
+  openRepo: (path: string, opts: { seed?: number; rows?: number } = {}) =>
+    call<{ repo: RepoSummary }>("/api/repos", {
+      method: "POST",
+      body: JSON.stringify({ path, ...opts }),
+    }),
+
+  closeRepo: (id: string) =>
+    call<{ closed: boolean }>(`/api/repos/${id}`, { method: "DELETE" }),
+
+  graph: (id: string) => call<{ graph: EntityGraph }>(`/api/repos/${id}/graph`),
+
+  layout: (id: string) => call<{ layout: Layout }>(`/api/repos/${id}/layout`),
+
+  questions: (id: string) =>
+    call<{
+      total: number;
+      byGenerator: Record<string, number>;
+      byKind: Record<string, number>;
+      subjects: string[];
+    }>(`/api/repos/${id}/questions`),
+
+  selftest: (id: string) =>
+    call<{ ok: boolean; findings: Array<{ questionId: string; generator: string; problem: string }> }>(
+      `/api/repos/${id}/selftest`,
+    ),
+
+  startQuiz: (id: string, n: number, seed?: number) =>
+    call<{ session: { id: string; total: number }; questions: PublicQuestion[] }>(
+      `/api/repos/${id}/quiz`,
+      { method: "POST", body: JSON.stringify({ n, seed }) },
+    ),
+
+  quizState: (sessionId: string) => call<QuizState>(`/api/quiz/${sessionId}`),
+
+  answer: (sessionId: string, questionId: string, answer: string) =>
+    call<AnswerOutcome>(`/api/quiz/${sessionId}/answer`, {
+      method: "POST",
+      body: JSON.stringify({ questionId, answer }),
+    }),
+};

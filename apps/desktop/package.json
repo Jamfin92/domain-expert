@@ -1,0 +1,24 @@
+{
+  "name": "@psq/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.cjs",
+  "scripts": {
+    "start": "node build.mjs && electron .",
+    "build": "node build.mjs",
+    "dev:web": "pnpm --filter @psq/web dev",
+    "build:web": "pnpm --filter @psq/web build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@psq/server": "workspace:*",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "electron": "^43.4.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  },
+  "type": "module"
+}

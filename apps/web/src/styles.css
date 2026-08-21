@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* Tailwind v4 has no config file. `dark` is a class the ThemeProvider toggles
+   on <html>, so an explicit choice always wins over the OS preference. */
+@custom-variant dark (&:is(.dark *));
+
+/* Light is the base. Every token is defined here, so no colour exists only
+   inside a dark block. */
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.995 0 0);
+  --foreground: oklch(0.21 0.03 258);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.03 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.03 258);
+  --primary: oklch(0.53 0.19 263);
+  --primary-foreground: oklch(0.99 0.01 260);
+  --secondary: oklch(0.968 0.007 248);
+  --secondary-foreground: oklch(0.28 0.04 260);
+  --muted: oklch(0.968 0.007 248);
+  --muted-foreground: oklch(0.55 0.02 257);
+  --accent: oklch(0.968 0.007 248);
+  --accent-foreground: oklch(0.28 0.04 260);
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.99 0.01 260);
+  --success: oklch(0.6 0.15 155);
+  --success-foreground: oklch(0.99 0.01 160);
+  --warning: oklch(0.72 0.16 70);
+  --border: oklch(0.925 0.008 248);
+  --input: oklch(0.925 0.008 248);
+  --ring: oklch(0.53 0.19 263);
+
+  /* Diagram-specific tokens, so the SVG never hardcodes a colour. */
+  --graph-node: oklch(1 0 0);
+  --graph-node-border: oklch(0.9 0.01 250);
+  --graph-edge: oklch(0.72 0.02 255);
+  --graph-edge-inferred: oklch(0.82 0.02 255);
+  --graph-hub: oklch(0.53 0.19 263);
+}
+
+.dark {
+  --background: oklch(0.17 0.02 260);
+  --foreground: oklch(0.96 0.005 250);
+  --card: oklch(0.21 0.025 260);
+  --card-foreground: oklch(0.96 0.005 250);
+  --popover: oklch(0.21 0.025 260);
+  --popover-foreground: oklch(0.96 0.005 250);
+  --primary: oklch(0.7 0.16 262);
+  --primary-foreground: oklch(0.18 0.03 262);
+  --secondary: oklch(0.27 0.028 260);
+  --secondary-foreground: oklch(0.96 0.005 250);
+  --muted: oklch(0.27 0.028 260);
+  --muted-foreground: oklch(0.71 0.02 256);
+  --accent: oklch(0.3 0.03 260);
+  --accent-foreground: oklch(0.96 0.005 250);
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0.01 20);
+  --success: oklch(0.7 0.15 158);
+  --success-foreground: oklch(0.16 0.03 160);
+  --warning: oklch(0.78 0.15 75);
+  --border: oklch(0.3 0.03 260);
+  --input: oklch(0.32 0.03 260);
+  --ring: oklch(0.7 0.16 262);
+
+  --graph-node: oklch(0.24 0.028 260);
+  --graph-node-border: oklch(0.34 0.03 260);
+  --graph-edge: oklch(0.5 0.03 258);
+  --graph-edge-inferred: oklch(0.38 0.025 258);
+  --graph-hub: oklch(0.7 0.16 262);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04";
+  }
+}

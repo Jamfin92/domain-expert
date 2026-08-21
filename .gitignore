@@ -3,3 +3,5 @@ dist/
 runs/
 *.tsbuildinfo
 .DS_Store
+apps/web/dist/
+apps/desktop/dist/
