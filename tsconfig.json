@@ -7,9 +7,10 @@
     "test/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
     "**/dist",
+    "apps/desktop",
     "apps/web",
-    "apps/desktop"
+    "e2e",
+    "node_modules"
   ]
 }

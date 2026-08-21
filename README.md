@@ -214,8 +214,9 @@ The command exits non-zero on any finding.
 ## Development
 
 ```bash
-pnpm typecheck   # root, web and desktop
-pnpm test        # vitest, hermetic
+pnpm typecheck   # root, e2e, web and desktop
+pnpm test        # vitest, hermetic, no browser
+pnpm test:e2e    # builds the web bundle, then drives a real browser
 pnpm build       # typecheck, then the web and desktop bundles
 ```
 
@@ -245,7 +246,22 @@ apps/desktop        Electron main and preload
 test/fixtures       self-contained EF project
 ```
 
-The web UI has no automated tests yet. It is typechecked, built, and verified
-by rendering it headlessly against a real repo. The API beneath it has 17.
+### End-to-end
+
+`pnpm test:e2e` runs the real API, the real bundle and a real browser against
+the fixture in this repo. It covers what unit tests structurally cannot: that
+the diagram draws unclipped, that clicking an entity selects it, that the theme
+actually changes and survives a reload, and that a question's answer never
+reaches the page before it is submitted.
+
+It finds a Chromium wherever one exists — a Playwright cache, or a system
+install — and **skips cleanly when there is none**, the same contract the
+corpus tests use. Point `PSQ_E2E_BROWSER` at a binary to override.
+
+The suite caught a real bug on its first run: calling `setPointerCapture` on
+pointerdown retargets the derived click to the capturing element, so clicking
+an entity was delivered to the `<svg>` and selection never happened. The
+diagram now captures the pointer only once movement passes a threshold, which
+keeps drag-to-pan working and lets a click be a click.
 
 Packages export `./src/index.ts` directly. There is no build step.

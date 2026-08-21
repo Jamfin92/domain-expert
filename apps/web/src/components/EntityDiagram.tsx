@@ -20,6 +20,8 @@ interface Props {
 }
 
 const MIN_SCALE = 0.25;
+/** Pointer travel, in pixels, before a press becomes a pan rather than a click. */
+const DRAG_THRESHOLD = 4;
 const MAX_SCALE = 2.5;
 
 /** Where an edge should leave a box, given the box it is heading to. */
@@ -47,6 +49,8 @@ export function EntityDiagram({ layout, selected, onSelect }: Props): React.Reac
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragging = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  /** True once movement has passed the threshold and this is a pan, not a click. */
+  const panning = useRef(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   /** Once you have moved the view, an idle resize must not yank it back. */
@@ -107,9 +111,11 @@ export function EntityDiagram({ layout, selected, onSelect }: Props): React.Reac
   const onPointerDown = useCallback(
     (ev: React.PointerEvent<SVGSVGElement>) => {
       if (ev.button !== 0) return;
-      touched.current = true;
+      // Do NOT capture the pointer yet. Capturing on pointerdown retargets the
+      // derived click to the capturing element, so a click on an entity is
+      // delivered to the <svg> instead of the node and selection never
+      // happens. Capture only once this turns out to be a drag.
       dragging.current = { x: ev.clientX, y: ev.clientY, panX: pan.x, panY: pan.y };
-      svgRef.current?.setPointerCapture(ev.pointerId);
     },
     [pan],
   );
@@ -117,12 +123,26 @@ export function EntityDiagram({ layout, selected, onSelect }: Props): React.Reac
   const onPointerMove = useCallback((ev: React.PointerEvent<SVGSVGElement>) => {
     const d = dragging.current;
     if (!d) return;
-    setPan({ x: d.panX + (ev.clientX - d.x), y: d.panY + (ev.clientY - d.y) });
+    const dx = ev.clientX - d.x;
+    const dy = ev.clientY - d.y;
+    if (!panning.current) {
+      // A few pixels of slop, so a slightly imprecise click is still a click.
+      if (Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
+      panning.current = true;
+      touched.current = true;
+      svgRef.current?.setPointerCapture(ev.pointerId);
+    }
+    setPan({ x: d.panX + dx, y: d.panY + dy });
   }, []);
 
   const endDrag = useCallback((ev: React.PointerEvent<SVGSVGElement>) => {
     dragging.current = null;
-    svgRef.current?.releasePointerCapture(ev.pointerId);
+    if (panning.current) {
+      panning.current = false;
+      if (svgRef.current?.hasPointerCapture(ev.pointerId) === true) {
+        svgRef.current.releasePointerCapture(ev.pointerId);
+      }
+    }
   }, []);
 
   const reset = useCallback(() => {
@@ -134,6 +154,9 @@ export function EntityDiagram({ layout, selected, onSelect }: Props): React.Reac
     <div ref={boxRef} className="relative h-full w-full overflow-hidden rounded-lg bg-background">
       <svg
         ref={svgRef}
+        /* Named so a test can find the diagram rather than the first <svg> on
+           the page, which is a lucide icon in the header. */
+        data-psq="diagram"
         className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
         onWheel={onWheel}
         onPointerDown={onPointerDown}
@@ -141,7 +164,8 @@ export function EntityDiagram({ layout, selected, onSelect }: Props): React.Reac
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onClick={(e) => {
-          if (e.target === svgRef.current) onSelect(null);
+          // Clicking empty canvas clears the selection; finishing a pan does not.
+          if (e.target === svgRef.current && !panning.current) onSelect(null);
         }}
       >
         <defs>
@@ -200,6 +224,8 @@ export function EntityDiagram({ layout, selected, onSelect }: Props): React.Reac
             return (
               <g
                 key={n.name}
+                data-psq="node"
+                data-entity={n.name}
                 transform={`translate(${n.x}, ${n.y})`}
                 opacity={dim ? 0.2 : 1}
                 className="cursor-pointer"
