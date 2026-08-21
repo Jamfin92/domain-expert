@@ -1,0 +1,11 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+# vitest and tsx both pull esbuild, whose postinstall fetches a native binary.
+# pnpm blocks unapproved build scripts and then exits 1 from the implicit deps
+# check that runs before EVERY script, so without this `build`, `typecheck` and
+# `test` all fail identically for a reason unrelated to the code.
+# Same fix as corpus-repo-e/pnpm-workspace.yaml.
+allowBuilds:
+  esbuild: true

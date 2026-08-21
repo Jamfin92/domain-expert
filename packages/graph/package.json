@@ -1,0 +1,18 @@
+{
+  "name": "@psq/graph",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ../../tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@psq/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@psq/extract": "workspace:*"
+  }
+}

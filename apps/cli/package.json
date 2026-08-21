@@ -1,0 +1,15 @@
+{
+  "name": "@psq/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "psq": "./src/index.ts"
+  },
+  "dependencies": {
+    "@psq/schema": "workspace:*",
+    "@psq/extract": "workspace:*",
+    "@psq/graph": "workspace:*",
+    "@psq/quiz": "workspace:*"
+  }
+}
