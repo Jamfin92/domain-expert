@@ -1,3 +1,4 @@
+export { layout, type Layout, type LayoutNode, type LayoutEdge } from "./layout.js";
 import type { EntityGraph, Relation } from "@psq/schema";
 
 /**
