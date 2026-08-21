@@ -1,0 +1,14 @@
+{
+  "name": "@psq/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/app.ts" },
+  "dependencies": {
+    "@psq/schema": "workspace:*",
+    "@psq/extract": "workspace:*",
+    "@psq/graph": "workspace:*",
+    "@psq/quiz": "workspace:*",
+    "express": "^5.1.0"
+  }
+}
