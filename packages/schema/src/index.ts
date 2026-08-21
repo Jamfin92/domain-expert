@@ -151,6 +151,12 @@ export const Question = z.object({
   aliases: z.array(z.array(z.string())).optional(),
   /** Reference query for gradeMode "exec". */
   referenceSql: z.string().optional(),
+  /**
+   * SQL with `____` placeholders. When present, the answers are substituted
+   * into it to build the candidate query; when absent, the whole response is
+   * treated as the query.
+   */
+  sqlTemplate: z.string().optional(),
   /** Entities/components this question depends on — drives weak-area rollups. */
   subjects: z.array(z.string()),
   /** Human-readable justification pointing at the source fact. */

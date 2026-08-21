@@ -1,5 +1,6 @@
 import type { Question } from "@psq/schema";
-import { grade, referenceAnswer } from "./grade.js";
+import type { DatabaseSync } from "node:sqlite";
+import { grade, referenceAnswer, type GradeContext } from "./grade.js";
 import { normalize } from "./normalize.js";
 
 /**
@@ -18,24 +19,53 @@ export interface SelftestFinding {
   problem: string;
 }
 
+/** Perturb one value so it is definitely wrong but still well-formed. */
+function perturb(value: string): string {
+  const n = Number(value);
+  if (Number.isFinite(n) && value.trim() !== "") {
+    // Move a numeric bound far outside the data. Suffixing it would produce a
+    // syntax error, which tests the parser rather than the comparison.
+    return String(n * 10 + 7);
+  }
+  return `${value}_psq_wrong`;
+}
+
 /**
- * A wrong-but-plausible answer for a question.
- * Returns null when no mutation exists, which is itself reported.
+ * Wrong-but-plausible answers, one per blank.
+ *
+ * Mutating only the first blank hides a real defect: a question can have a
+ * second blank that no answer could ever get wrong. `WHERE gpa >= 3.7 AND
+ * gpa < 4.01` against data capped at 4.0 accepts any upper bound above 4.0,
+ * so that blank measures nothing. Every blank must be independently
+ * detectable or the question is overstating what it tests.
  */
-function mutate(q: Question): string | null {
+function mutate(q: Question): string[] {
   if (q.gradeMode === "choice") {
     const choices = q.choices ?? [];
     const idx = q.answerIndex ?? -1;
     const other = choices.findIndex((_, i) => i !== idx);
-    return other === -1 ? null : String(other + 1);
+    return other === -1 ? [] : [String(other + 1)];
   }
+
+  // A free-form SQL question has no blanks. Narrow the reference query
+  // instead, which changes the result set without changing its shape.
+  if (q.gradeMode === "exec" && !q.sqlTemplate) {
+    const sql = q.referenceSql;
+    if (!sql) return [];
+    // Appending a second LIMIT would be a syntax error, which would "fail"
+    // for the wrong reason and prove nothing about the grader.
+    if (/\blimit\b/i.test(sql)) return [];
+    return [`${sql} LIMIT 1`];
+  }
+
   const answers = q.answers ?? [];
-  if (answers.length === 0) return null;
-  // Perturb the first blank only, so the rest stay valid and the failure is
-  // attributable to the mutation rather than to a shape mismatch.
-  const mutated = [...answers];
-  mutated[0] = `${answers[0]}_psq_wrong`;
-  return mutated.join(", ");
+  if (answers.length === 0) return [];
+
+  return answers.map((_, i) => {
+    const mutated = [...answers];
+    mutated[i] = perturb(answers[i]!);
+    return mutated.join(", ");
+  });
 }
 
 /** Structural checks that do not need the grader. */
@@ -64,7 +94,16 @@ function shapeProblems(q: Question): string[] {
     if (!q.prompt.includes("____")) out.push("token question has no ____ blank marker");
   }
 
-  if (q.gradeMode === "exec" && !q.referenceSql) out.push("exec question has no reference query");
+  if (q.gradeMode === "exec") {
+    if (!q.referenceSql) out.push("exec question has no reference query");
+    if (q.sqlTemplate) {
+      const blanks = (q.sqlTemplate.match(/____/g) ?? []).length;
+      const answers = (q.answers ?? []).length;
+      if (blanks !== answers) {
+        out.push(`template has ${blanks} blank(s) but ${answers} answer(s)`);
+      }
+    }
+  }
   return out;
 }
 
@@ -72,7 +111,10 @@ function shapeProblems(q: Question): string[] {
  * Validate a question set. An empty result means every question is both
  * answerable and failable.
  */
-export function selftest(questions: Question[]): SelftestFinding[] {
+export function selftest(
+  questions: Question[],
+  ctx: GradeContext = {},
+): SelftestFinding[] {
   const findings: SelftestFinding[] = [];
   const seenIds = new Set<string>();
 
@@ -113,22 +155,34 @@ export function selftest(questions: Question[]): SelftestFinding[] {
 
     for (const p of shapeProblems(q)) add(p);
 
-    // exec grading arrives in M2; skip its two-sided check until then.
-    if (q.gradeMode === "exec") continue;
+    if (q.gradeMode === "exec" && !ctx.db) {
+      add("exec question cannot be validated without a seeded database");
+      continue;
+    }
 
-    const positive = grade(q, referenceAnswer(q));
+    // For a free-form SQL question the reference query IS the model answer.
+    const modelAnswer =
+      q.gradeMode === "exec" && !q.sqlTemplate ? (q.referenceSql ?? "") : referenceAnswer(q);
+
+    const positive = grade(q, modelAnswer, ctx);
     if (!positive.correct) {
       add(`reference answer is graded wrong (${positive.detail})`);
     }
 
-    const wrong = mutate(q);
-    if (wrong === null) {
+    const wrongs = mutate(q);
+    if (wrongs.length === 0) {
       add("no mutation exists, so the question can never be failed");
       continue;
     }
-    const negative = grade(q, wrong);
-    if (negative.correct) {
-      add(`mutated answer "${wrong}" is graded correct, so the question always passes`);
+    for (const [i, wrong] of wrongs.entries()) {
+      const negative = grade(q, wrong, ctx);
+      if (negative.correct) {
+        const where = wrongs.length > 1 ? `blank ${i + 1}` : "the answer";
+        add(
+          `${where} cannot be got wrong: "${wrong}" is graded correct, ` +
+            "so that part of the question measures nothing",
+        );
+      }
     }
   }
 

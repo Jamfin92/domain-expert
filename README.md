@@ -28,8 +28,8 @@ answer is right. A model that both writes and grades measures nothing.
 | Milestone | State |
 |---|---|
 | M1 — entity graphs, multiple choice | done |
-| M2 — short answer, cloze, SQL over a seeded database | next |
-| M3 — web app: bento dashboard, interactive graph | planned |
+| M2 — short answer, cloze, SQL over a seeded database | done |
+| M3 — server, web UI, Electron shell | next |
 | M4 — Node backends, data structures | planned |
 | M5 — React clients, cross-layer links | planned |
 | M6 — agent-authored questions, STE checks | planned |
@@ -62,8 +62,50 @@ pnpm psq selftest --repo <path>
 pnpm psq quiz --repo <path> --n 10
 ```
 
-Add `--seed <n>` to fix the generator seed. The same repo and seed always give
-the same questions in the same order.
+Add `--seed <n>` to fix the generator seed and `--rows <n>` to change how many
+rows are seeded. The same repo and seed always give the same questions in the
+same order, and the same database down to the byte.
+
+## SQL questions
+
+A schema alone cannot answer "which students have a B+ GPA". That needs rows.
+
+So psq builds a SQLite database from the extracted schema, seeds it with a
+fixed seed, and grades by **running** your query beside its own and comparing
+result sets. Your real database is never touched.
+
+```
+Return the Name of every Student whose Gpa is a B+ (at least 3.3 and below 3.7).
+Give the two bounds, separated by a comma.
+
+    SELECT "Name" FROM "Students"
+    WHERE "Gpa" >= ____ AND "Gpa" < ____
+    ORDER BY "Name"
+
+> 3.3, 3.7
+correct — 6 row(s) match
+```
+
+Because it compares results and not text, a differently written query still
+passes. Different aliases, different whitespace, a different join order: all
+correct if the rows match. Row order is ignored unless the reference query has
+an `ORDER BY`, and column names are ignored entirely.
+
+### The grader runs your SQL, so it is sandboxed
+
+Locally the blast radius is one throwaway database. Hosted, it would be the
+only component that runs user input at all, so it is locked down now rather
+than later. A graded query must be a **single SELECT or WITH**. That is a
+positive allowlist, not a blacklist of dangerous words, so `ATTACH`, `PRAGMA`,
+`INSERT` and `DROP` are all refused at the door.
+
+Two behaviors of `node:sqlite` on Node 24 shaped this, both measured:
+
+- `ATTACH` is allowed even on a read-only connection. Without the allowlist, a
+  query could read any other SQLite file on the machine.
+- `prepare("SELECT 1; DROP TABLE t")` succeeds but silently runs only the first
+  statement. Safe, but it would hide half of what you typed, so psq refuses
+  multiple statements instead of quietly ignoring them.
 
 ## What it reads
 
@@ -81,7 +123,7 @@ Measured against `corpus-repo-a`:
 | Entities | 17 |
 | Relations | 20 |
 | Warnings | 0 |
-| Questions generated | 102 across 10 generators |
+| Questions generated | 191 across 18 generators |
 
 Both numbers match `Migrations/AppDbContextModelSnapshot.cs`, which EF
 generates and psq never writes. The snapshot declares 17 domain entities and

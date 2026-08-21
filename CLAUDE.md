@@ -41,13 +41,23 @@ question about one.
 and with a mutation, which must fail. Run it before trusting a bank. A
 generator whose questions cannot be failed is broken, not hard.
 
-## 6. Determinism is a feature
+## 6. A graded query may only read
+
+The SQL grader executes user input. It accepts a single `SELECT` or `WITH` and
+nothing else — a positive allowlist, never a blacklist of dangerous keywords.
+`node:sqlite` allows `ATTACH` even read-only, and silently runs only the first
+of several statements, so neither can be relied on to stop anything.
+
+This holds even though psq runs locally today. The moment it is hosted, this is
+the only component that runs anything a user typed.
+
+## 7. Determinism is a feature
 
 Same repo, same seed, same questions in the same order. Use the seeded `rng`
 from `@psq/quiz`. Never call `Math.random`. A quiz that cannot be reproduced
 cannot be argued with.
 
-## 7. Target repos are read-only
+## 8. Target repos are read-only
 
 Extraction never writes into a project it reads. `.psq/` is written only on an
 explicit `psq export`.

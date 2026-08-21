@@ -1,5 +1,18 @@
+import type { DatabaseSync } from "node:sqlite";
 import type { GradeResult, Question } from "@psq/schema";
 import { matches, normalize } from "./normalize.js";
+import { runQuery, resultsMatch } from "./sql/sandbox.js";
+
+/** Extra inputs some grade modes need. `exec` needs a seeded database. */
+export interface GradeContext {
+  db?: DatabaseSync;
+}
+
+/** Substitute answers into a `____` template, in order. */
+export function fillTemplate(template: string, values: string[]): string {
+  let i = 0;
+  return template.replace(/____/g, () => values[i++] ?? "");
+}
 
 /**
  * Deterministic grading. No model is consulted, ever.
@@ -23,7 +36,7 @@ export function referenceAnswer(q: Question): string {
  * `given` is the raw text for token questions, or the selected option — either
  * its index as a string, or the option text — for choice questions.
  */
-export function grade(q: Question, given: string): GradeResult {
+export function grade(q: Question, given: string, ctx: GradeContext = {}): GradeResult {
   switch (q.gradeMode) {
     case "choice": {
       const choices = q.choices ?? [];
@@ -72,13 +85,42 @@ export function grade(q: Question, given: string): GradeResult {
       return { questionId: q.id, correct: true, detail: "all blanks match" };
     }
 
-    case "exec":
-      // Implemented in M2 alongside schema materialization and seeding.
-      return {
-        questionId: q.id,
-        correct: false,
-        detail: "exec grading is not available yet",
-      };
+    case "exec": {
+      const db = ctx.db;
+      if (!db) {
+        return { questionId: q.id, correct: false, detail: "no database was supplied" };
+      }
+      if (!q.referenceSql) {
+        return { questionId: q.id, correct: false, detail: "question has no reference query" };
+      }
+
+      // A templated question fills blanks; a free question is the whole query.
+      const candidateSql = q.sqlTemplate
+        ? fillTemplate(q.sqlTemplate, given.split(",").map((s) => s.trim()))
+        : given;
+
+      const candidate = runQuery(db, candidateSql);
+      if (!candidate.ok) {
+        return {
+          questionId: q.id,
+          correct: false,
+          detail: candidate.rejected ? `refused: ${candidate.error}` : `query failed: ${candidate.error}`,
+        };
+      }
+
+      const reference = runQuery(db, q.referenceSql);
+      if (!reference.ok) {
+        // The reference is psq's own; if it cannot run, that is a generator bug.
+        return {
+          questionId: q.id,
+          correct: false,
+          detail: `reference query failed: ${reference.error}`,
+        };
+      }
+
+      const cmp = resultsMatch(reference, candidate, q.referenceSql);
+      return { questionId: q.id, correct: cmp.same, detail: cmp.detail };
+    }
 
     default: {
       const never: never = q.gradeMode;

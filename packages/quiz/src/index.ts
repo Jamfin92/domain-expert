@@ -1,6 +1,10 @@
 export { generateEntityMcq } from "./generate/entity-mcq.js";
+export { generateEntityCloze } from "./generate/entity-cloze.js";
+export { generateEntitySql } from "./generate/entity-sql.js";
+export { materialize, ddlFor, type SeededDb, type SeedOptions } from "./sql/seed.js";
+export { runQuery, refuse, resultsMatch, MAX_ROWS } from "./sql/sandbox.js";
 export { selectQuiz } from "./select.js";
-export { grade, referenceAnswer } from "./grade.js";
+export { grade, referenceAnswer, fillTemplate, type GradeContext } from "./grade.js";
 export { selftest, type SelftestFinding } from "./selftest.js";
 export { normalize, entityAliases, plural, singular, matches } from "./normalize.js";
 export { rng, hashSeed, type Rng } from "./rng.js";

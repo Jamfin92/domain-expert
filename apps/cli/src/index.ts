@@ -4,7 +4,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { extractDotnet } from "@psq/extract";
 import { invariants, mermaid, degrees, orphans } from "@psq/graph";
-import { generateEntityMcq, grade, referenceAnswer, selectQuiz, selftest } from "@psq/quiz";
+import {
+  generateEntityMcq, generateEntityCloze, generateEntitySql,
+  grade, referenceAnswer, selectQuiz, selftest, materialize,
+  type SeededDb,
+} from "@psq/quiz";
 import { hashSeed } from "@psq/quiz";
 import type { EntityGraph, Question } from "@psq/schema";
 
@@ -57,6 +61,24 @@ function seedArg(): number | undefined {
   return s === undefined ? undefined : Number(s);
 }
 
+/**
+ * The full bank: multiple choice and fill-in-the-blank from the graph alone,
+ * plus SQL questions that need a seeded database. The database is returned so
+ * the caller can grade against it and then close it.
+ */
+function buildBank(g: EntityGraph, seed: number | undefined): {
+  questions: Question[];
+  seeded: SeededDb;
+} {
+  const seeded = materialize(g, { seed: seed ?? 1337, rows: Number(flag("rows", "40")) });
+  const questions = [
+    ...generateEntityMcq(g, seed),
+    ...generateEntityCloze(g, seed),
+    ...generateEntitySql(g, seeded, seed),
+  ];
+  return { questions, seeded };
+}
+
 async function main(): Promise<void> {
   switch (cmd) {
     case "graph": {
@@ -85,7 +107,18 @@ async function main(): Promise<void> {
 
     case "questions": {
       const g = buildGraph(repoArg());
-      const qs = generateEntityMcq(g, seedArg());
+      const { questions: qs, seeded } = buildBank(g, seedArg());
+      if (seeded.warnings.length > 0) {
+        console.log(`${YELLOW}seeding warnings:${OFF}`);
+        for (const w of seeded.warnings) console.log(`  - ${w}`);
+      }
+      const byKind = new Map<string, number>();
+      for (const q of qs) byKind.set(q.kind, (byKind.get(q.kind) ?? 0) + 1);
+      console.log(
+        `${DIM}seeded ${[...seeded.rowCounts.values()].reduce((a, b) => a + b, 0)} rows ` +
+        `across ${seeded.rowCounts.size} tables${OFF}`,
+      );
+      console.log(`${DIM}by kind: ${[...byKind].map(([k, n]) => `${k}=${n}`).join("  ")}${OFF}`);
       const byGen = new Map<string, number>();
       for (const q of qs) byGen.set(q.generator, (byGen.get(q.generator) ?? 0) + 1);
       console.log(`${BOLD}${qs.length} questions${OFF} across ${byGen.size} generators`);
@@ -93,14 +126,19 @@ async function main(): Promise<void> {
         console.log(`  ${gen.padEnd(24)} ${n}`);
       }
       const out = flag("out");
-      if (out) writeOut(`${out}/questions/entity.json`, JSON.stringify(qs, null, 2));
+      if (out) {
+        writeOut(`${out}/questions/entity.json`, JSON.stringify(qs, null, 2));
+        writeOut(`${out}/schema.sql`, seeded.ddl);
+      }
+      seeded.close();
       return;
     }
 
     case "selftest": {
       const g = buildGraph(repoArg());
-      const qs = generateEntityMcq(g, seedArg());
-      const findings = selftest(qs);
+      const { questions: qs, seeded } = buildBank(g, seedArg());
+      const findings = selftest(qs, { db: seeded.db });
+      seeded.close();
       if (findings.length === 0) {
         console.log(
           `${GREEN}selftest ok${OFF} — ${qs.length} questions, ` +
@@ -122,9 +160,13 @@ async function main(): Promise<void> {
     case "quiz": {
       const g = buildGraph(repoArg());
       const seed = seedArg();
-      const all = generateEntityMcq(g, seed);
+      const { questions: all, seeded } = buildBank(g, seed);
       const n = Number(flag("n", "10"));
-      await runQuiz(selectQuiz(all, n, seed ?? hashSeed(g.repo)));
+      try {
+        await runQuiz(selectQuiz(all, n, seed ?? hashSeed(g.repo)), { db: seeded.db });
+      } finally {
+        seeded.close();
+      }
       return;
     }
 
@@ -139,12 +181,16 @@ async function main(): Promise<void> {
 
 Options
   --seed <n>   fix the generator seed (default: derived from the repo path)
+  --rows <n>   rows to seed per table (default: 40)
+
+SQL questions are graded by running your query against a database psq builds
+from the schema and seeds deterministically. Nothing touches the real one.
 `);
       if (cmd !== "help") process.exit(2);
   }
 }
 
-async function runQuiz(qs: Question[]): Promise<void> {
+async function runQuiz(qs: Question[], ctx: { db?: import("node:sqlite").DatabaseSync } = {}): Promise<void> {
   if (qs.length === 0) {
     console.log("no questions were generated for this repo");
     return;
@@ -165,6 +211,9 @@ async function runQuiz(qs: Question[]): Promise<void> {
     for (const [j, c] of (q.choices ?? []).entries()) {
       console.log(`  ${String.fromCharCode(97 + j)}) ${c}`);
     }
+    if (q.kind === "sql" && !q.sqlTemplate) {
+      console.log(`${DIM}(write the whole query)${OFF}`);
+    }
     process.stdout.write("> ");
     const line = await lines.next();
     if (line.done === true) {
@@ -173,13 +222,17 @@ async function runQuiz(qs: Question[]): Promise<void> {
     }
     const given = line.value;
     console.log(given);
-    const result = grade(q, given);
+    const result = grade(q, given, ctx);
     if (result.correct) {
       correct++;
       console.log(`${GREEN}correct${OFF}`);
     } else {
       missed.push(q);
-      console.log(`${RED}wrong${OFF} — ${referenceAnswer(q)}`);
+      const model = q.gradeMode === "exec" && !q.sqlTemplate
+        ? (q.referenceSql ?? "")
+        : referenceAnswer(q);
+      console.log(`${RED}wrong${OFF} — ${model}`);
+      console.log(`${DIM}${result.detail}${OFF}`);
       console.log(`${DIM}${q.rationale}${OFF}`);
     }
   }
