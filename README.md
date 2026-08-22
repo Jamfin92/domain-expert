@@ -14,7 +14,7 @@ you actually know when something asks you and checks the answer.
 psq does two jobs from one extraction:
 
 - **You** get an entity graph, a diagram, and a graded quiz.
-- **An agent** gets the same graph as JSON it can index, plus a domain brief.
+- **An agent** gets the same graph as JSON it can index — and, once M7's export lands, a domain brief.
 
 One design rule shapes everything here:
 
@@ -33,8 +33,8 @@ answer is right. A model that both writes and grades measures nothing.
 | M4 — Node backends, data structures | done |
 | M5 — React clients, table↔route↔component links | planned |
 | M6 — agent-authored prose, STE checks, grading stays deterministic | planned |
-| M7 — working memory export (`psq export`) | planned |
-| M8 — 3D entity city, phases 1–2a (layout + renderer, not yet wired in) | done |
+| M7 — working memory export (`psq export`), domain brief | planned |
+| M8 — 3D city layout and renderer, not wired into the UI | done |
 | M9 — 3D entity city phase 2b: wire the city into the web UI, theme-derived colours | planned |
 
 ## Next

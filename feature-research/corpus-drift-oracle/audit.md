@@ -165,3 +165,28 @@ decision, per the plan.
 
 Verification: `pnpm exec vitest run` — 13 files, 193 tests, all pass. Working
 tree left uncommitted for review.
+
+### Follow-up edits (2026-08-22, second pass)
+
+Files changed: `README.md`, this file. Documentation only; no `.ts`/`.tsx`.
+
+- README Status table, M8 row: a reader skimming only the State column saw
+  "3D entity city — done" and concluded the city renders; the parenthetical
+  carried the whole correction. Retitled so `done` is true of exactly what the
+  row names (no third state word invented):
+  - before: `| M8 — 3D entity city, phases 1–2a (layout + renderer, not yet wired in) | done |`
+  - after:  `| M8 — 3D city layout and renderer, not wired into the UI | done |`
+  M9 untouched — it already covers the wiring as phase 2b.
+- README line 17, agent bullet: the domain brief does not exist yet; dated it
+  to M7 instead of presenting it as shipped:
+  - before: `- **An agent** gets the same graph as JSON it can index, plus a domain brief.`
+  - after:  `- **An agent** gets the same graph as JSON it can index — and, once M7's export lands, a domain brief.`
+- README Status table, M7 row: widened so the brief is tracked as part of the
+  M7 deliverable:
+  - before: `| M7 — working memory export (`psq export`) | planned |`
+  - after:  `| M7 — working memory export (`psq export`), domain brief | planned |`
+
+Verified: table still renders (every row exactly 3 pipes, `|---|---|` intact,
+states only lowercase `done`/`planned`); bullet list at lines 14–17 unbroken.
+`zsh -lic 'pnpm exec vitest run'` — 13 files, 193 tests, all pass. Not
+committed.
