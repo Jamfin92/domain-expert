@@ -19,7 +19,7 @@ existing `//`-at-column-0 style and two-space bullet indent:
 //     or on a line whose first non-space character is `*`, is skipped
 //     (`/* v2 */ CREATE TABLE foo`) -> no match; unlike the four above,
 //     this direction fails loudly (the table goes missing and the corpus
-//     assertion reddens) rather than hiding a regression -- do not "fix" it
+//     assertion reddens) rather than hiding a regression — do not "fix" it
 ```
 
 Self-contamination warning (lines 63-67, item 4's "one comment, not a rewrite"):
@@ -28,7 +28,7 @@ Self-contamination warning (lines 63-67, item 4's "one comment, not a rewrite"):
 //
 // This file's own prose contains `CREATE TABLE` tokens (the bullets above,
 // plus one unsuppressed token in an error message below that matches nothing
-// only because a backtick follows `TABLE` directly -- an accident, not a
+// only because a backtick follows `TABLE` directly — an accident, not a
 // guarantee). Never point the oracle at this file.
 ```
 
@@ -47,7 +47,7 @@ real regex before writing (a node one-liner reproduced each expected value):
 1. `misses a CREATE VIRTUAL TABLE entirely` — `CREATE VIRTUAL TABLE fts USING fts5(content)` -> `[]` (bullet 1).
 2. `captures the schema qualifier instead of the table name` — `CREATE TABLE main.foo (id)` -> `["main"]` (bullet 2).
 3. `truncates a quoted name at its first space` — `CREATE TABLE "my table" (id)` -> `["my"]` (bullet 3).
-4. `truncates a non-ASCII identifier at the first non-word character` — `CREATE TABLE café (id)` (written as the escape `caf\u00e9` in source) -> `["caf"]` (bullet 4).
+4. `truncates a non-ASCII identifier at the first non-word character` — `CREATE TABLE café (id)` (a literal `é` in source) -> `["caf"]` (bullet 4).
 5. `skips a real declaration that shares a line with a comment opener` — `/* v2 */ CREATE TABLE foo (id)` -> `[]` (the new fifth bullet; comment names the loud-failure direction explicitly).
 
 ## Item 3 (count floor)
@@ -84,14 +84,47 @@ correct progress.md"), no correction was needed and
   than column-aligned with the first three bullets, because the fifth bullet
   is multi-line prose (as bullet 4 already is) and padding it to the shared
   column was not possible without breaking the sentence.
-- Em-dash style: used `--` in the new comments to stay ASCII, matching the
-  arrows' plain-ASCII style; existing file uses no em-dashes to compare
-  against.
-- Non-ASCII test writes the identifier as the escape `caf\u00e9` in the string literal
-  rather than a raw `é`, so the file itself stays ASCII while the runtime
-  input is genuinely non-ASCII. Same behaviour, verified passing.
+- The self-contamination warning paragraph (`fixtures.ts:63-67`) is five
+  lines where plan item 4 said "one line near the silent-misses block". This
+  is a different paragraph from the fifth bullet covered by the first
+  deviation above (`fixtures.ts:58-62`). The extra length carries content the
+  plan's own prose required: naming the unsuppressed backtick token as an
+  accident rather than a guarantee.
 
 ## Open risks
 
 None known. Change is test-only; no source files, no `packages/extract/`
 files touched. Not committed — left in the working tree for review.
+
+## Follow-up pass (post-review, non-blocking items 1-3)
+
+Applied after the Ship verdict on commit 8be05a7; left uncommitted for
+re-review.
+
+- `test/oracle.test.ts:96` — the `\u00e9` escape replaced with a literal
+  `é`, restoring the file's own "obvious by eye" contract (lines 9-11).
+  Non-ASCII in `.ts` files is established repo practice, so the earlier
+  keep-it-ASCII rationale did not hold. Behaviour identical.
+- `test/fixtures.ts:62,66` — the two ` -- ` dashes in the newly added comment
+  prose replaced with ` — `, matching repo comment style and removing two
+  needless instances of a token the skip rule keys on. No `CREATE TABLE`
+  follows either dash on its line, so suppression semantics are unchanged;
+  the oracle self-scan below re-confirms it.
+- This audit — the two now-moot bullets (the `--`-for-ASCII rationale and
+  the `\u00e9`-escape rationale) deleted from "Deviations from the plan",
+  since after items 1 and 2 they described the working tree falsely; the
+  previously undeclared deviation added in their place: the
+  self-contamination warning paragraph at `fixtures.ts:63-67` is five lines
+  where plan item 4 said "one line" (its full reasoning is that entry, the
+  last in the deviation list — distinct from the first entry, which covers
+  the fifth bullet at `fixtures.ts:58-62`). The two quote blocks in the
+  `test/fixtures.ts` section updated to reproduce the file's em-dashes
+  verbatim.
+
+Re-verification (real runs):
+
+- `npx vitest run`: 198 passed (13 files) — unchanged.
+- `PSQ_NO_CORPUS=1 npx vitest run`: 143 passed / 55 skipped — unchanged.
+- `pnpm typecheck`: exit 0.
+- Oracle self-scan of the post-change `test/fixtures.ts` via
+  `tablesInDdlText(readFileSync(...))`: `[]`.

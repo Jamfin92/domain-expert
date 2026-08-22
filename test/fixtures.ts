@@ -59,11 +59,11 @@ export const CORPUS_DDL = {
 //     or on a line whose first non-space character is `*`, is skipped
 //     (`/* v2 */ CREATE TABLE foo`) -> no match; unlike the four above,
 //     this direction fails loudly (the table goes missing and the corpus
-//     assertion reddens) rather than hiding a regression -- do not "fix" it
+//     assertion reddens) rather than hiding a regression — do not "fix" it
 //
 // This file's own prose contains `CREATE TABLE` tokens (the bullets above,
 // plus one unsuppressed token in an error message below that matches nothing
-// only because a backtick follows `TABLE` directly -- an accident, not a
+// only because a backtick follows `TABLE` directly — an accident, not a
 // guarantee). Never point the oracle at this file.
 const CREATE_TABLE_NAME =
   /\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?/gi;

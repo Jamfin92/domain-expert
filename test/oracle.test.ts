@@ -93,7 +93,7 @@ describe("tablesInDdlText", () => {
 
   it("truncates a non-ASCII identifier at the first non-word character", () => {
     // Pins a documented-known-wrong capture (fixtures.ts silent-misses block).
-    expect(tablesInDdlText("CREATE TABLE caf\u00e9 (id)")).toEqual(["caf"]);
+    expect(tablesInDdlText("CREATE TABLE café (id)")).toEqual(["caf"]);
   });
 
   it("skips a real declaration that shares a line with a comment opener", () => {
