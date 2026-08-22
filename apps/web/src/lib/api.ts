@@ -30,9 +30,11 @@ export interface Layout {
   nodes: LayoutNode[]; edges: LayoutEdge[]; width: number; height: number;
 }
 
+export type Section = "entity" | "client" | "ds" | "agent-entities" | "agent-client" | "agent-ds";
+
 export interface PublicQuestion {
   id: string;
-  section: string;
+  section: Section;
   kind: "mcq" | "cloze" | "short" | "sql";
   gradeMode: "token" | "exec" | "choice";
   generator: string;
@@ -78,8 +80,31 @@ export interface Relation {
   deleteBehavior: string; deleteBehaviorSource: string; source: string;
 }
 export interface EntityGraph {
-  repo: string; contextName: string | null;
+  repo: string; provider: string; contextName: string | null;
   entities: Entity[]; relations: Relation[]; warnings: string[];
+}
+
+export interface ShapeField {
+  name: string; type: string; baseType: string;
+  optional: boolean; isCollection: boolean;
+}
+export interface Drift {
+  entityOnly: string[];
+  shapeOnly: string[];
+  /** Both spellings, because a table and its DTO rarely agree on casing. */
+  shared: Array<{ column: string; field: string }>;
+}
+export interface Shape {
+  name: string; file: string; module: string | null;
+  kind: "class" | "interface" | "type-alias" | "enum" | "zod";
+  fields: ShapeField[]; members: string[];
+  discriminator: string | null;
+  mirrors: string | null;
+  /** Present only when the shape is paired; null otherwise. */
+  drift: Drift | null;
+}
+export interface Route {
+  method: string; path: string; file: string; line: number;
 }
 
 class ApiError extends Error {}
@@ -129,18 +154,22 @@ export const api = {
       total: number;
       byGenerator: Record<string, number>;
       byKind: Record<string, number>;
+      bySection: Record<string, number>;
       subjects: string[];
     }>(`/api/repos/${id}/questions`),
+
+  shapes: (id: string) =>
+    call<{ shapes: Shape[]; routes: Route[] }>(`/api/repos/${id}/shapes`),
 
   selftest: (id: string) =>
     call<{ ok: boolean; findings: Array<{ questionId: string; generator: string; problem: string }> }>(
       `/api/repos/${id}/selftest`,
     ),
 
-  startQuiz: (id: string, n: number, seed?: number) =>
+  startQuiz: (id: string, n: number, opts: { seed?: number; sections?: Section[] } = {}) =>
     call<{ session: { id: string; total: number }; questions: PublicQuestion[] }>(
       `/api/repos/${id}/quiz`,
-      { method: "POST", body: JSON.stringify({ n, seed }) },
+      { method: "POST", body: JSON.stringify({ n, ...opts }) },
     ),
 
   quizState: (sessionId: string) => call<QuizState>(`/api/quiz/${sessionId}`),

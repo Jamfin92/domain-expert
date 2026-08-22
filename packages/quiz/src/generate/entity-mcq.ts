@@ -173,7 +173,8 @@ function deleteBehavior(ctx: Ctx): Question[] {
   for (const r of ctx.g.relations) {
     // Only ask when the repo actually wrote the rule. Convention-derived
     // behavior is a defensible default, not a fact the reader could have read.
-    if (r.deleteBehaviorSource !== "fluent") continue;
+    // Written down, either way: EF's fluent API or a raw DDL ON DELETE clause.
+    if (r.deleteBehaviorSource !== "fluent" && r.deleteBehaviorSource !== "declared") continue;
     const answer = explain[r.deleteBehavior]!;
     const q = mcq(ctx, {
       id: `entity.delete.${r.id}`,
@@ -264,6 +265,11 @@ function keyShape(ctx: Ctx): Question[] {
     if (q) out.push(q);
   }
 
+  const padding =
+    ctx.g.provider === "sqlite-ddl"
+      ? ["TEXT", "INTEGER", "REAL", "BLOB"]
+      : ["string", "long", "Guid", "int"];
+
   for (const e of ctx.g.entities) {
     const key = e.keys.length === 1 ? e.properties.find((p) => p.name === e.keys[0]) : undefined;
     if (!key) continue;
@@ -277,7 +283,9 @@ function keyShape(ctx: Ctx): Question[] {
       generator: "key-type",
       prompt: `What is the type of ${e.name}'s primary key ${key.name}?`,
       answer: key.type,
-      distractors: [...others, "string", "long", "Guid", "int"].filter((t) => t !== key.type),
+      // Padding is provider-shaped. Offering `Guid` beside `TEXT` in a raw-DDL
+      // graph tells the reader which option came from the schema.
+      distractors: [...others, ...padding].filter((t) => t !== key.type),
       subjects: [e.name],
       rationale: `${e.name}.${key.name} is declared ${key.type}.`,
     });

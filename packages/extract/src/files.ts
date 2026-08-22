@@ -42,3 +42,16 @@ export function walk(root: string, exts: string[], limit = 20000): string[] {
 export function repoRelative(root: string, file: string): string {
   return relative(root, file).split(sep).join("/");
 }
+
+/**
+ * Source that describes the repo, as opposed to source that exercises it.
+ *
+ * A test fixture's CREATE TABLE is not the repo's schema and its interfaces are
+ * not the repo's shapes, so reading them would report a project psq invented.
+ */
+export function isTestFile(repoRelativePath: string): boolean {
+  return (
+    /(^|\/)(test|tests|__tests__|fixtures|__fixtures__)\//.test(repoRelativePath) ||
+    /\.(test|spec)\.[cm]?[jt]sx?$/.test(repoRelativePath)
+  );
+}

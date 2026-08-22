@@ -1,6 +1,9 @@
+export { buildBank } from "./bank.js";
 export { generateEntityMcq } from "./generate/entity-mcq.js";
 export { generateEntityCloze } from "./generate/entity-cloze.js";
 export { generateEntitySql } from "./generate/entity-sql.js";
+export { generateDsMcq } from "./generate/ds-mcq.js";
+export { generateDsCloze } from "./generate/ds-cloze.js";
 export { materialize, ddlFor, type SeededDb, type SeedOptions } from "./sql/seed.js";
 export { runQuery, refuse, resultsMatch, MAX_ROWS } from "./sql/sandbox.js";
 export { selectQuiz } from "./select.js";

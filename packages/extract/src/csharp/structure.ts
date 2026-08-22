@@ -86,6 +86,68 @@ function matchBracket(tokens: Token[], open: number): number {
  * Read a type reference starting at `i`, consuming generic arguments, arrays,
  * nullable markers and dotted names. Returns the text and the next index.
  */
+/**
+ * The parameters of a primary constructor, as the properties they are.
+ *
+ * `record UserProfileDto(Guid Id, string? Phone, List<int> CountyIds)` declares
+ * three public members; C# just lets you write them on one line. A reader that
+ * skips the parameter list sees a record with no properties, which is how every
+ * DTO in a modern codebase becomes invisible.
+ */
+function parseParameters(tokens: Token[], open: number, close: number): PropertyDecl[] {
+  const out: PropertyDecl[] = [];
+  let i = open + 1;
+
+  while (i < close) {
+    // attributes on a parameter: [FromRoute] int id
+    while (tokens[i]?.text === "[") {
+      const end = matchBracket(tokens, i);
+      if (end === -1 || end >= close) return out;
+      i = end + 1;
+    }
+    // `params`, `ref`, `in`, `out` sit between the comma and the type
+    while (
+      i < close &&
+      ["params", "ref", "in", "out", "this", "readonly"].includes(tokens[i]?.text ?? "")
+    ) {
+      i++;
+    }
+
+    const { text: type, next } = readTypeRef(tokens, i);
+    const nameTok = tokens[next];
+    if (!type || !nameTok || (nameTok.kind !== "ident" && nameTok.kind !== "keyword")) {
+      // Not a parameter shape this reader knows. Skip to the next comma rather
+      // than guessing at what it was.
+      while (i < close && tokens[i]!.text !== ",") i++;
+      i++;
+      continue;
+    }
+
+    out.push({
+      name: nameTok.text,
+      type,
+      attributes: [],
+      modifiers: [],
+      line: nameTok.line,
+      expressionBodied: false,
+      initializer: null,
+    });
+
+    i = next + 1;
+    let depth = 0;
+    while (i < close) {
+      const t = tokens[i]!.text;
+      if (t === "(" || t === "[" || t === "<") depth++;
+      else if (t === ")" || t === "]" || t === ">") depth--;
+      else if (t === "," && depth <= 0) break;
+      i++;
+    }
+    i++;
+  }
+
+  return out;
+}
+
 function readTypeRef(tokens: Token[], i: number): { text: string; next: number } {
   let out = "";
   let n = i;
@@ -413,9 +475,13 @@ export function parseCSharp(src: string, file: string): FileParse {
         if (close !== -1) k = close + 1;
       }
       // primary constructor (records / C# 12 classes)
+      let positional: PropertyDecl[] = [];
       if (tokens[k]?.text === "(") {
         const close = matchBracket(tokens, k);
-        if (close !== -1) k = close + 1;
+        if (close !== -1) {
+          positional = parseParameters(tokens, k, close);
+          k = close + 1;
+        }
       }
       // base list
       const bases: string[] = [];
@@ -449,13 +515,14 @@ export function parseCSharp(src: string, file: string): FileParse {
           keyword === "enum"
             ? { properties: [], methods: [] }
             : parseBody(tokens, k + 1, close, warnings, file);
+        const declared = properties.map((prop) => prop.name);
         types.push({
           name,
           keyword,
           modifiers,
           bases,
           namespace: fileNamespace,
-          properties,
+          properties: [...positional.filter((prop) => !declared.includes(prop.name)), ...properties],
           methods,
           line,
         });
@@ -465,7 +532,7 @@ export function parseCSharp(src: string, file: string): FileParse {
       // declaration without a body (e.g. `record X(...);`)
       types.push({
         name, keyword, modifiers, bases, namespace: fileNamespace,
-        properties: [], methods: [], line,
+        properties: positional, methods: [], line,
       });
       i = k + 1;
       continue;

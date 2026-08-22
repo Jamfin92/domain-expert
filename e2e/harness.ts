@@ -19,6 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(here, "..");
 /** The self-contained fixture, so this suite needs nothing outside the repo. */
 export const FIXTURE = join(REPO_ROOT, "test/fixtures/mini-efcore");
+export const NODE_FIXTURE = join(REPO_ROOT, "test/fixtures/mini-node");
 export const WEB_DIST = join(REPO_ROOT, "apps/web/dist");
 
 export function webBuilt(): boolean {
@@ -101,9 +102,9 @@ export async function startHarness(): Promise<Harness> {
 }
 
 /** Open the fixture through the UI and wait for the diagram. */
-export async function analyzeFixture(page: Page, url: string): Promise<void> {
+export async function analyzeFixture(page: Page, url: string, path = FIXTURE): Promise<void> {
   await page.goto(url, { waitUntil: "networkidle" });
-  await page.fill('input[placeholder*="/path/to"]', FIXTURE);
+  await page.fill('input[placeholder*="/path/to"]', path);
   await page.click('button:has-text("Analyze")');
   await page.waitForSelector("svg g.cursor-pointer", { timeout: 30_000 });
 }

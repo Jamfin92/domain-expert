@@ -5,6 +5,8 @@ import type {
 import { parseCSharp, type FileParse, type PropertyDecl, type TypeDecl } from "./csharp/structure.js";
 import { entityConfigs, enumMemberArg, lambdaMembers, type EntityConfig } from "./csharp/fluent.js";
 import { repoRelative, walk } from "./files.js";
+import { csharpShapes } from "./csharp/shapes.js";
+import { pairShapes } from "./pair.js";
 
 /** Collection types EF treats as a "many" navigation. */
 const COLLECTIONS = new Set([
@@ -288,7 +290,7 @@ export function extractDotnet(
   if (contexts.length === 0) {
     return {
       kind: "entity", repo: repoRoot, provider: "efcore", contextName: null,
-      entities: [], relations: [], warnings,
+      entities: [], relations: [], shapes: [], routes: [], warnings,
     };
   }
   if (contexts.length > 1) {
@@ -596,6 +598,10 @@ export function extractDotnet(
     if (p) p.isForeignKey = true;
   }
 
+  // Everything the DbSet rule discarded, kept as shapes so a DTO can be
+  // compared against the entity it mirrors.
+  const shapes = pairShapes(entities, csharpShapes(parses, entityNames, unwrap), warnings);
+
   return {
     kind: "entity",
     repo: repoRoot,
@@ -603,6 +609,8 @@ export function extractDotnet(
     contextName: ctx.decl.name,
     entities: entities.sort((a, b) => a.name.localeCompare(b.name)),
     relations: relations.sort((a, b) => a.id.localeCompare(b.id)),
+    shapes: shapes.sort((a, b) => a.name.localeCompare(b.name)),
+    routes: [],
     warnings,
   };
 }

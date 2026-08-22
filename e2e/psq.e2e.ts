@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Page } from "playwright-core";
 import { BROWSER } from "./browser.js";
-import { analyzeFixture, startHarness, webBuilt, FIXTURE, type Harness } from "./harness.js";
+import {
+  analyzeFixture, startHarness, webBuilt, FIXTURE, NODE_FIXTURE, type Harness,
+} from "./harness.js";
 
 /**
  * End-to-end: a real browser against the real API and the real bundle.
@@ -266,3 +268,49 @@ async function answerFirstQuestion(page: Page): Promise<void> {
   await field.fill("definitely wrong");
   await page.click('button:has-text("Check")');
 }
+
+describe.skipIf(reason !== "")("a Node backend in the browser", () => {
+  it("draws inferred edges dashed, and says which are inferred", async () => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url, NODE_FIXTURE);
+
+    // Every relation in a raw-DDL repo is inferred from naming, so every edge
+    // must be dashed. A solid one would claim the schema declared it.
+    const edges = page.locator("svg path[stroke-dasharray]");
+    await expect.poll(() => edges.count()).toBe(2);
+    expect(await page.getByText("inferred").count()).toBeGreaterThan(0);
+    await page.close();
+  });
+
+  it("shows the drift between a table and the shape that mirrors it", async () => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url, NODE_FIXTURE);
+
+    await expect.poll(() => page.locator("text=Drift").count()).toBeGreaterThan(0);
+    // departed_at is on the table and not the DTO; weather is the other way.
+    expect(await page.locator("text=table only").count()).toBeGreaterThan(0);
+    expect(await page.locator("text=shape only").count()).toBeGreaterThan(0);
+    await page.close();
+  });
+
+  it("lists the HTTP surface it read out of a factory function", async () => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url, NODE_FIXTURE);
+    await expect.poll(() => page.getByText("/crews/:callsign").count()).toBe(1);
+    await page.close();
+  });
+
+  it("takes a quiz restricted to one section", async () => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url, NODE_FIXTURE);
+
+    await page.click('button[aria-pressed="false"]:has-text("Data structures")');
+    await page.click('button:has-text("Start 10 questions")');
+    await page.waitForSelector("text=/1 \\/ 10/", { timeout: 20_000 });
+
+    // mini-node has more than ten ds questions, so a full quiz is served from
+    // that section alone — which is only possible if the filter reached the API.
+    expect(await page.locator("text=/1 \\/ 10/").count()).toBeGreaterThan(0);
+    await page.close();
+  });
+});

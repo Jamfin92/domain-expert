@@ -30,7 +30,20 @@ export const DeleteBehavior = z.enum([
 ]);
 export type DeleteBehavior = z.infer<typeof DeleteBehavior>;
 
-export const FactSource = z.enum(["fluent", "attribute", "convention", "inferred"]);
+/**
+ * How psq came to know a fact.
+ *  - fluent/attribute: the repo wrote it, in EF's configuration API
+ *  - declared: the repo wrote it, in raw DDL
+ *  - convention: the framework implied it
+ *  - inferred: psq guessed it from naming, and says so
+ */
+export const FactSource = z.enum([
+  "fluent",
+  "attribute",
+  "declared",
+  "convention",
+  "inferred",
+]);
 export type FactSource = z.infer<typeof FactSource>;
 
 export const Property = z.object({
@@ -94,14 +107,77 @@ export const Entity = z.object({
 });
 export type Entity = z.infer<typeof Entity>;
 
+// ---------------------------------------------------------------------------
+// Shapes — the declared data structures beside the relational layer
+// ---------------------------------------------------------------------------
+
+/**
+ * How a shape was declared — a fact, not a role. Whether a shape is a DTO is
+ * not written anywhere in a repo; `mirrors` says what psq worked out instead.
+ */
+export const ShapeKind = z.enum(["class", "interface", "type-alias", "enum", "zod"]);
+export type ShapeKind = z.infer<typeof ShapeKind>;
+
+export const ShapeField = z.object({
+  name: z.string(),
+  /** Declared type as written, e.g. "string | null", "Task[]". */
+  type: z.string(),
+  /** Type with nullability and collection wrapper stripped: "Task". */
+  baseType: z.string(),
+  /**
+   * `?:`, `| null` and `| undefined` are one axis here. A row type says
+   * `project_id: string | null` where its DTO says `projectId?: string`, and
+   * those describe the same fact — treating them apart reports drift on every
+   * nullable column in the schema.
+   */
+  optional: z.boolean(),
+  isCollection: z.boolean(),
+});
+export type ShapeField = z.infer<typeof ShapeField>;
+
+export const Shape = z.object({
+  name: z.string(),
+  /** Repo-relative path of the declaring file. */
+  file: z.string(),
+  /** Namespace (C#) or module specifier (TS), when one is declared. */
+  module: z.string().nullable(),
+  kind: ShapeKind,
+  fields: z.array(ShapeField),
+  /** Enum members or string-literal union members, in declared order. */
+  members: z.array(z.string()),
+  /** Discriminant property of a discriminated union, else null. */
+  discriminator: z.string().nullable(),
+  /**
+   * Entity this shape mirrors, else null. Pairing is refused unless the names
+   * normalize equal AND the fields substantially overlap, because a wrong
+   * pairing invents drift that is not there.
+   */
+  mirrors: z.string().nullable(),
+  mirrorSource: FactSource,
+});
+export type Shape = z.infer<typeof Shape>;
+
+/** An HTTP route, extracted as a fact. Questions about routes arrive in M5. */
+export const Route = z.object({
+  method: z.string(),
+  path: z.string(),
+  file: z.string(),
+  line: z.number().int().nonnegative(),
+});
+export type Route = z.infer<typeof Route>;
+
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
   repo: z.string(),
-  /** "efcore" | "sqlite-ddl" | "sqlalchemy" */
+  /** "efcore" | "sqlite-ddl" | "none" */
   provider: z.string(),
   contextName: z.string().nullable(),
   entities: z.array(Entity),
   relations: z.array(Relation),
+  /** Declared structures beside the tables: DTOs, interfaces, enums, zod. */
+  shapes: z.array(Shape),
+  /** HTTP surface, when the repo has one. Facts only until M5. */
+  routes: z.array(Route),
   /** Non-fatal parse problems. Never silently dropped. */
   warnings: z.array(z.string()),
 });

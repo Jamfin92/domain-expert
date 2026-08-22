@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { extractDotnet } from "@psq/extract";
+import { extract } from "@psq/extract";
 import { invariants, layout, mermaid, type Layout } from "@psq/graph";
 import {
-  generateEntityMcq, generateEntityCloze, generateEntitySql,
+  buildBank,
   materialize, selectQuiz, grade, referenceAnswer, selftest,
   type SeededDb,
 } from "@psq/quiz";
-import type { EntityGraph, GradeResult, Question } from "@psq/schema";
+import type { EntityGraph, GradeResult, Question, Section } from "@psq/schema";
 
 /**
  * Holds every repo psq has opened, and the quiz sessions running against them.
@@ -104,7 +104,7 @@ export class Workspace {
       this.repos.delete(id);
     }
 
-    const graph = extractDotnet(path);
+    const graph = extract(path);
     const problems = invariants(graph);
     if (problems.length > 0) {
       throw new Error(
@@ -113,19 +113,22 @@ export class Workspace {
       );
     }
     if (graph.entities.length === 0) {
+      const reason =
+        graph.provider === "efcore"
+          ? "This looks like a .NET project, but nothing here is reachable from a DbSet."
+          : graph.provider === "sqlite-ddl"
+            ? "This looks like a Node project, but no CREATE TABLE statement was found. " +
+              "psq reads a schema from raw DDL; an ORM-defined schema is not read yet."
+            : "psq did not recognize this as a project it can read.";
       throw new Error(
-        "No entities found. psq reads .NET projects with an EF Core DbContext; " +
-          "Node and React support arrive in later milestones.",
+        `No entities found. ${reason} psq reads .NET projects with an EF Core DbContext ` +
+          "and Node backends with a SQLite schema; React clients arrive in a later milestone.",
       );
     }
 
     const seed = opts.seed ?? 1337;
     const seeded = materialize(graph, { seed, rows: opts.rows ?? 40 });
-    const questions = [
-      ...generateEntityMcq(graph, seed),
-      ...generateEntityCloze(graph, seed),
-      ...generateEntitySql(graph, seeded, seed),
-    ];
+    const questions = buildBank(graph, seeded, seed);
 
     const repo: OpenRepo = {
       id, path, graph, questions, seeded, seed, openedAt: this.now(),
@@ -159,10 +162,22 @@ export class Workspace {
     return r ? selftest(r.questions, { db: r.seeded.db }) : undefined;
   }
 
-  startQuiz(repoId: string, n: number, seed?: number): QuizSession {
+  startQuiz(repoId: string, n: number, seed?: number, sections?: readonly Section[]): QuizSession {
     const r = this.repos.get(repoId);
     if (!r) throw new Error("That repo is not open");
-    const picked = selectQuiz(r.questions, n, seed ?? r.seed);
+
+    // Filter before selecting, not inside it: selectQuiz round-robins by
+    // generator, so a section asked for by name would otherwise have to win a
+    // lottery against every other section in the bank.
+    const wanted = sections && sections.length > 0 ? new Set(sections) : null;
+    const pool = wanted ? r.questions.filter((q) => wanted.has(q.section)) : r.questions;
+    if (pool.length === 0) {
+      throw new Error(
+        `This repo has no questions in ${[...(wanted ?? [])].join(", ")}. Pick another section.`,
+      );
+    }
+
+    const picked = selectQuiz(pool, n, seed ?? r.seed);
     if (picked.length === 0) throw new Error("No questions could be generated for this repo");
 
     this.sessionCounter += 1;

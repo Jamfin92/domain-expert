@@ -11,9 +11,7 @@
   },
   "dependencies": {
     "@psq/schema": "workspace:*",
-    "@psq/graph": "workspace:*"
-  },
-  "devDependencies": {
+    "@psq/graph": "workspace:*",
     "@psq/extract": "workspace:*"
   }
 }

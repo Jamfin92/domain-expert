@@ -1,5 +1,7 @@
 import express, { type Express, type Request, type Response } from "express";
 import { Workspace } from "./workspace.js";
+import { drift } from "@psq/extract";
+import { Section } from "@psq/schema";
 
 /**
  * The JSON API. Both shells talk to this and nothing else:
@@ -117,15 +119,41 @@ export function createApp(workspace: Workspace = new Workspace()): {
     }
     const byGenerator = new Map<string, number>();
     const byKind = new Map<string, number>();
+    const bySection = new Map<string, number>();
     for (const q of repo.questions) {
       byGenerator.set(q.generator, (byGenerator.get(q.generator) ?? 0) + 1);
       byKind.set(q.kind, (byKind.get(q.kind) ?? 0) + 1);
+      bySection.set(q.section, (bySection.get(q.section) ?? 0) + 1);
     }
     res.json({
       total: repo.questions.length,
       byGenerator: Object.fromEntries([...byGenerator].sort((a, b) => b[1] - a[1])),
       byKind: Object.fromEntries(byKind),
+      bySection: Object.fromEntries([...bySection].sort((a, b) => b[1] - a[1])),
       subjects: [...new Set(repo.questions.flatMap((q) => q.subjects))].sort(),
+    });
+  }));
+
+  /**
+   * The declared structures beside the tables, plus the HTTP surface.
+   *
+   * Separate from /graph because a graph is about relationships and this is
+   * about what a repo says its data looks like — and because the drift view
+   * needs the pairing, which the diagram has no way to draw.
+   */
+  app.get("/api/repos/:id/shapes", handler((req, res) => {
+    const repo = workspace.get(String(req.params["id"]));
+    if (!repo) {
+      fail(res, 404, "That repo is not open.");
+      return;
+    }
+    const entities = new Map(repo.graph.entities.map((e) => [e.name, e]));
+    res.json({
+      shapes: repo.graph.shapes.map((shape) => {
+        const entity = shape.mirrors ? entities.get(shape.mirrors) : undefined;
+        return { ...shape, drift: entity ? drift(entity, shape) : null };
+      }),
+      routes: repo.graph.routes,
     });
   }));
 
@@ -139,12 +167,16 @@ export function createApp(workspace: Workspace = new Workspace()): {
   }));
 
   app.post("/api/repos/:id/quiz", handler((req, res) => {
-    const body = req.body as { n?: unknown; seed?: unknown };
+    const body = req.body as { n?: unknown; seed?: unknown; sections?: unknown };
     const n = typeof body.n === "number" && body.n > 0 ? Math.min(body.n, 100) : 10;
+    const sections = Array.isArray(body.sections)
+      ? body.sections.filter((x): x is Section => Section.safeParse(x).success)
+      : undefined;
     const session = workspace.startQuiz(
       String(req.params["id"]),
       n,
       typeof body.seed === "number" ? body.seed : undefined,
+      sections,
     );
     res.status(201).json({
       session: {

@@ -5,6 +5,7 @@
  * membership in an alias set built from the graph. No model is consulted.
  */
 import type { EntityGraph } from "@psq/schema";
+import { plural, singular } from "@psq/extract";
 
 /**
  * Case, whitespace, punctuation and namespace differences are noise.
@@ -24,19 +25,11 @@ export function normalize(s: string): string {
   return (shortHead + rest).trim();
 }
 
-/** Naive English pluralization, matching EF's DbSet naming closely enough. */
-export function plural(name: string): string {
-  if (/(s|x|z|ch|sh)$/i.test(name)) return `${name}es`;
-  if (/[^aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
-  return `${name}s`;
-}
-
-export function singular(name: string): string {
-  if (/ies$/i.test(name)) return `${name.slice(0, -3)}y`;
-  if (/(ses|xes|zes|ches|shes)$/i.test(name)) return name.slice(0, -2);
-  if (/s$/i.test(name) && !/ss$/i.test(name)) return name.slice(0, -1);
-  return name;
-}
+/**
+ * Pluralization lives with the extractors, which need the same rule to pair a
+ * shape with a table. Re-exported here because the alias set is built from it.
+ */
+export { plural, singular } from "@psq/extract";
 
 /**
  * Every spelling of an entity that should be accepted as the same answer:

@@ -2,14 +2,15 @@
 import { createInterface } from "node:readline/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { extractDotnet } from "@psq/extract";
+import { extract } from "@psq/extract";
 import { invariants, mermaid, degrees, orphans } from "@psq/graph";
 import {
-  generateEntityMcq, generateEntityCloze, generateEntitySql,
+  buildBank as composeBank,
   grade, referenceAnswer, selectQuiz, selftest, materialize,
   type SeededDb,
 } from "@psq/quiz";
 import { hashSeed } from "@psq/quiz";
+import { Section } from "@psq/schema";
 import type { EntityGraph, Question } from "@psq/schema";
 
 /** argv parsing, hand-rolled — the same shape as an earlier internal CLI's runner. */
@@ -39,7 +40,7 @@ function repoArg(): string {
 }
 
 function buildGraph(repo: string): EntityGraph {
-  const g = extractDotnet(repo);
+  const g = extract(repo);
   const problems = invariants(g);
   if (problems.length > 0) {
     console.error(`${RED}psq: the extracted graph failed its invariants:${OFF}`);
@@ -54,6 +55,27 @@ function writeOut(path: string, contents: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, contents);
   console.log(`wrote ${path}`);
+}
+
+/**
+ * `--section entity,ds`. Filtering happens while the bank is composed rather
+ * than while a quiz is picked, because selection round-robins by generator and
+ * a named section should not have to win a lottery against the others.
+ */
+function sectionArg(): Section[] | undefined {
+  const raw = flag("section");
+  if (!raw) return undefined;
+  const names = raw.split(",").map((x) => x.trim()).filter((x) => x.length > 0);
+  const parsed: Section[] = [];
+  for (const name of names) {
+    const hit = Section.safeParse(name);
+    if (!hit.success) {
+      console.error(`psq: unknown section "${name}". Known: ${Section.options.join(", ")}`);
+      process.exit(2);
+    }
+    parsed.push(hit.data);
+  }
+  return parsed;
 }
 
 function seedArg(): number | undefined {
@@ -71,12 +93,7 @@ function buildBank(g: EntityGraph, seed: number | undefined): {
   seeded: SeededDb;
 } {
   const seeded = materialize(g, { seed: seed ?? 1337, rows: Number(flag("rows", "40")) });
-  const questions = [
-    ...generateEntityMcq(g, seed),
-    ...generateEntityCloze(g, seed),
-    ...generateEntitySql(g, seeded, seed),
-  ];
-  return { questions, seeded };
+  return { questions: composeBank(g, seeded, seed, sectionArg()), seeded };
 }
 
 async function main(): Promise<void> {
@@ -180,8 +197,13 @@ async function main(): Promise<void> {
   psq quiz       --repo <path> [--n 10]        take a quiz in the terminal
 
 Options
-  --seed <n>   fix the generator seed (default: derived from the repo path)
-  --rows <n>   rows to seed per table (default: 40)
+  --seed <n>      fix the generator seed (default: derived from the repo path)
+  --rows <n>      rows to seed per table (default: 40)
+  --section <s>   limit the bank to one or more sections, comma separated
+                  (entity, ds)
+
+psq reads a .NET project with an EF Core DbContext, or a Node backend whose
+schema is written as CREATE TABLE. It works out which by what is on disk.
 
 SQL questions are graded by running your query against a database psq builds
 from the schema and seeds deterministically. Nothing touches the real one.

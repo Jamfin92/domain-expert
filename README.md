@@ -3,8 +3,8 @@
 Read a codebase. Then prove you know it.
 
 psq extracts the structure of a project, generates questions whose answers it
-already holds, and grades your answers. It works on .NET / EF Core today.
-Node backends and React clients come next.
+already holds, and grades your answers. It reads .NET / EF Core projects and
+Node backends whose schema is raw SQL. React clients come next.
 
 ## Why this exists
 
@@ -30,7 +30,7 @@ answer is right. A model that both writes and grades measures nothing.
 | M1 — entity graphs, multiple choice | done |
 | M2 — short answer, cloze, SQL over a seeded database | done |
 | M3 — server, web UI, Electron shell | done |
-| M4 — Node backends, data structures | planned |
+| M4 — Node backends, data structures | done |
 | M5 — React clients, cross-layer links | planned |
 | M6 — agent-authored questions, STE checks | planned |
 | M7 — working memory export | planned |
@@ -62,9 +62,15 @@ pnpm psq selftest --repo <path>
 pnpm psq quiz --repo <path> --n 10
 ```
 
-Add `--seed <n>` to fix the generator seed and `--rows <n>` to change how many
-rows are seeded. The same repo and seed always give the same questions in the
-same order, and the same database down to the byte.
+Add `--seed <n>` to fix the generator seed, `--rows <n>` to change how many rows
+are seeded, and `--section entity,ds` to narrow the bank. The same repo and seed
+always give the same questions in the same order, and the same database down to
+the byte.
+
+psq works out what kind of project it is looking at from what is on disk — a
+`.csproj` or `.cs` file means the EF reader, a `package.json` or TypeScript
+source means the Node reader, and neither means an empty graph with a warning
+that says what was looked for.
 
 ## The app
 
@@ -137,6 +143,85 @@ Two behaviors of `node:sqlite` on Node 24 shaped this, both measured:
   statement. Safe, but it would hide half of what you typed, so psq refuses
   multiple statements instead of quietly ignoring them.
 
+## Node backends
+
+A Node service usually writes its schema as a string and hands it to SQLite. So
+psq does the same: it collects every `CREATE TABLE` literal in the repo, runs
+them into a throwaway in-memory database, and asks SQLite what it got.
+
+That is not a shortcut, it is the point. Composite primary keys, comments
+between columns, `AUTOINCREMENT`, `DEFAULT '[]'` and `DESC` in an index all come
+out right because the authority on what the DDL means is SQLite, not a regular
+expression psq wrote. It finds the schema whether it is written inline in
+`db.exec(...)` or bound to a constant and executed ninety lines later.
+
+TypeScript is read with the TypeScript compiler API rather than a hand-written
+reader. The checker resolves what syntax cannot:
+
+```ts
+export type SerializedRefreshDecision = Omit<
+  RefreshDecision, 'weight' | 'effectiveMove' | 'hoursSinceRefresh'
+> & { weight: number | 'Infinity'; /* … */ }
+```
+
+That is six fields. Reading the syntax alone reports three, and a question built
+on three is wrong rather than merely absent. The same applies to zod: a schema's
+inferred type is read through zod's own type machinery, so `.extend()`,
+`.optional()` and a schema imported from another file all resolve without psq
+modelling any of them.
+
+### Nobody declares a foreign key
+
+Neither of the Node repos psq is measured against declares a single
+`FOREIGN KEY`. Relationships live in naming, so psq infers them — and marks
+every one `inferred`, draws it dashed, and never asks a delete-behavior question
+about it.
+
+Two rules, in descending order of evidence. A column named `<table>_id` where a
+table of that name exists. And a column whose name is another table's sole
+identifying column, which is how a schema keyed on `symbol` rather than `id`
+links up at all.
+
+Both refuse more than they accept:
+
+- Six tables that each call their primary key `id` are using a house style, not
+  lending each other a key. psq says so in a warning and infers nothing from it.
+- When two tables are keyed on the same column, the one carrying more attributes
+  under that key owns it and the other is an extension of it. An exact tie is
+  not resolvable, and psq says that rather than picking.
+
+| Repo | Tables | Relations | Warnings |
+|---|---|---|---|
+| `corpus-repo-d` | 8 | 5 | 2, both naming the thing psq refused to guess |
+| `corpus-repo-e` | 5 | 3 | 0 |
+
+## Drift
+
+One extraction holds a repo's tables and its declared shapes at once, which
+makes a question possible that neither file can be read to answer:
+
+```
+CountyDto mirrors County. Which column of County has no field
+of that name on CountyDto?
+
+  a) LogoUrl   b) ContactPhone   c) CreatedAt   d) IsActive
+```
+
+A shape is paired with a table only when the names reduce to the same concept
+*and* the fields substantially overlap. `TaskRow`, `tasks` and `Task` are one
+thing; a `Market` interface that happens to sit near a `markets` table is not,
+and psq leaves it unpaired rather than inventing drift.
+
+The comparison is by name, and the questions say so. Where a table has
+`published_ts` and its DTO has `publishedAt`, psq reports a gap in both
+directions — because that is what it knows. It can see the two names do not
+match; it cannot see whether a mapper reconciles them, and claiming the field
+was dropped would be asserting the half it did not read.
+
+`null` and `undefined` are one axis. A row type saying `project_id: string | null`
+and its DTO saying `projectId?: string` describe the same fact, and splitting
+them would report drift on every nullable column in the schema.
+
 ## What it reads
 
 psq parses C# directly. It does not build the target project, so it works on a
@@ -170,6 +255,9 @@ generates and psq never writes. The snapshot declares 17 domain entities and
 - `IsRequired(false)`, which makes a relationship optional
 - Modern C#: `required` members, file-scoped namespaces, collection
   expressions, and interpolated raw strings
+- Positional records — `record UserProfileDto(Guid Id, string Email, …)` declares
+  properties, and a reader that skips the parameter list makes every DTO in a
+  modern codebase invisible
 
 ### Why the parser is hand-written
 
@@ -228,22 +316,30 @@ real projects on this machine and validate extraction against ground truth psq
 did not produce. Corpus tests skip when those projects are absent:
 
 ```bash
-PSQ_NO_CORPUS=1 pnpm test   # 15 tests, no external repo needed
-pnpm test                    # 55 tests
+PSQ_NO_CORPUS=1 pnpm test   # 92 tests, no external repo needed
+pnpm test                    # 147 tests
 ```
+
+`test/fixtures/mini-node` is the Node counterpart to `mini-efcore`, and is
+adversarial the same way: it plants exactly one of each construct the reader has
+to survive — DDL written both ways, a `_id` join and a natural-key join, a
+composite primary key, a comment between two columns, routes registered inside a
+factory, a zod schema extended across a file boundary, a utility type over an
+intersection, and a row/DTO pair with one field of drift in each direction. Its
+contract is `expect(g.warnings).toEqual([])`.
 
 ## Layout
 
 ```
 packages/schema     zod contract, no I/O
-packages/extract    C# lexer, structural reader, EF fluent reader
+packages/extract    reader dispatch, C# lexer + EF fluent reader, TS/DDL reader
 packages/graph      invariants, degrees, shortest path, layout, mermaid
-packages/quiz       generators, grader, selftest, seeding, SQL sandbox
+packages/quiz       generators, bank, grader, selftest, seeding, SQL sandbox
 apps/cli            hand-rolled argv
 apps/server         express, the JSON API
 apps/web            Vite, React 19, Tailwind v4, shadcn
 apps/desktop        Electron main and preload
-test/fixtures       self-contained EF project
+test/fixtures       self-contained EF and Node projects
 ```
 
 ### End-to-end

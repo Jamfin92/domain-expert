@@ -20,6 +20,25 @@ fact at question time. If a fact is not in the graph, no question may assert it.
 Add the fact to extraction first, with a test against ground truth psq did not
 produce (an EF migration snapshot, a live schema).
 
+## 2a. Read a schema by running it
+
+The DDL reader does not parse SQL. It executes every `CREATE TABLE` literal into
+a throwaway in-memory database and reads `sqlite_master` and the pragmas back.
+The authority on what a schema means is SQLite. Do not add a SQL parser.
+
+TypeScript is read through the compiler API with a `Program` and a checker, for
+the same reason: `Omit<X, "a"> & { … }` and a zod `.extend()` chain resolve
+correctly or not at all, and "not at all" must be a warning, never a guess.
+
+`strictNullChecks` is forced on for every program psq builds, including over a
+repo whose own tsconfig turns it off. Without it zod's inferred types collapse —
+every field reads optional and every `.nullable()` loses its null — so psq would
+report drift on fields that are fine and miss the ones that are not.
+
+Nothing may `import "node:sqlite"` directly. Use `packages/extract/src/sqlite/driver.ts`;
+Vite resolves the bare specifier to a package named "sqlite" and the failure
+appears only under vitest.
+
 ## 3. Warn, never guess
 
 The C# reader is deliberately partial. When it meets a construct it does not
@@ -30,10 +49,30 @@ A guessed fact costs the premise of the tool.
 
 ## 4. Mark derived facts as derived
 
-EF supplies defaults. `deleteBehaviorSource` says whether a repo wrote a rule
-(`fluent`) or whether EF implied it (`convention`). Never present a
-convention-derived value as if someone had written it, and never generate a
-question about one.
+`FactSource` records how psq came to know something: `fluent`/`attribute` (the
+repo wrote it in EF's configuration API), `declared` (the repo wrote it in raw
+DDL), `convention` (the framework implied it), `inferred` (psq worked it out
+from naming and says so).
+
+Never present a derived value as if someone had written it. A delete-behavior
+question may only be asked about `fluent` or `declared`.
+
+Every relation in a raw-DDL repo is `inferred`, because no Node repo psq reads
+declares a foreign key. Inference refuses more than it accepts: a primary-key
+name shared by many tables is a house style rather than a reference, and two
+tables keyed on the same column need a resolvable owner or psq emits a warning
+and no edge.
+
+## 4a. A pairing is a claim, and needs evidence
+
+A shape mirrors a table only when the names reduce to the same concept AND the
+fields substantially overlap. A wrong pairing invents drift that is not there,
+which is worse than no drift question at all.
+
+Drift is compared by name, and the prompts say so. `published_ts` and
+`publishedAt` are a gap in both directions: psq can see the names differ and
+cannot see whether a mapper reconciles them. `null` and `undefined` are one
+axis — treating them apart reports drift on every nullable column.
 
 ## 5. Every question must be failable
 
@@ -68,5 +107,10 @@ explicit `psq export`.
 pnpm typecheck                 # the only lint gate
 pnpm test                      # hermetic
 PSQ_NO_CORPUS=1 pnpm test      # hermetic, ignores local repos
+pnpm test:e2e                  # real API, real bundle, real browser
 pnpm psq selftest --repo <p>   # before trusting any bank
 ```
+
+The bank is composed in one place, `packages/quiz/src/bank.ts`. The CLI and the
+server both call it. Adding a generator anywhere else makes the two shells
+disagree about what psq asks.

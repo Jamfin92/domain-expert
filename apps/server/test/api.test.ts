@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { createApp } from "../src/app.js";
 import { Workspace } from "../src/workspace.js";
-import { MINI_EFCORE } from "../../../test/fixtures.js";
+import { MINI_EFCORE, MINI_NODE } from "../../../test/fixtures.js";
 
 let app: Express;
 let workspace: Workspace;
@@ -45,10 +45,12 @@ describe("opening a repo", () => {
     expect(blank.body.error).toContain("path to a repo");
   });
 
-  it("says so plainly when a repo has no EF Core model", async () => {
+  it("says so plainly, and says why, when a repo has no model psq can read", async () => {
     const res = await request(app).post("/api/repos").send({ path: "~/Developer/psq-app/packages" });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("No entities found");
+    // The reason names what psq actually looked for in THIS repo, not a generic apology.
+    expect(res.body.error).toContain("CREATE TABLE");
   });
 
   it("reopening replaces the old copy instead of leaking a database", async () => {
@@ -210,5 +212,84 @@ describe("health", () => {
     expect((await request(app).get("/api/health")).body).toEqual({ ok: true, repos: 0 });
     await openMini();
     expect((await request(app).get("/api/health")).body).toEqual({ ok: true, repos: 1 });
+  });
+});
+
+describe("a Node repo over the API", () => {
+  async function openNode(): Promise<string> {
+    const res = await request(app).post("/api/repos").send({ path: MINI_NODE });
+    expect(res.status).toBe(201);
+    return res.body.repo.id as string;
+  }
+
+  it("opens through the same endpoint as a .NET repo", async () => {
+    const res = await request(app).post("/api/repos").send({ path: MINI_NODE });
+    expect(res.body.repo).toMatchObject({ name: "mini-node", entities: 4, warnings: [] });
+  });
+
+  it("serves the shapes and their drift, and the HTTP surface", async () => {
+    const id = await openNode();
+    const res = await request(app).get(`/api/repos/${id}/shapes`);
+    expect(res.status).toBe(200);
+
+    const voyage = res.body.shapes.find((s: { name: string }) => s.name === "Voyage");
+    expect(voyage.mirrors).toBe("voyages");
+    expect(voyage.drift).toEqual({
+      entityOnly: ["departed_at"],
+      shapeOnly: ["weather"],
+      shared: [
+        { column: "id", field: "id" },
+        { column: "crew_id", field: "crew_id" },
+        { column: "destination", field: "destination" },
+        { column: "cargo_tons", field: "cargo_tons" },
+      ],
+    });
+
+    // An unpaired shape carries no drift rather than an empty one, so the UI
+    // cannot render "all fields line up" for a comparison never made.
+    const manifest = res.body.shapes.find((s: { name: string }) => s.name === "Manifest");
+    expect(manifest.drift).toBeNull();
+
+    expect(res.body.routes).toHaveLength(3);
+  });
+
+  it("counts the bank by section", async () => {
+    const id = await openNode();
+    const res = await request(app).get(`/api/repos/${id}/questions`);
+    expect(res.body.bySection.entity).toBeGreaterThan(0);
+    expect(res.body.bySection.ds).toBeGreaterThan(0);
+  });
+
+  it("gives a quiz only the section it asked for", async () => {
+    const id = await openNode();
+    const res = await request(app).post(`/api/repos/${id}/quiz`).send({ n: 5, sections: ["ds"] });
+    expect(res.status).toBe(201);
+    expect(res.body.questions.length).toBeGreaterThan(0);
+    expect(res.body.questions.every((q: { section: string }) => q.section === "ds")).toBe(true);
+  });
+
+  it("says which section is empty rather than serving the wrong one", async () => {
+    const id = await openNode();
+    const res = await request(app).post(`/api/repos/${id}/quiz`).send({ n: 5, sections: ["client"] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("client");
+  });
+
+  it("ignores a section name it does not know", async () => {
+    const id = await openNode();
+    const res = await request(app).post(`/api/repos/${id}/quiz`).send({ n: 5, sections: ["nope"] });
+    // Filtered out at the door, so the request behaves as if none were given.
+    expect(res.status).toBe(201);
+    expect(res.body.questions.length).toBeGreaterThan(0);
+  });
+
+  it("still withholds every answer", async () => {
+    const id = await openNode();
+    const res = await request(app).post(`/api/repos/${id}/quiz`).send({ n: 5, sections: ["ds"] });
+    for (const q of res.body.questions) {
+      expect(q).not.toHaveProperty("answers");
+      expect(q).not.toHaveProperty("answerIndex");
+      expect(q).not.toHaveProperty("rationale");
+    }
   });
 });

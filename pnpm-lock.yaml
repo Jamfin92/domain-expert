@@ -158,6 +158,9 @@ importers:
       '@psq/schema':
         specifier: workspace:*
         version: link:../schema
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/graph:
     dependencies:
@@ -171,16 +174,15 @@ importers:
 
   packages/quiz:
     dependencies:
+      '@psq/extract':
+        specifier: workspace:*
+        version: link:../extract
       '@psq/graph':
         specifier: workspace:*
         version: link:../graph
       '@psq/schema':
         specifier: workspace:*
         version: link:../schema
-    devDependencies:
-      '@psq/extract':
-        specifier: workspace:*
-        version: link:../extract
 
   packages/schema: {}
 

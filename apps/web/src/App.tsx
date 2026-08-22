@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Loader2, X } from "lucide-react";
-import { api, type PublicQuestion, type RepoSummary } from "@/lib/api";
+import { api, type PublicQuestion, type RepoSummary, type Section } from "@/lib/api";
 import { desktop, isDesktop } from "@/lib/desktop";
 import { Dashboard } from "@/views/Dashboard";
 import { Quiz } from "@/views/Quiz";
@@ -62,10 +62,10 @@ export function App(): React.ReactElement {
   }, [open]);
 
   const startQuiz = useCallback(
-    async (n: number) => {
+    async (n: number, sections?: Section[]) => {
       if (!activeId) return;
       try {
-        const res = await api.startQuiz(activeId, n);
+        const res = await api.startQuiz(activeId, n, { sections });
         setSession({ id: res.session.id, questions: res.questions });
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -98,7 +98,7 @@ export function App(): React.ReactElement {
               onKeyDown={(e) => {
                 if (e.key === "Enter") void open(path);
               }}
-              placeholder="/path/to/a/dotnet/project"
+              placeholder="/path/to/a/dotnet-or-node/project"
               className="h-8 max-w-md font-mono text-xs"
               spellCheck={false}
             />
@@ -165,7 +165,7 @@ export function App(): React.ReactElement {
             onExit={() => setSession(null)}
           />
         ) : active ? (
-          <Dashboard repo={active} onStartQuiz={(n) => void startQuiz(n)} />
+          <Dashboard repo={active} onStartQuiz={(n, sections) => void startQuiz(n, sections)} />
         ) : (
           <Card className="mx-auto mt-16 max-w-lg">
             <CardHeader>
@@ -173,8 +173,9 @@ export function App(): React.ReactElement {
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <p>
-                psq reads a .NET project with an EF Core DbContext, builds its entity graph,
-                and generates questions it can grade without a model.
+                psq reads a .NET project with an EF Core DbContext, or a Node backend with a
+                SQLite schema, builds its entity graph, and generates questions it can grade
+                without a model.
               </p>
               {!isDesktop() ? (
                 <p className="text-xs">

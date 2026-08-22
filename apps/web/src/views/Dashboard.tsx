@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Database, GitBranch, Play, Table2 } from "lucide-react";
-import { api, type EntityGraph, type Layout, type RepoSummary } from "@/lib/api";
+import {
+  AlertTriangle, ArrowLeftRight, CheckCircle2, Database, GitBranch, Play, Route as RouteIcon, Table2,
+} from "lucide-react";
+import {
+  api,
+  type EntityGraph,
+  type Layout,
+  type RepoSummary,
+  type Route,
+  type Section,
+  type Shape,
+} from "@/lib/api";
 import { EntityDiagram } from "@/components/EntityDiagram";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,13 +26,76 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   repo: RepoSummary;
-  onStartQuiz: (n: number, subject?: string) => void;
+  onStartQuiz: (n: number, sections?: Section[]) => void;
 }
 
 interface Bank {
   total: number;
   byKind: Record<string, number>;
   byGenerator: Record<string, number>;
+  bySection: Record<string, number>;
+}
+
+/** What each section is, in the words the reader would use. */
+const SECTION_LABEL: Record<string, string> = {
+  entity: "Entities",
+  ds: "Data structures",
+  client: "Clients",
+};
+
+/**
+ * A shape beside the table it mirrors, with the gaps marked.
+ *
+ * Shown side by side because that is the comparison — a list of "missing
+ * fields" makes the reader hold the other side in their head, which is the
+ * work psq exists to remove.
+ */
+function DriftView({ shape }: { shape: Shape }): React.ReactElement | null {
+  if (!shape.drift) return null;
+  const { entityOnly, shapeOnly, shared } = shape.drift;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-xs">
+        <span className="font-mono font-semibold">{shape.mirrors}</span>
+        <ArrowLeftRight className="size-3 text-muted-foreground" />
+        <span className="font-mono font-semibold">{shape.name}</span>
+        <Badge variant="outline" className="ml-auto text-[10px]">{shape.kind}</Badge>
+      </div>
+      <ul className="space-y-0.5 text-xs">
+        {entityOnly.map((f) => (
+          <li key={`e-${f}`} className="flex items-baseline justify-between gap-2">
+            <span className="font-mono text-[var(--warning)]">{f}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">table only</span>
+          </li>
+        ))}
+        {shapeOnly.map((f) => (
+          <li key={`s-${f}`} className="flex items-baseline justify-between gap-2">
+            <span className="font-mono text-[var(--warning)]">{f}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">shape only</span>
+          </li>
+        ))}
+        {entityOnly.length === 0 && shapeOnly.length === 0 ? (
+          <li className="text-muted-foreground">
+            All {shared.length} fields line up by name.
+          </li>
+        ) : null}
+      </ul>
+    </div>
+  );
+}
+
+function RouteList({ routes }: { routes: Route[] }): React.ReactElement {
+  return (
+    <ul className="max-h-48 space-y-0.5 overflow-y-auto pr-1 text-xs">
+      {routes.map((r) => (
+        <li key={`${r.method} ${r.path}`} className="flex items-baseline gap-2">
+          <span className="w-11 shrink-0 font-mono text-[10px] text-muted-foreground">{r.method}</span>
+          <span className="truncate font-mono">{r.path}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function Stat({
@@ -58,26 +131,33 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
   const [bank, setBank] = useState<Bank | null>(null);
   const [selftestOk, setSelftestOk] = useState<boolean | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [shapes, setShapes] = useState<Shape[]>([]);
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLayout(null);
     setSelected(null);
+    setSections([]);
     setError(null);
     void (async () => {
       try {
-        const [l, g, q, st] = await Promise.all([
+        const [l, g, q, st, sh] = await Promise.all([
           api.layout(repo.id),
           api.graph(repo.id),
           api.questions(repo.id),
           api.selftest(repo.id),
+          api.shapes(repo.id),
         ]);
         if (cancelled) return;
         setLayout(l.layout);
         setGraph(g.graph);
         setBank(q);
         setSelftestOk(st.ok);
+        setShapes(sh.shapes);
+        setRoutes(sh.routes);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       }
@@ -88,6 +168,11 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
   }, [repo.id]);
 
   const entity = graph?.entities.find((e) => e.name === selected) ?? null;
+  const paired = shapes.filter((s) => s.drift !== null);
+  // When an entity is selected the panel narrows to it; otherwise it shows
+  // every pair, which is the view that makes a whole repo's drift visible.
+  const shownDrift = selected ? paired.filter((s) => s.mirrors === selected) : paired;
+  const available = Object.keys(bank?.bySection ?? {}) as Section[];
   const entityRelations =
     graph?.relations.filter((r) => r.principal === selected || r.dependent === selected) ?? [];
 
@@ -159,17 +244,54 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
             <CardTitle className="text-sm">Take a quiz</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 px-4">
+            {available.length > 1 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {available.map((name) => {
+                  const on = sections.includes(name);
+                  return (
+                    <Button
+                      key={name}
+                      variant={on ? "secondary" : "ghost"}
+                      size="sm"
+                      className={cn("h-7 px-2 text-xs", on && "ring-1 ring-ring")}
+                      aria-pressed={on}
+                      onClick={() =>
+                        setSections((cur) =>
+                          cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name],
+                        )
+                      }
+                    >
+                      {SECTION_LABEL[name] ?? name}
+                      <span className="ml-1 tabular-nums text-muted-foreground">
+                        {bank?.bySection[name]}
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
+            ) : null}
             <div className="grid grid-cols-3 gap-2">
               {[5, 10, 20].map((n) => (
-                <Button key={n} variant="secondary" size="sm" onClick={() => onStartQuiz(n)}>
+                <Button
+                  key={n}
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onStartQuiz(n, sections.length > 0 ? sections : undefined)}
+                >
                   {n}
                 </Button>
               ))}
             </div>
-            <Button className="w-full" onClick={() => onStartQuiz(10, selected ?? undefined)}>
+            <Button
+              className="w-full"
+              onClick={() => onStartQuiz(10, sections.length > 0 ? sections : undefined)}
+            >
               <Play className="size-3.5" />
               Start 10 questions
             </Button>
+            {sections.length === 0 && available.length > 1 ? (
+              <p className="text-xs text-muted-foreground">Every section. Pick one to narrow it.</p>
+            ) : null}
             {selftestOk === false ? (
               <p className="flex items-start gap-1.5 text-xs text-destructive">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -236,6 +358,50 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
             )}
           </CardContent>
         </Card>
+        {shapes.length > 0 ? (
+          <Card className="gap-3 py-4">
+            <CardHeader className="px-4">
+              <CardTitle className="flex items-center gap-1.5 text-sm">
+                <ArrowLeftRight className="size-4" />
+                {selected ? `${selected} vs its shapes` : "Drift"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 px-4">
+              {shownDrift.length > 0 ? (
+                <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+                  {shownDrift.map((shape) => (
+                    <DriftView key={`${shape.file}:${shape.name}`} shape={shape} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {selected
+                    ? `Nothing in this repo declares a shape that mirrors ${selected}.`
+                    : "No shape here pairs with a table by name and field overlap."}
+                </p>
+              )}
+              <Separator />
+              <p className="text-xs text-muted-foreground">
+                {shapes.length} shape{shapes.length === 1 ? "" : "s"} read ·{" "}
+                {paired.length} paired with a table
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {routes.length > 0 ? (
+          <Card className="gap-3 py-4">
+            <CardHeader className="px-4">
+              <CardTitle className="flex items-center gap-1.5 text-sm">
+                <RouteIcon className="size-4" />
+                HTTP surface
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4">
+              <RouteList routes={routes} />
+            </CardContent>
+          </Card>
+        ) : null}
       </aside>
     </div>
   );

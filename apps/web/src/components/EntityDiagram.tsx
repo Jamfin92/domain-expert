@@ -297,7 +297,7 @@ export function EntityDiagram({ layout, selected, onSelect }: Props): React.Reac
         </span>
         <span className="flex items-center gap-1.5">
           <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--graph-edge-inferred)" strokeWidth="1.5" strokeDasharray="5 4" /></svg>
-          by convention
+          inferred
         </span>
       </div>
     </div>
