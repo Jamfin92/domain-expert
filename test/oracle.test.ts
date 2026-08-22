@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { tablesDeclaredIn, tablesInDdlText } from "./fixtures.js";
 
 /**
@@ -39,6 +41,31 @@ describe("tablesInDdlText", () => {
     expect(tablesInDdlText(text)).toEqual(["after_decrement"]);
   });
 
+  it("keeps a declaration with a trailing comment (only text before the match is inspected)", () => {
+    expect(tablesInDdlText("CREATE TABLE x (id); -- trailing comment\n")).toEqual(["x"]);
+  });
+
+  it("ignores a `//`-commented declaration", () => {
+    const text = "// CREATE TABLE ghost (id);\nCREATE TABLE real (id);\n";
+    expect(tablesInDdlText(text)).toEqual(["real"]);
+  });
+
+  it("ignores a declaration inside a single-line block comment", () => {
+    const text = "/* CREATE TABLE ghost (id); */\nCREATE TABLE real (id);\n";
+    expect(tablesInDdlText(text)).toEqual(["real"]);
+  });
+
+  it("ignores a JSDoc continuation line", () => {
+    const text = "/**\n * CREATE TABLE ghost (id)\n */\nCREATE TABLE real (id);\n";
+    expect(tablesInDdlText(text)).toEqual(["real"]);
+  });
+
+  it("ignores prose in a comment that happens to contain CREATE TABLE", () => {
+    // Would otherwise capture a table named `for`.
+    const text = "// the CREATE TABLE for tasks lives above\nCREATE TABLE tasks (id);\n";
+    expect(tablesInDdlText(text)).toEqual(["tasks"]);
+  });
+
   it("dedupes duplicate declarations", () => {
     const text = "CREATE TABLE twice (id);\nCREATE TABLE IF NOT EXISTS twice (id);\n";
     expect(tablesInDdlText(text)).toEqual(["twice"]);
@@ -59,8 +86,15 @@ describe("tablesDeclaredIn", () => {
   });
 
   it("throws when the file declares nothing", () => {
-    // fixtures.ts itself: real, readable, and free of CREATE TABLE.
-    const path = resolve(here, "fixtures.ts");
-    expect(() => tablesDeclaredIn(path)).toThrow(/declares no CREATE TABLE/);
+    // A self-contained temp file, so this test cannot rot when a checked-in
+    // source file gains a CREATE TABLE token in a comment or string.
+    const dir = mkdtempSync(join(tmpdir(), "psq-oracle-"));
+    try {
+      const path = join(dir, "empty.ts");
+      writeFileSync(path, "export const nothingDeclaredHere = 1;\n");
+      expect(() => tablesDeclaredIn(path)).toThrow(/declares no CREATE TABLE/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

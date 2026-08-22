@@ -39,12 +39,22 @@ export function hasCorpus(path: string): boolean {
 }
 
 /** The file that holds each corpus repo's schema. Pinned, so the oracle reads
- *  one known file instead of reimplementing the extractor's file selection. */
+ *  one known file instead of reimplementing the extractor's file selection.
+ *  Drift mode the pin does not catch: if a corpus repo adds a second DDL file,
+ *  the extractor sees the extra tables and this oracle does not, and the
+ *  failure will look like a psq bug rather than a stale pin. */
 export const CORPUS_DDL = {
   corpus-repo-d: resolve(CORPUS.corpus-repo-d, "server/src/state/db.ts"),
   corpus-repo-e: resolve(CORPUS.corpus-repo-e, "src/db.ts"),
 } as const;
 
+// Assumes the SQLite-ish DDL subset the corpus actually uses: plain
+// `CREATE [TEMP[ORARY]] TABLE [IF NOT EXISTS] name`. Known silent misses,
+// none of which occur in the corpus today:
+//   - `CREATE VIRTUAL TABLE fts USING fts5(...)` -> no match
+//   - `CREATE TABLE main.foo`                    -> captures `main`
+//   - `CREATE TABLE "my table"`                  -> captures `my`
+//   - non-ASCII identifiers truncate at the first non-`\w` character
 const CREATE_TABLE_NAME =
   /\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?/gi;
 
@@ -54,12 +64,18 @@ const CREATE_TABLE_NAME =
 export function tablesInDdlText(text: string): string[] {
   const names = new Set<string>();
   for (const match of text.matchAll(CREATE_TABLE_NAME)) {
-    // A `--` earlier on the same line means the match is commented out
-    // (`-- CREATE TABLE old_thing`), not a declaration. Only the slice from
-    // the previous newline is inspected, so a `count--;` line elsewhere in
-    // the file cannot suppress a real declaration.
+    // A comment marker earlier on the same line means the match is commented
+    // out, not a declaration: SQL `--`, TS `//` or `/*`, or a JSDoc
+    // continuation line whose first non-whitespace character is `*`. Only the
+    // slice from the previous newline is inspected, so a `count--;` line
+    // elsewhere in the file cannot suppress a real declaration. Deliberate
+    // limit: a CREATE TABLE on its own line inside a multi-line block comment
+    // with no leading `*` still slips through; a full comment-state machine
+    // is not worth it for these pinned files.
     const lineStart = text.lastIndexOf("\n", match.index) + 1;
-    if (text.slice(lineStart, match.index).includes("--")) continue;
+    const before = text.slice(lineStart, match.index);
+    if (before.includes("--") || before.includes("//") || before.includes("/*")) continue;
+    if (/^\s*\*/.test(before)) continue;
     names.add(match[1]!);
   }
   return [...names].sort();

@@ -57,3 +57,67 @@ Everything else matched the plan's ground truth: line numbers `:14` and `:77`, t
 ## Open risks
 
 Unchanged from the plan's own Risks section: the oracle covers table names only; a schema moved out of the `CORPUS_DDL`-pinned file is caught by the throw and the stable-core floor, not by the equality itself. No new risks introduced.
+
+## Follow-up: reviewer items 1 and 2
+
+Files changed
+- test/fixtures.ts
+- test/oracle.test.ts
+
+### test/fixtures.ts
+
+- `tablesInDdlText` skip rule extended: the slice from the previous `\n` up to
+  the match index is now also checked for `//` and `/*`, and for a first
+  non-whitespace `*` (JSDoc continuation), in addition to the existing `--`.
+  Structure kept as a per-match same-line-slice inspection; no global comment
+  stripping. The comment on the loop names the accepted limit: a CREATE TABLE
+  on its own line inside a block comment with no leading `*` still slips
+  through.
+- Comment added above `CREATE_TABLE_NAME` naming the assumed DDL subset and
+  the known silent misses (VIRTUAL TABLE -> no match; `main.foo` -> `main`;
+  `"my table"` -> `my`; non-ASCII truncation), none in the corpus today.
+- `CORPUS_DDL` doc comment gained one sentence on the uncaught drift mode: a
+  corpus repo adding a second DDL file makes the failure look like a psq bug
+  rather than a stale pin.
+
+### test/oracle.test.ts
+
+- Five new `tablesInDdlText` tests: trailing `-- comment` after a real
+  declaration still yields the table; `//` line, `/* */` line, JSDoc `*` line,
+  and the prose case (`// the CREATE TABLE for tasks lives above`, which
+  previously yielded a table named `for`) each assert the phantom is absent
+  and a real declaration elsewhere is still found. The existing `count--;`
+  test is unchanged and passing.
+- "declares no CREATE TABLE" test no longer points at `test/fixtures.ts`
+  (which passed by luck — its own doc comment contains `CREATE TABLE
+  old_thing`, suppressed only by a `--` earlier on the line). It now writes a
+  temp file under `mkdtempSync(join(tmpdir(), "psq-oracle-"))` containing no
+  CREATE TABLE token and removes the directory in `finally`.
+
+### Deviations from the plan
+
+None. No file outside test/fixtures.ts and test/oracle.test.ts was touched;
+packages/extract/src/** untouched.
+
+### Verification (all via `zsh -lic`)
+
+- `pnpm exec tsc --noEmit` — clean, no output.
+- `pnpm exec vitest run` — `Test Files  13 passed (13)`,
+  `Tests  193 passed (193)`. oracle.test.ts: 15 tests passed.
+- `PSQ_NO_CORPUS=1 pnpm exec vitest run` —
+  `Test Files  9 passed | 4 skipped (13)`,
+  `Tests  138 passed | 55 skipped (193)`.
+- Corpus counts unchanged under the hardened rule: corpus-repo-d resolves to its 9
+  tables (approvals, audit, chat_messages, chats, model_variant_eta, packets,
+  settings, spend, tasks), corpus-repo-e to its 5 (feed_items, feed_state, meta,
+  quotes, tickers); the corpus tests in packages/extract/test/node.test.ts
+  passed against the live repos.
+
+### Open risks
+
+- The accepted comment-rule limit above (bare line inside a block comment) is
+  documented in the code; deliberate non-goal per the plan.
+- The temp-file test writes to os.tmpdir(); if that is ever unwritable the
+  test errors rather than false-passes.
+
+Not committed; working tree left for review.
