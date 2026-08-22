@@ -49,17 +49,34 @@ export const CORPUS_DDL = {
 } as const;
 
 // Assumes the SQLite-ish DDL subset the corpus actually uses: plain
-// `CREATE [TEMP[ORARY]] TABLE [IF NOT EXISTS] name`. Known silent misses,
-// none of which occur in the corpus today:
+// `CREATE [TEMP[ORARY]] TABLE [IF NOT EXISTS] name`. Known misses, none of
+// which occur in the corpus today:
 //   - `CREATE VIRTUAL TABLE fts USING fts5(...)` -> no match
 //   - `CREATE TABLE main.foo`                    -> captures `main`
 //   - `CREATE TABLE "my table"`                  -> captures `my`
 //   - non-ASCII identifiers truncate at the first non-`\w` character
-//   - a real declaration sharing a line with a leading `//`, `/*` or `--`,
-//     or on a line whose first non-space character is `*`, is skipped
-//     (`/* v2 */ CREATE TABLE foo`) -> no match; unlike the four above,
-//     this direction fails loudly (the table goes missing and the corpus
-//     assertion reddens) rather than hiding a regression — do not "fix" it
+//   - a real declaration sharing a line with `//`, `/*` or `--` anywhere
+//     earlier on the line is skipped (`/* v2 */ CREATE TABLE foo`, but
+//     equally `count--; CREATE TABLE foo`) -> no match
+//   - a real declaration on a line whose first non-space character is `*`
+//     (a JSDoc continuation line) is skipped -> no match
+//   - a `CREATE TABLE` alone on an unmarked line inside a multi-line
+//     `/* ... */` block is captured as a real table -> ghost match
+//
+// How each miss surfaces at the corpus assertion (a `toEqual` against the
+// extractor's names, packages/extract/test/node.test.ts): a wrong captured
+// name (bullets 2-4) or a skipped declaration (bullets 5-6) reddens it
+// outright. The virtual-table miss (bullet 1) is the one that can pass
+// quietly: the extractor's own gate is the literal words `CREATE TABLE`,
+// so both sides omit the table and the lists agree. The ghost match
+// (bullet 7) reddens too, but misattributes the failure — the diff reads
+// as "psq missed a table" and sends the reader into the extractor, when
+// the invented name came from this oracle. None of this is a reason to
+// "fix" the regex; update the corpus pin or this catalogue instead.
+//
+// Every bullet above is pinned by exactly one characterization test in
+// oracle.test.ts, and every such test names its bullet by ordinal — 1:1,
+// no orphan in either direction. Update a bullet and its test together.
 //
 // This file's own prose contains `CREATE TABLE` tokens (the bullets above,
 // plus one unsuppressed token in an error message below that matches nothing

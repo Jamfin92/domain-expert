@@ -77,29 +77,59 @@ describe("tablesInDdlText", () => {
   });
 
   it("misses a CREATE VIRTUAL TABLE entirely", () => {
-    // Pins a documented-known-wrong miss (fixtures.ts silent-misses block).
+    // Pins a documented-known-wrong miss (fixtures.ts known-misses block,
+    // first bullet).
     expect(tablesInDdlText("CREATE VIRTUAL TABLE fts USING fts5(content)")).toEqual([]);
   });
 
   it("captures the schema qualifier instead of the table name", () => {
-    // Pins a documented-known-wrong capture (fixtures.ts silent-misses block).
+    // Pins a documented-known-wrong capture (fixtures.ts known-misses block,
+    // second bullet).
     expect(tablesInDdlText("CREATE TABLE main.foo (id)")).toEqual(["main"]);
   });
 
   it("truncates a quoted name at its first space", () => {
-    // Pins a documented-known-wrong capture (fixtures.ts silent-misses block).
+    // Pins a documented-known-wrong capture (fixtures.ts known-misses block,
+    // third bullet).
     expect(tablesInDdlText('CREATE TABLE "my table" (id)')).toEqual(["my"]);
   });
 
   it("truncates a non-ASCII identifier at the first non-word character", () => {
-    // Pins a documented-known-wrong capture (fixtures.ts silent-misses block).
+    // Pins a documented-known-wrong capture (fixtures.ts known-misses block,
+    // fourth bullet).
     expect(tablesInDdlText("CREATE TABLE café (id)")).toEqual(["caf"]);
   });
 
   it("skips a real declaration that shares a line with a comment opener", () => {
-    // Pins the loud-failure direction (fixtures.ts silent-misses block, fifth
+    // Pins a loud-failure miss (fixtures.ts known-misses block, fifth
     // bullet): update the bullet and this test together, do not delete it.
     expect(tablesInDdlText("/* v2 */ CREATE TABLE foo (id)")).toEqual([]);
+    // The marker need not lead the line — the bullet's other example.
+    expect(tablesInDdlText("count--; CREATE TABLE foo (id)")).toEqual([]);
+  });
+
+  it("skips a real declaration on a JSDoc continuation line", () => {
+    // Pins the other loud-failure miss (fixtures.ts known-misses block,
+    // sixth bullet): a line whose first non-space character is `*` is
+    // skipped even when the declaration is real. Unlike the "ignores a
+    // JSDoc continuation line" test above, where the ghost deserves to be
+    // ignored, here a real table goes missing. Update the bullet and this
+    // test together, do not delete it.
+    expect(tablesInDdlText(" * CREATE TABLE foo (id)")).toEqual([]);
+  });
+
+  it("captures a ghost from an unmarked line inside a multi-line block comment", () => {
+    // Pins the misattributing miss (fixtures.ts known-misses block, seventh
+    // bullet). "ignores a declaration inside a single-line block comment"
+    // and "ignores a JSDoc continuation line" cover comment lines the
+    // guards do catch; this is their opposite: the ghost line carries no
+    // marker of its own, so it IS captured as a real table. At the corpus
+    // assertion that reddens as "psq missed a table" and points the reader
+    // at the extractor, when the invented name came from this oracle.
+    // Deliberately not fixed — no comment-state machine. Update the bullet
+    // and this test together, do not delete it.
+    const text = "/*\nCREATE TABLE ghost (id)\n*/\nCREATE TABLE real (id);\n";
+    expect(tablesInDdlText(text)).toEqual(["ghost", "real"]);
   });
 });
 
