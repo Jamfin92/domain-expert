@@ -87,8 +87,31 @@ describe("graph endpoints", () => {
     expect(mmd.text.startsWith("erDiagram")).toBe(true);
   });
 
+  it("returns a 3d layout with integer geometry and a district basis", async () => {
+    const id = await openMini();
+    const res = await request(app).get(`/api/repos/${id}/layout3d`);
+    expect(res.status).toBe(200);
+    const l = res.body.layout3d;
+    // mini-efcore has one namespace, one dir and one connected component, so
+    // the district rule must land on its explicit degenerate tier.
+    expect(l.districtBasis).toBe("single");
+    expect(l.nodes).toHaveLength(5);
+    expect(l.edges).toHaveLength(4);
+    for (const n of l.nodes) {
+      for (const v of [n.x, n.z, n.width, n.depth, n.height, n.tier]) {
+        expect(Number.isInteger(v)).toBe(true);
+      }
+      // Seeded rows reach the buildings, exactly as they reach the 2D boxes.
+      expect(n.rowCount).toBeGreaterThan(0);
+      expect(n.height).toBeGreaterThanOrEqual(2);
+    }
+    // At least one table is seeded well past the floor height.
+    expect(l.nodes.some((n: { height: number }) => n.height > 2)).toBe(true);
+    for (const e of l.edges) expect(e.cardinality).toBe("one-to-many");
+  });
+
   it("404s for a repo that is not open", async () => {
-    for (const path of ["graph", "layout", "mermaid", "questions", "selftest"]) {
+    for (const path of ["graph", "layout", "layout3d", "mermaid", "questions", "selftest"]) {
       expect((await request(app).get(`/api/repos/deadbeef/${path}`)).status).toBe(404);
     }
   });

@@ -102,6 +102,15 @@ export function createApp(workspace: Workspace = new Workspace()): {
     res.json({ layout: l });
   }));
 
+  app.get("/api/repos/:id/layout3d", handler((req, res) => {
+    const l = workspace.layout3dOf(String(req.params["id"]));
+    if (!l) {
+      fail(res, 404, "That repo is not open.");
+      return;
+    }
+    res.json({ layout3d: l });
+  }));
+
   app.get("/api/repos/:id/mermaid", handler((req, res) => {
     const m = workspace.mermaidOf(String(req.params["id"]));
     if (m === undefined) {

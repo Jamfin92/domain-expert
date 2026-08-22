@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { extract } from "@psq/extract";
-import { invariants, layout, mermaid, type Layout } from "@psq/graph";
+import { invariants, layout, layout3d, mermaid, type Layout, type Layout3D } from "@psq/graph";
 import {
   buildBank,
   materialize, selectQuiz, grade, referenceAnswer, selftest,
@@ -149,6 +149,11 @@ export class Workspace {
   layoutOf(id: string): Layout | undefined {
     const r = this.repos.get(id);
     return r ? layout(r.graph, r.seeded.rowCounts) : undefined;
+  }
+
+  layout3dOf(id: string): Layout3D | undefined {
+    const r = this.repos.get(id);
+    return r ? layout3d(r.graph, r.seeded.rowCounts) : undefined;
   }
 
   mermaidOf(id: string): string | undefined {

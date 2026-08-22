@@ -30,6 +30,30 @@ export interface Layout {
   nodes: LayoutNode[]; edges: LayoutEdge[]; width: number; height: number;
 }
 
+// Mirrored from packages/graph/src/layout3d.ts, deliberately: apps/web takes
+// no workspace deps, so shapes the server sends are restated here by hand.
+export type DistrictBasis = "namespace" | "dir" | "component" | "single";
+export interface Layout3DNode {
+  name: string; district: string; x: number; z: number;
+  width: number; depth: number; height: number;
+  tier: number; degree: number; rowCount: number;
+}
+export interface Layout3DDistrict {
+  name: string; x: number; z: number; width: number; depth: number;
+}
+export interface Layout3DEdge {
+  id: string; from: string; to: string; label: string;
+  required: boolean; inferred: boolean;
+  cardinality: "one-to-one" | "one-to-many" | "many-to-many";
+}
+export interface Layout3D {
+  districtBasis: DistrictBasis;
+  districts: Layout3DDistrict[];
+  nodes: Layout3DNode[];
+  edges: Layout3DEdge[];
+  width: number; depth: number;
+}
+
 export type Section = "entity" | "client" | "ds" | "agent-entities" | "agent-client" | "agent-ds";
 
 export interface PublicQuestion {
@@ -148,6 +172,7 @@ export const api = {
   graph: (id: string) => call<{ graph: EntityGraph }>(`/api/repos/${id}/graph`),
 
   layout: (id: string) => call<{ layout: Layout }>(`/api/repos/${id}/layout`),
+  layout3d: (id: string) => call<{ layout3d: Layout3D }>(`/api/repos/${id}/layout3d`),
 
   questions: (id: string) =>
     call<{
