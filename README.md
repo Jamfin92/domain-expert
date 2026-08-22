@@ -4,7 +4,7 @@ Read a codebase. Then prove you know it.
 
 psq extracts the structure of a project, generates questions whose answers it
 already holds, and grades your answers. It reads .NET / EF Core projects and
-Node backends whose schema is raw SQL. React clients come next.
+Node backends whose schema is raw SQL. React clients are planned (M5).
 
 ## Why this exists
 
@@ -31,9 +31,24 @@ answer is right. A model that both writes and grades measures nothing.
 | M2 — short answer, cloze, SQL over a seeded database | done |
 | M3 — server, web UI, Electron shell | done |
 | M4 — Node backends, data structures | done |
-| M5 — React clients, cross-layer links | planned |
-| M6 — agent-authored questions, STE checks | planned |
-| M7 — working memory export | planned |
+| M5 — React clients, table↔route↔component links | planned |
+| M6 — agent-authored prose, STE checks, grading stays deterministic | planned |
+| M7 — working memory export (`psq export`) | planned |
+| M8 — 3D entity city, phases 1–2a (layout + renderer, not yet wired in) | done |
+| M9 — 3D entity city phase 2b: wire the city into the web UI, theme-derived colours | planned |
+
+## Next
+
+The table above says what each milestone is. This is the order the remaining
+work happens in:
+
+1. Drift-oracle follow-ups — the four open items in
+   `feature-research/corpus-drift-oracle/progress.md`. Small, and the context
+   is fresh.
+2. M9 — finishes the entity city that M8 already shipped.
+3. M5 — the route reader is already built and waiting for its client side.
+4. M6 — agent prose only matters once the clients and links exist.
+5. M7 — export ships last; it packages what the earlier milestones produce.
 
 ## Install
 
@@ -316,8 +331,8 @@ real projects on this machine and validate extraction against ground truth psq
 did not produce. Corpus tests skip when those projects are absent:
 
 ```bash
-PSQ_NO_CORPUS=1 pnpm test   # 92 tests, no external repo needed
-pnpm test                    # 147 tests
+PSQ_NO_CORPUS=1 pnpm test   # 138 tests, no external repo needed
+pnpm test                    # 193 tests
 ```
 
 `test/fixtures/mini-node` is the Node counterpart to `mini-efcore`, and is

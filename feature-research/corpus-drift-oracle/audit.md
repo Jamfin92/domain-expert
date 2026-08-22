@@ -121,3 +121,47 @@ packages/extract/src/** untouched.
   test errors rather than false-passes.
 
 Not committed; working tree left for review.
+
+## Roadmap reorganization
+
+Files changed:
+- `README.md`
+- `CLAUDE.md`
+- `feature-research/corpus-drift-oracle/audit.md` (this file)
+
+Documentation only. No `.ts` files touched. M1–M7 keep their numbers.
+
+`README.md`:
+- Status table: reworded the M5/M6/M7 planned rows, added M8 and M9. After
+  review, the M8/M9 rows were corrected — the 3D city is NOT wired into the
+  web UI (`EntityCity` is imported by nothing; the `layout3d` route has no UI
+  consumer). M8 now reads "3D entity city, phases 1–2a (layout + renderer,
+  not yet wired in) | done"; M9 reads "3D entity city phase 2b: wire the city
+  into the web UI, theme-derived colours | planned".
+- Added a `## Next` section after the table: running order for remaining work
+  (drift-oracle follow-ups, M9, M5, M6, M7) with one-line rationale each.
+- Line 7: "React clients come next" contradicted the `## Next` ordering (which
+  puts drift-oracle follow-ups and M9 ahead of M5); now reads "React clients
+  are planned (M5)".
+- Development section: corrected stale test counts 92→138 (`PSQ_NO_CORPUS=1`)
+  and 147→193 (full suite).
+
+`CLAUDE.md`:
+- Rule 8 claimed `.psq/` is written "only on an explicit `psq export`", but the
+  CLI has no `export` case — that command is M7, still planned. A first fix
+  said "`.psq/` is written only on an explicit `--out`", still not literally
+  true: nothing in source creates `.psq/` — `--out` writes wherever pointed
+  (`apps/cli/src/index.ts:117-120`, `:145-148`), is accepted only by `graph`
+  and `questions`, and `.psq/` is just the README's example path. Rule 8's
+  second sentence now reads: "psq writes only where you point it with `--out`
+  (accepted by `graph` and `questions`); the `.psq/` directory is just the
+  README's example path. `psq export` is the M7 command for a packaged export
+  and does not exist yet." First sentence untouched (verified exactly true:
+  `writeOut` at `apps/cli/src/index.ts:54-58` is the only write in non-test
+  source).
+
+Not changed: the "domain brief" claim at README line 17 — reported back for a
+decision, per the plan.
+
+Verification: `pnpm exec vitest run` — 13 files, 193 tests, all pass. Working
+tree left uncommitted for review.

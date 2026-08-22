@@ -98,8 +98,10 @@ cannot be argued with.
 
 ## 8. Target repos are read-only
 
-Extraction never writes into a project it reads. `.psq/` is written only on an
-explicit `psq export`.
+Extraction never writes into a project it reads. psq writes only where you
+point it with `--out` (accepted by `graph` and `questions`); the `.psq/`
+directory is just the README's example path. `psq export` is the M7 command
+for a packaged export and does not exist yet.
 
 ## Commands
 
