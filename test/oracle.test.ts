@@ -75,6 +75,32 @@ describe("tablesInDdlText", () => {
     const text = "CREATE TABLE zebra (id);\nCREATE TABLE apple (id);\n";
     expect(tablesInDdlText(text)).toEqual(["apple", "zebra"]);
   });
+
+  it("misses a CREATE VIRTUAL TABLE entirely", () => {
+    // Pins a documented-known-wrong miss (fixtures.ts silent-misses block).
+    expect(tablesInDdlText("CREATE VIRTUAL TABLE fts USING fts5(content)")).toEqual([]);
+  });
+
+  it("captures the schema qualifier instead of the table name", () => {
+    // Pins a documented-known-wrong capture (fixtures.ts silent-misses block).
+    expect(tablesInDdlText("CREATE TABLE main.foo (id)")).toEqual(["main"]);
+  });
+
+  it("truncates a quoted name at its first space", () => {
+    // Pins a documented-known-wrong capture (fixtures.ts silent-misses block).
+    expect(tablesInDdlText('CREATE TABLE "my table" (id)')).toEqual(["my"]);
+  });
+
+  it("truncates a non-ASCII identifier at the first non-word character", () => {
+    // Pins a documented-known-wrong capture (fixtures.ts silent-misses block).
+    expect(tablesInDdlText("CREATE TABLE caf\u00e9 (id)")).toEqual(["caf"]);
+  });
+
+  it("skips a real declaration that shares a line with a comment opener", () => {
+    // Pins the loud-failure direction (fixtures.ts silent-misses block, fifth
+    // bullet): update the bullet and this test together, do not delete it.
+    expect(tablesInDdlText("/* v2 */ CREATE TABLE foo (id)")).toEqual([]);
+  });
 });
 
 const here = dirname(fileURLToPath(import.meta.url));
