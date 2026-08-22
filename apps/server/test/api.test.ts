@@ -46,7 +46,7 @@ describe("opening a repo", () => {
   });
 
   it("says so plainly, and says why, when a repo has no model psq can read", async () => {
-    const res = await request(app).post("/api/repos").send({ path: "~/Developer/psq-app/packages" });
+    const res = await request(app).post("/api/repos").send({ path: "~/Developer/domain-expert/packages" });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("No entities found");
     // The reason names what psq actually looked for in THIS repo, not a generic apology.
