@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -36,4 +36,40 @@ export function hasCorpus(path: string): boolean {
   // be exercised on a machine that does happen to have the repos.
   if (process.env["PSQ_NO_CORPUS"] === "1") return false;
   return existsSync(path);
+}
+
+/** The file that holds each corpus repo's schema. Pinned, so the oracle reads
+ *  one known file instead of reimplementing the extractor's file selection. */
+export const CORPUS_DDL = {
+  corpus-repo-d: resolve(CORPUS.corpus-repo-d, "server/src/state/db.ts"),
+  corpus-repo-e: resolve(CORPUS.corpus-repo-e, "src/db.ts"),
+} as const;
+
+const CREATE_TABLE_NAME =
+  /\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?/gi;
+
+/** Table names a human would find by reading the file, sorted. The independent
+ *  half of the corpus assertion: the extractor runs the DDL through SQLite,
+ *  this just reads the text. */
+export function tablesInDdlText(text: string): string[] {
+  const names = new Set<string>();
+  for (const match of text.matchAll(CREATE_TABLE_NAME)) {
+    // A `--` earlier on the same line means the match is commented out
+    // (`-- CREATE TABLE old_thing`), not a declaration. Only the slice from
+    // the previous newline is inspected, so a `count--;` line elsewhere in
+    // the file cannot suppress a real declaration.
+    const lineStart = text.lastIndexOf("\n", match.index) + 1;
+    if (text.slice(lineStart, match.index).includes("--")) continue;
+    names.add(match[1]!);
+  }
+  return [...names].sort();
+}
+
+/** Throws when the file is missing or declares nothing, so a moved schema
+ *  fails loudly instead of comparing [] to []. */
+export function tablesDeclaredIn(path: string): string[] {
+  if (!existsSync(path)) throw new Error(`no DDL file at ${path}`);
+  const tables = tablesInDdlText(readFileSync(path, "utf8"));
+  if (tables.length === 0) throw new Error(`${path} declares no CREATE TABLE`);
+  return tables;
 }

@@ -1,21 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { extractNode } from "../src/index.js";
-import { CORPUS, hasCorpus } from "../../../test/fixtures.js";
+import { CORPUS, CORPUS_DDL, hasCorpus, tablesDeclaredIn } from "../../../test/fixtures.js";
 
 /**
  * Extraction against real Node backends, validated against schemas psq did not
- * write. The hermetic coverage is in `test/mini-node.test.ts`; these assert the
- * counts a person can check by opening the file and counting CREATE TABLE.
+ * write. The hermetic coverage is in `test/mini-node.test.ts`. The table lists
+ * come from a CREATE TABLE regex over the pinned schema file (`tablesDeclaredIn`),
+ * so they track the live corpus; a hand-checked stable core backstops the
+ * oracle so the comparison can never pass vacuously.
  */
 
 describe.skipIf(!hasCorpus(CORPUS.corpus-repo-d))("corpus-repo-d [corpus]", () => {
   const g = extractNode(CORPUS.corpus-repo-d);
 
-  it("reads all nine tables from one inline template literal", () => {
-    expect(g.entities.map((e) => e.name)).toEqual([
-      "approvals", "audit", "chat_messages", "chats", "model_variant_eta",
+  it("reads every table declared in one inline template literal", () => {
+    const names = g.entities.map((e) => e.name);
+    // The oracle: text-read names must equal SQLite-read names.
+    expect(names).toEqual(tablesDeclaredIn(CORPUS_DDL.corpus-repo-d));
+    // The floor: hand-verified, must never regress even if the oracle breaks too.
+    expect(names).toEqual(expect.arrayContaining([
+      "approvals", "audit", "chat_messages", "chats",
       "packets", "settings", "spend", "tasks",
-    ]);
+    ]));
+    expect(names.length).toBeGreaterThanOrEqual(8);
   });
 
   it("does not mistake the thirty prepare() strings for schema", () => {
@@ -74,10 +81,15 @@ describe.skipIf(!hasCorpus(CORPUS.corpus-repo-d))("corpus-repo-d [corpus]", () =
 describe.skipIf(!hasCorpus(CORPUS.corpus-repo-e))("corpus-repo-e [corpus]", () => {
   const g = extractNode(CORPUS.corpus-repo-e);
 
-  it("reads five tables from a constant exec'd ninety lines later", () => {
-    expect(g.entities.map((e) => e.name)).toEqual([
+  it("reads every table from a constant exec'd ninety lines later", () => {
+    const names = g.entities.map((e) => e.name);
+    // The oracle: text-read names must equal SQLite-read names.
+    expect(names).toEqual(tablesDeclaredIn(CORPUS_DDL.corpus-repo-e));
+    // The floor: hand-verified, must never regress even if the oracle breaks too.
+    expect(names).toEqual(expect.arrayContaining([
       "feed_items", "feed_state", "meta", "quotes", "tickers",
-    ]);
+    ]));
+    expect(names.length).toBeGreaterThanOrEqual(5);
     expect(g.warnings).toEqual([]);
   });
 
