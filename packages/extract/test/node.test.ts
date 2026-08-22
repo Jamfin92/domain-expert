@@ -11,9 +11,9 @@ import { CORPUS, hasCorpus } from "../../../test/fixtures.js";
 describe.skipIf(!hasCorpus(CORPUS.corpus-repo-d))("corpus-repo-d [corpus]", () => {
   const g = extractNode(CORPUS.corpus-repo-d);
 
-  it("reads all eight tables from one inline template literal", () => {
+  it("reads all nine tables from one inline template literal", () => {
     expect(g.entities.map((e) => e.name)).toEqual([
-      "approvals", "audit", "chat_messages", "chats",
+      "approvals", "audit", "chat_messages", "chats", "model_variant_eta",
       "packets", "settings", "spend", "tasks",
     ]);
   });
