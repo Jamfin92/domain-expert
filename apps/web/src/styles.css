@@ -11,6 +11,9 @@
 
   --background: oklch(0.995 0 0);
   --foreground: oklch(0.21 0.03 258);
+  /* The 3D city's contrast tests pin this as 0xffffff in
+     apps/web/test/scene3d.test.ts — changing --card means updating the
+     pinned card colours there too. */
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.21 0.03 258);
   --popover: oklch(1 0 0);
@@ -32,7 +35,11 @@
   --input: oklch(0.925 0.008 248);
   --ring: oklch(0.53 0.19 263);
 
-  /* Diagram-specific tokens, so the SVG never hardcodes a colour. */
+  /* Diagram-specific tokens, so the SVG never hardcodes a colour. These
+     describe the 2D SVG only: the 3D city deliberately does not read them
+     (a stroked node on a distinct background does not translate to a lit
+     surface, and three cannot parse oklch). The city's palette lives in
+     apps/web/src/lib/scene3d.ts as CITY_PALETTE. */
   --graph-node: oklch(1 0 0);
   --graph-node-border: oklch(0.9 0.01 250);
   --graph-edge: oklch(0.72 0.02 255);
@@ -43,6 +50,7 @@
 .dark {
   --background: oklch(0.17 0.02 260);
   --foreground: oklch(0.96 0.005 250);
+  /* Pinned as 0x121824 in apps/web/test/scene3d.test.ts — keep in sync. */
   --card: oklch(0.21 0.025 260);
   --card-foreground: oklch(0.96 0.005 250);
   --popover: oklch(0.21 0.025 260);

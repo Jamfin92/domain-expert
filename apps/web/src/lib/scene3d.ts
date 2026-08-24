@@ -9,23 +9,96 @@ import type { Layout3D, Layout3DDistrict, Layout3DNode } from "@/lib/api";
  * vitest with no alias configuration and no WebGL anywhere in sight.
  */
 
-/** Hardcoded scene colours; phase 2b swaps these for theme-derived values. */
-export const PALETTE = {
-  /** Building body. */
-  building: 0x8b95a5,
-  /** Wireframe overlay so building form reads under flat lighting. */
-  buildingEdge: 0x3d4452,
-  /** District ground slab. */
-  plate: 0x6b7280,
-  /** Declared FK edge. */
-  edge: 0x64748b,
-  /** Inferred (dashed) edge. */
-  edgeInferred: 0x94a3b8,
-  /** Ambient fill light. */
-  ambient: 0xffffff,
-  /** Directional key light. */
-  directional: 0xffffff,
-} as const;
+/**
+ * Per-theme scene colours for the entity city, keyed by the resolved theme.
+ *
+ * The city deliberately does **not** read the `--graph-*` CSS tokens: those
+ * describe a 2D SVG where a node is a stroked shape on a distinct background
+ * (`--graph-node` is pure white in light mode, the same as the card the city
+ * composites against), and three cannot parse `oklch()` anyway. These values
+ * are the city's own.
+ *
+ * A lit surface (`building`, `plate`, the cones) does not render at its token
+ * colour: three's Lambert BRDF divides by π (`BRDF_Lambert`), so a lit face
+ * renders at roughly half its token — `(LIGHT_AMBIENT + LIGHT_DIRECTIONAL ·
+ * dotNL) / π`, at most 0.499 on the top face. The contrast tests in
+ * `test/scene3d.test.ts` apply that exact model; change these values only
+ * against those bands, not by eye against the raw hex.
+ */
+export type CityPalette = Record<
+  | "building"
+  | "buildingEdge"
+  | "plate"
+  | "edge"
+  | "edgeInferred"
+  | "cone"
+  | "coneInferred"
+  | "ambient"
+  | "directional",
+  number
+>;
+
+export const CITY_PALETTE: Record<"light" | "dark", CityPalette> = {
+  light: {
+    /** Building body. */
+    building: 0x8b95a5,
+    /** Wireframe overlay so building form reads under flat lighting. */
+    buildingEdge: 0x282d38,
+    /** District ground slab. */
+    plate: 0x6b7280,
+    /** Declared FK edge. */
+    edge: 0x64748b,
+    /** Inferred (dashed) edge. */
+    edgeInferred: 0x7d8899,
+    /** Declared-edge cone: `edge` ÷ the top-face factor, so a lit cone matches its unlit line. */
+    cone: 0x8aa0be,
+    /** Inferred-edge cone: `edgeInferred` ÷ the top-face factor. */
+    coneInferred: 0xacbad1,
+    /** Ambient fill light. */
+    ambient: 0xffffff,
+    /** Directional key light. */
+    directional: 0xffffff,
+  },
+  dark: {
+    building: 0xb6c0d2,
+    buildingEdge: 0xc3ccdb,
+    plate: 0x8791a3,
+    edge: 0x8f9aad,
+    edgeInferred: 0x6b7488,
+    cone: 0xc4d2ec,
+    coneInferred: 0x94a0ba,
+    ambient: 0xffffff,
+    directional: 0xffffff,
+  },
+};
+
+/** Ambient light intensity. Shared with the tests; do not repeat the literal. */
+export const LIGHT_AMBIENT = 0.75;
+/** Directional light intensity. */
+export const LIGHT_DIRECTIONAL = 1.1;
+/** Directional light position (three normalises it into a direction). */
+export const LIGHT_DIRECTION: Vec3 = { x: 1, y: 2, z: 1.5 };
+
+/** WCAG relative luminance of a 24-bit sRGB colour. */
+export function relativeLuminance(hex: number): number {
+  const chan = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const r = chan((hex >> 16) & 0xff);
+  const g = chan((hex >> 8) & 0xff);
+  const b = chan(hex & 0xff);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG contrast ratio between two 24-bit sRGB colours, always ≥ 1. */
+export function contrastRatio(a: number, b: number): number {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  const lighter = Math.max(la, lb);
+  const darker = Math.min(la, lb);
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 /** Thickness of a district ground slab. */
 export const PLATE_H = 0.5;

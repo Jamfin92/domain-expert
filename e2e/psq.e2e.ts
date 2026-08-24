@@ -119,6 +119,131 @@ describe.skipIf(reason !== "")(`psq end to end`, () => {
     await page.close();
   });
 
+  it("switches the graph between 2D and 3D and back", async () => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url);
+
+    expect(await page.locator('[data-psq="dim-toggle"]').count()).toBe(1);
+    await page.click('[data-psq="dim-3d"]');
+    await page.waitForTimeout(400);
+    // Headless Chrome may have no GPU, so the WebGL fallback is a pass too —
+    // the claim under test is the swap, not the GPU.
+    const city = await page.locator('[data-psq="city"]').count();
+    const fallback = await page.locator('[data-psq="city-fallback"]').count();
+    expect(city + fallback).toBe(1);
+    expect(await page.locator('svg[data-psq="diagram"]').count()).toBe(0);
+
+    await page.click('[data-psq="dim-2d"]');
+    await page.waitForTimeout(400);
+    expect(await page.locator('svg[data-psq="diagram"]').count()).toBe(1);
+    expect(await page.locator('[data-psq="city"]').count()).toBe(0);
+    await page.close();
+  });
+
+  it("gives the city a palette that follows the theme", async () => {
+    // These two hex strings must match CITY_PALETTE.light.building and
+    // CITY_PALETTE.dark.building in apps/web/src/lib/scene3d.ts. Pinned
+    // literally: e2e/tsconfig.json has no @/* mapping, so importing the
+    // palette from apps/web would fail typecheck.
+    const LIGHT_BUILDING = "#8b95a5";
+    const DARK_BUILDING = "#b6c0d2";
+
+    const page = await h.newPage({ colorScheme: "light" });
+    await analyzeFixture(page, h.url);
+    await page.click('button[aria-label="Light"]');
+    await page.waitForTimeout(200);
+    await page.click('[data-psq="dim-3d"]');
+    await page.waitForTimeout(400);
+
+    // The attribute sits on whichever root rendered — city or fallback — so
+    // this holds with or without WebGL.
+    const before = await page.getAttribute("[data-city-palette]", "data-city-palette");
+    expect(await page.getAttribute("html", "class")).not.toContain("dark");
+    expect(before).toBe(LIGHT_BUILDING);
+
+    await page.click('button[aria-label="Dark"]');
+    await page.waitForTimeout(200);
+    const after = await page.getAttribute("[data-city-palette]", "data-city-palette");
+    expect(await page.getAttribute("html", "class")).toContain("dark");
+    expect(after).toBe(DARK_BUILDING);
+    expect(after).not.toBe(before);
+    await page.close();
+  });
+
+  it("draws a city that is not blank", async (ctx) => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url);
+    await page.click('[data-psq="dim-3d"]');
+    await page.waitForTimeout(400);
+
+    if ((await page.locator('[data-psq="city"]').count()) === 0) {
+      // A machine without WebGL legitimately renders the fallback, exactly as
+      // in the 2D/3D swap test above. Skip visibly rather than pass silently.
+      expect(await page.locator('[data-psq="city-fallback"]').count()).toBe(1);
+      await page.close();
+      ctx.skip();
+      return;
+    }
+
+    const px = await page.evaluate(
+      () =>
+        new Promise<{ pixels: number; uniform: boolean }>((resolve) => {
+          const el = document.querySelector('[data-psq="city"]') as HTMLElement;
+          const canvas = el.querySelector("canvas") as HTMLCanvasElement;
+          // three r185 renders through WebGL2; getContext with the same type
+          // returns the live context rather than creating one.
+          const gl = canvas.getContext("webgl2") as WebGL2RenderingContext;
+          const read = (): { pixels: number; uniform: boolean } => {
+            const w = gl.drawingBufferWidth;
+            const h2 = gl.drawingBufferHeight;
+            const buf = new Uint8Array(w * h2 * 4);
+            gl.readPixels(0, 0, w, h2, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+            let uniform = true;
+            for (let i = 4; i < buf.length; i += 4) {
+              if (
+                buf[i] !== buf[0] || buf[i + 1] !== buf[1] ||
+                buf[i + 2] !== buf[2] || buf[i + 3] !== buf[3]
+              ) {
+                uniform = false;
+                break;
+              }
+            }
+            return { pixels: w * h2, uniform };
+          };
+          // The renderer has no preserveDrawingBuffer, so the buffer is
+          // cleared once the compositor consumes a frame — a bare readPixels
+          // sees only zeros. EntityCity re-renders from a ResizeObserver
+          // created on mount; observers are notified in creation order, so
+          // this one (created later) runs in the same frame, after the
+          // render and before the compositor clears it.
+          const ro = new ResizeObserver(() => {
+            const r = read();
+            if (!r.uniform) {
+              ro.disconnect();
+              resolve(r);
+            }
+          });
+          ro.observe(el);
+          // Nudge the size to fire both observers; twice, in case the first
+          // notification races the mount render.
+          el.style.height = "99%";
+          setTimeout(() => {
+            el.style.height = "98%";
+          }, 150);
+          // Genuinely blank canvas: every read was uniform. Report it so the
+          // test fails rather than hangs.
+          setTimeout(() => {
+            ro.disconnect();
+            resolve(read());
+          }, 1500);
+        }),
+    );
+    expect(px.pixels).toBeGreaterThan(0);
+    // A uniform buffer is a blank canvas: the city did not draw.
+    expect(px.uniform).toBe(false);
+    await page.close();
+  });
+
   it("changes theme on demand and remembers the choice", async () => {
     const page = await h.newPage({ colorScheme: "light" });
     await page.goto(h.url, { waitUntil: "networkidle" });

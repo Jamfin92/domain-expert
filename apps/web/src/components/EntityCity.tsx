@@ -19,9 +19,13 @@ import {
 } from "three";
 import type { Layout3D } from "@/lib/api";
 import { hasWebGL } from "@/lib/webgl";
+import { useTheme } from "@/lib/theme";
 import {
   CAMERA_FOV,
-  PALETTE,
+  CITY_PALETTE,
+  LIGHT_AMBIENT,
+  LIGHT_DIRECTION,
+  LIGHT_DIRECTIONAL,
   buildingBox,
   districtPlate,
   edgeSegments,
@@ -36,9 +40,9 @@ import {
  * edges run above the rooftops with a cone at the dependent end.
  *
  * Static means static: the scene renders on mount, on resize and on layout
- * change — no animation loop. Camera controls and picking land in a later
- * phase; this component's whole job is to draw the city and clean up after
- * itself completely on unmount.
+ * change — no animation loop. There is deliberately no picking and no orbit
+ * or camera control; this component's whole job is to draw the city and clean
+ * up after itself completely on unmount.
  */
 
 interface Props {
@@ -83,6 +87,10 @@ function edgeGeometry(segs: EdgeSegment[], dashed: boolean): BufferGeometry {
 
 export function EntityCity({ layout, fallback }: Props): React.ReactElement {
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const { resolved } = useTheme();
+  // Straight from the module-level table: identity is stable per theme by
+  // construction, so this can sit in the effect deps without churning.
+  const palette = CITY_PALETTE[resolved];
   // Lazy initialiser: probe once, not on every render.
   const [webglOk, setWebglOk] = useState(() => hasWebGL());
 
@@ -114,17 +122,17 @@ export function EntityCity({ layout, fallback }: Props): React.ReactElement {
     const scene = new Scene();
 
     // Lambert is a lit material: without lights every building is pure black.
-    const ambient = track(new AmbientLight(PALETTE.ambient, 0.75));
-    const directional = track(new DirectionalLight(PALETTE.directional, 1.1));
-    directional.position.set(1, 2, 1.5);
+    const ambient = track(new AmbientLight(palette.ambient, LIGHT_AMBIENT));
+    const directional = track(new DirectionalLight(palette.directional, LIGHT_DIRECTIONAL));
+    directional.position.set(LIGHT_DIRECTION.x, LIGHT_DIRECTION.y, LIGHT_DIRECTION.z);
     scene.add(ambient, directional);
 
     // One unit box, scaled per mesh, shared by every plate and building.
     const unitBox = track(new BoxGeometry(1, 1, 1));
     const unitBoxEdges = track(new EdgesGeometry(unitBox));
-    const buildingMat = track(new MeshLambertMaterial({ color: PALETTE.building }));
-    const plateMat = track(new MeshLambertMaterial({ color: PALETTE.plate }));
-    const buildingEdgeMat = track(new LineBasicMaterial({ color: PALETTE.buildingEdge }));
+    const buildingMat = track(new MeshLambertMaterial({ color: palette.building }));
+    const plateMat = track(new MeshLambertMaterial({ color: palette.plate }));
+    const buildingEdgeMat = track(new LineBasicMaterial({ color: palette.buildingEdge }));
 
     for (const d of layout.districts) {
       const p = districtPlate(d);
@@ -150,12 +158,12 @@ export function EntityCity({ layout, fallback }: Props): React.ReactElement {
     const solid = segs.filter((s) => !s.inferred);
     const inferred = segs.filter((s) => s.inferred);
     if (solid.length > 0) {
-      const mat = track(new LineBasicMaterial({ color: PALETTE.edge }));
+      const mat = track(new LineBasicMaterial({ color: palette.edge }));
       scene.add(new LineSegments(track(edgeGeometry(solid, false)), mat));
     }
     if (inferred.length > 0) {
       const mat = track(
-        new LineDashedMaterial({ color: PALETTE.edgeInferred, dashSize: 1.5, gapSize: 1 }),
+        new LineDashedMaterial({ color: palette.edgeInferred, dashSize: 1.5, gapSize: 1 }),
       );
       scene.add(new LineSegments(track(edgeGeometry(inferred, true)), mat));
     }
@@ -164,8 +172,10 @@ export function EntityCity({ layout, fallback }: Props): React.ReactElement {
     // to = dependent — that is the layout's contract, not a bug.
     if (segs.length > 0) {
       const coneGeo = track(new ConeGeometry(CONE_RADIUS, CONE_LEN, 8));
-      const coneMat = track(new MeshLambertMaterial({ color: PALETTE.edge }));
-      const coneMatInferred = track(new MeshLambertMaterial({ color: PALETTE.edgeInferred }));
+      // Cones are lit while their lines are not; `cone`/`coneInferred` are the
+      // line colours pre-divided by the top-face factor so the two match.
+      const coneMat = track(new MeshLambertMaterial({ color: palette.cone }));
+      const coneMatInferred = track(new MeshLambertMaterial({ color: palette.coneInferred }));
       for (const s of segs) {
         const dir = new Vector3(s.to.x - s.from.x, s.to.y - s.from.y, s.to.z - s.from.z).normalize();
         const cone = new Mesh(coneGeo, s.inferred ? coneMatInferred : coneMat);
@@ -211,10 +221,24 @@ export function EntityCity({ layout, fallback }: Props): React.ReactElement {
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [layout, webglOk]);
+  }, [layout, webglOk, palette]);
 
+  // The palette hex, exposed for the e2e theme test. On both roots: the
+  // palette is resolved whether or not WebGL initialised.
+  const paletteAttr = `#${palette.building.toString(16).padStart(6, "0")}`;
   if (!webglOk) {
-    return <div data-psq="city-fallback">{fallback}</div>;
+    return (
+      <div data-psq="city-fallback" data-city-palette={paletteAttr}>
+        {fallback}
+      </div>
+    );
   }
-  return <div ref={boxRef} data-psq="city" className="h-full w-full overflow-hidden" />;
+  return (
+    <div
+      ref={boxRef}
+      data-psq="city"
+      data-city-palette={paletteAttr}
+      className="h-full w-full overflow-hidden"
+    />
+  );
 }

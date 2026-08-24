@@ -6,12 +6,14 @@ import {
   api,
   type EntityGraph,
   type Layout,
+  type Layout3D,
   type RepoSummary,
   type Route,
   type Section,
   type Shape,
 } from "@/lib/api";
 import { EntityDiagram } from "@/components/EntityDiagram";
+import { EntityCity } from "@/components/EntityCity";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -127,6 +129,8 @@ function Stat({
 
 export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
   const [layout, setLayout] = useState<Layout | null>(null);
+  const [layout3d, setLayout3d] = useState<Layout3D | null>(null);
+  const [dim, setDim] = useState<"2d" | "3d">("2d");
   const [graph, setGraph] = useState<EntityGraph | null>(null);
   const [bank, setBank] = useState<Bank | null>(null);
   const [selftestOk, setSelftestOk] = useState<boolean | null>(null);
@@ -139,20 +143,32 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
   useEffect(() => {
     let cancelled = false;
     setLayout(null);
+    setLayout3d(null);
+    setDim("2d");
     setSelected(null);
     setSections([]);
     setError(null);
     void (async () => {
       try {
-        const [l, g, q, st, sh] = await Promise.all([
+        const [l, g, q, st, sh, l3] = await Promise.all([
           api.layout(repo.id),
           api.graph(repo.id),
           api.questions(repo.id),
           api.selftest(repo.id),
           api.shapes(repo.id),
+          // The loader is all-or-nothing, but the city is an extra: a 3D-only
+          // failure must not blank the whole dashboard, so this leg never
+          // rejects — it just leaves the 3D button disabled.
+          api.layout3d(repo.id).catch((err: unknown) => {
+            // Diagnosable, but still resolves null: a 3D failure must never
+            // reject or it would blank the whole dashboard.
+            console.warn("3D layout unavailable:", err);
+            return null;
+          }),
         ]);
         if (cancelled) return;
         setLayout(l.layout);
+        setLayout3d(l3 ? l3.layout3d : null);
         setGraph(g.graph);
         setBank(q);
         setSelftestOk(st.ok);
@@ -200,14 +216,62 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
               <GitBranch className="size-4" />
               Entity graph
             </span>
-            {selected ? (
-              <Badge variant="secondary" className="font-mono text-[11px]">{selected}</Badge>
-            ) : (
-              <span className="text-xs text-muted-foreground">Click an entity to focus it</span>
-            )}
+            <span className="flex items-center gap-3">
+              {/* Selection is a 2D affair — the city has no picking — so the
+                  badge/hint would be stale or meaningless next to the city. */}
+              {dim === "2d" ? (
+                selected ? (
+                  <Badge variant="secondary" className="font-mono text-[11px]">{selected}</Badge>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Click an entity to focus it</span>
+                )
+              ) : null}
+              <span
+                data-psq="dim-toggle"
+                role="group"
+                aria-label="Diagram dimension"
+                className="flex gap-1"
+              >
+                <Button
+                  variant={dim === "2d" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  data-psq="dim-2d"
+                  aria-pressed={dim === "2d"}
+                  onClick={() => setDim("2d")}
+                >
+                  2D
+                </Button>
+                {/* The title lives on a wrapper: the shadcn base class sets
+                    `disabled:pointer-events-none`, so a title on the disabled
+                    button itself could never show. */}
+                <span title={layout3d === null ? "The 3D layout is not available for this repo" : undefined}>
+                  <Button
+                    variant={dim === "3d" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    data-psq="dim-3d"
+                    aria-pressed={dim === "3d"}
+                    disabled={layout3d === null}
+                    onClick={() => setDim("3d")}
+                  >
+                    3D
+                  </Button>
+                </span>
+              </span>
+            </span>
           </div>
           <CardContent className="h-[32rem] p-0 xl:h-[40rem]">
-            {layout ? (
+            {dim === "3d" && layout3d ? (
+              <EntityCity
+                layout={layout3d}
+                fallback={
+                  <p className="py-24 text-center text-sm text-muted-foreground">
+                    3D needs WebGL, which this browser is not providing. The 2D diagram still works.
+                  </p>
+                }
+              />
+            ) : layout ? (
               <EntityDiagram layout={layout} selected={selected} onSelect={setSelected} />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

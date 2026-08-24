@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  CITY_PALETTE,
   EDGE_LIFT,
+  LIGHT_AMBIENT,
+  LIGHT_DIRECTION,
+  LIGHT_DIRECTIONAL,
   MIN_EXTENT,
-  PALETTE,
   buildingBox,
+  contrastRatio,
+  relativeLuminance,
   districtPlate,
   edgeSegments,
   frameCamera,
@@ -204,12 +209,137 @@ describe("edgeSegments", () => {
   });
 });
 
-describe("PALETTE", () => {
+describe("relativeLuminance and contrastRatio", () => {
+  it("give the WCAG anchors", () => {
+    expect(relativeLuminance(0x000000)).toBe(0);
+    expect(relativeLuminance(0xffffff)).toBeCloseTo(1, 10);
+    expect(contrastRatio(0x000000, 0xffffff)).toBeCloseTo(21, 10);
+    expect(contrastRatio(0xffffff, 0x000000)).toBeCloseTo(21, 10);
+    expect(contrastRatio(0x8b95a5, 0x8b95a5)).toBe(1);
+  });
+});
+
+describe("CITY_PALETTE", () => {
+  const themes = ["light", "dark"] as const;
+
+  /* The card colours the city composites against (the renderer clears
+     transparent). Pinned by hand — this test cannot read oklch():
+     --card is oklch(1 0 0) = #ffffff in light (styles.css:14 block) and
+     oklch(0.21 0.025 260) = #121824 in dark (styles.css:46 block). */
+  const CARD = { light: 0xffffff, dark: 0x121824 } as const;
+
+  /* three's Lambert BRDF divides by pi (BRDF_Lambert's RECIPROCAL_PI in
+     three/src/renderers/shaders/ShaderChunk/common.glsl.js), so the linear
+     multiplier on a lit face is (ambient + directional * dotNL) / pi.
+     Omitting the / Math.PI makes every band below pass for any palette —
+     it is the load-bearing term. */
+  const factor = (dotNL: number): number =>
+    (LIGHT_AMBIENT + LIGHT_DIRECTIONAL * Math.max(dotNL, 0)) / Math.PI;
+
+  /* dotNL per face the camera can actually see (AZIMUTH pi/4, ELEVATION
+     pi/5.5): top, +z and +x. The other three faces are never on screen. */
+  const len = Math.hypot(LIGHT_DIRECTION.x, LIGHT_DIRECTION.y, LIGHT_DIRECTION.z);
+  const visibleFaces = {
+    top: LIGHT_DIRECTION.y / len,
+    "+z": LIGHT_DIRECTION.z / len,
+    "+x": LIGHT_DIRECTION.x / len,
+  } as const;
+
+  /* Luminance is linear, so a lit surface's relative luminance is the
+     token's luminance scaled by the face factor. */
+  const litLuminance = (hex: number, dotNL: number): number =>
+    relativeLuminance(hex) * factor(dotNL);
+
+  const ratio = (la: number, lb: number): number =>
+    (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+
+  it("exposes an identical key set in both themes", () => {
+    expect(Object.keys(CITY_PALETTE.light).sort()).toEqual(
+      Object.keys(CITY_PALETTE.dark).sort(),
+    );
+  });
+
   it("holds only valid 24-bit integers", () => {
-    for (const [name, value] of Object.entries(PALETTE)) {
-      expect(Number.isInteger(value), name).toBe(true);
-      expect(value, name).toBeGreaterThanOrEqual(0);
-      expect(value, name).toBeLessThanOrEqual(0xffffff);
+    for (const theme of themes) {
+      for (const [name, value] of Object.entries(CITY_PALETTE[theme])) {
+        expect(Number.isInteger(value), `${theme}.${name}`).toBe(true);
+        expect(value, `${theme}.${name}`).toBeGreaterThanOrEqual(0);
+        expect(value, `${theme}.${name}`).toBeLessThanOrEqual(0xffffff);
+      }
+    }
+  });
+
+  it("keeps lit surfaces at contrast >= 2.5 against the card on every visible face", () => {
+    for (const theme of themes) {
+      const cardL = relativeLuminance(CARD[theme]);
+      for (const key of ["building", "plate"] as const) {
+        for (const [face, dotNL] of Object.entries(visibleFaces)) {
+          const r = ratio(litLuminance(CITY_PALETTE[theme][key], dotNL), cardL);
+          expect(r, `${theme}.${key} ${face} face vs card`).toBeGreaterThanOrEqual(2.5);
+        }
+      }
+    }
+  });
+
+  it("keeps ground reading as ground: the plate renders darker than the buildings on it", () => {
+    /* Rendered order, not token order: the plate is seen top-face-on (the
+       brightest factor, 0.499) while a building shows mostly side faces
+       (0.369/0.434), so a palette could keep token order while the plate's
+       top out-renders a building's +x face on screen. Compare the dimmest
+       visible building face against the plate's top face, with a real
+       separation — a 1-bit gap must not pass. The approved values sit at
+       ~1.31 (light) and ~1.38 (dark). */
+    const MIN_SEPARATION = 1.15;
+    for (const theme of themes) {
+      const buildingDimmest = Math.min(
+        ...Object.values(visibleFaces).map((dotNL) =>
+          litLuminance(CITY_PALETTE[theme].building, dotNL),
+        ),
+      );
+      const plateTop = litLuminance(CITY_PALETTE[theme].plate, visibleFaces.top);
+      expect(
+        buildingDimmest / plateTop,
+        `${theme}: dimmest building face over plate top face`,
+      ).toBeGreaterThanOrEqual(MIN_SEPARATION);
+    }
+  });
+
+  it("keeps unlit lines at contrast >= 3.0 against the card", () => {
+    for (const theme of themes) {
+      for (const key of ["buildingEdge", "edge", "edgeInferred"] as const) {
+        const r = contrastRatio(CITY_PALETTE[theme][key], CARD[theme]);
+        expect(r, `${theme}.${key} vs card`).toBeGreaterThanOrEqual(3.0);
+      }
+    }
+  });
+
+  it("keeps the outline at contrast >= 2.0 against the lit building body it overlays", () => {
+    for (const theme of themes) {
+      const edgeL = relativeLuminance(CITY_PALETTE[theme].buildingEdge);
+      for (const [face, dotNL] of Object.entries(visibleFaces)) {
+        const bodyL = litLuminance(CITY_PALETTE[theme].building, dotNL);
+        expect(
+          ratio(edgeL, bodyL),
+          `${theme}.buildingEdge vs building ${face} face`,
+        ).toBeGreaterThanOrEqual(2.0);
+      }
+    }
+  });
+
+  it("renders a cone's top face within 1.5 of its line's colour", () => {
+    for (const theme of themes) {
+      const pairs = [
+        ["cone", "edge"],
+        ["coneInferred", "edgeInferred"],
+      ] as const;
+      for (const [coneKey, lineKey] of pairs) {
+        const coneL = litLuminance(CITY_PALETTE[theme][coneKey], visibleFaces.top);
+        const lineL = relativeLuminance(CITY_PALETTE[theme][lineKey]);
+        expect(
+          ratio(coneL, lineL),
+          `${theme}.${coneKey} top face vs ${lineKey}`,
+        ).toBeLessThanOrEqual(1.5);
+      }
     }
   });
 });
