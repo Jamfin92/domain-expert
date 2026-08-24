@@ -31,24 +31,23 @@ answer is right. A model that both writes and grades measures nothing.
 | M2 — short answer, cloze, SQL over a seeded database | done |
 | M3 — server, web UI, Electron shell | done |
 | M4 — Node backends, data structures | done |
-| M5 — React clients, table↔route↔component links | planned |
+| M5a — client call facts: HTTP call sites matched to routes | done |
+| M5b — React clients: component attribution, route↔table link | planned |
 | M6 — agent-authored prose, STE checks, grading stays deterministic | planned |
 | M7 — working memory export (`psq export`), domain brief | planned |
 | M8 — 3D city layout and renderer, not wired into the UI | done |
-| M9 — 3D entity city phase 2b: wire the city into the web UI, theme-derived colours | planned |
+| M9a — wire the 3D city into the web UI (2D/3D toggle, hardcoded palette) | done |
+| M9b — theme-derived colours for the city | done |
 
 ## Next
 
 The table above says what each milestone is. This is the order the remaining
 work happens in:
 
-1. Drift-oracle follow-ups — the four open items in
-   `feature-research/corpus-drift-oracle/progress.md`. Small, and the context
-   is fresh.
-2. M9 — finishes the entity city that M8 already shipped.
-3. M5 — the route reader is already built and waiting for its client side.
-4. M6 — agent prose only matters once the clients and links exist.
-5. M7 — export ships last; it packages what the earlier milestones produce.
+1. M5b — call sites are now facts; attributing them to components (and
+   tracing route→table) is the remaining half of the client link.
+2. M6 — agent prose only matters once the clients and links exist.
+3. M7 — export ships last; it packages what the earlier milestones produce.
 
 ## Install
 
