@@ -13,7 +13,7 @@ import { hashSeed } from "@psq/quiz";
 import { Section } from "@psq/schema";
 import type { EntityGraph, Question } from "@psq/schema";
 
-/** argv parsing, hand-rolled — the same shape as an earlier internal CLI's runner. */
+/** argv parsing, hand-rolled — the same shape as the runner in an earlier internal CLI of ours. */
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "help";
 

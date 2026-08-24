@@ -4,7 +4,7 @@ import { grade, referenceAnswer, type GradeContext } from "./grade.js";
 import { normalize } from "./normalize.js";
 
 /**
- * Two-sided grader validation, after the selftest in an earlier internal eval harness.
+ * Two-sided grader validation, after the grader selftest in an earlier internal eval harness.
  *
  * A question that always passes is indistinguishable from a question whose
  * grader is broken, and a question that can never pass is worse. So every

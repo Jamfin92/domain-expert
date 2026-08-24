@@ -132,7 +132,7 @@ export function runQuery(db: DatabaseSync, sql: string): SqlOutcome {
 }
 
 /**
- * Compare two result sets the way an earlier internal eval harness compares graded output: by JSON
+ * Compare two result sets the way an eval harness compares graded output: by JSON
  * round-trip, so 5 and 5.0 are the same value.
  *
  * Row order is ignored unless the reference query asks for an order, because
