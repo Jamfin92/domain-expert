@@ -197,3 +197,94 @@ final report to the orchestrator, not here.
   orchestrator pushes. Publishing without the force-push would re-expose
   the old commits — the push (after verification) must replace the remote
   history before visibility changes.
+
+---
+
+# Second pass (2026-08-24) — two terms the first sweep missed
+
+An independent sweep of the sibling directories in ~/Developer found two
+more private-repo names in this repo that the first pass's term list did
+not cover. Per the audit's vocabulary rule, they are named here only
+indirectly: term 9 is the repo name of a private CLI-runner project;
+term 10 is the repo name of a private eval-harness project, which also
+appeared once as an internal file path into that repo (its bench selftest
+script). The literals live only in the replacement file in the session
+scratchpad (`replacements2.txt`), outside the committed tree.
+
+## Files changed
+
+- `apps/cli/src/index.ts` — line 16 comment reworded: the hand-rolled argv
+  parser is now attributed to "the runner in an earlier internal CLI of
+  ours" instead of naming term 9. The explanatory content (why argv
+  parsing is hand-rolled, and that the shape is inherited) is preserved.
+- `packages/quiz/src/selftest.ts` — line 7 comment reworded: the two-sided
+  grader validation is now "after the grader selftest in an earlier
+  internal eval harness" instead of naming term 10's internal file path.
+- `packages/quiz/src/sql/sandbox.ts` — line 135 comment reworded: result
+  sets are compared "the way an eval harness compares graded output"
+  instead of naming term 10.
+- `feature-research/publish-scrub/audit.md` — this appendix.
+
+Plus a second history rewrite, which touched every historical commit.
+
+## What was done
+
+1. The three comments were reworded (preserving their reasoning, not
+   deleted) and committed.
+2. `git filter-repo --force --replace-text <file> --replace-message <file>`
+   was run again over the single local clone, with a replacement file kept
+   in the session scratchpad covering term 9, term 10, and term 10's
+   internal selftest path (path rule first so it wins over the bare repo
+   name), all case-insensitive with optional-hyphen variants, replaced by
+   the same neutral phrasings the reworded comments use. Before the
+   rewrite, 8 lines across history patches matched the two terms (the
+   three current comments plus their earlier versions in commits touching
+   those files); no commit subject matched, but --replace-message was
+   passed anyway, matching the first pass.
+3. `origin` was re-added as `git@github.com:Jamfin92/domain-expert.git`
+   (filter-repo removes it). Nothing was pushed; visibility untouched.
+
+## Gates (after the second rewrite, Node v24.19.0)
+
+- `pnpm typecheck` — green (root, e2e, web, desktop).
+- `pnpm test` — **Test Files 14 passed (14), Tests 211 passed (211)**,
+  corpus config present. Matches the required 211 exactly.
+- `PSQ_NO_CORPUS=1 pnpm test` — Tests 156 passed | 55 skipped (211).
+- `pnpm test:e2e` — Tests 19 passed (19).
+
+## Per-term grep results (all ten terms)
+
+Same methodology as the first pass: "history" is `git log --all -p`
+(patch content), "messages" is `git log --all --format=%B`, "tree" is
+every file outside `.git/` and `node_modules/`, excluding only the
+gitignored `test/corpus.local.json`. All patterns case-insensitive with
+optional-hyphen variants. Run after the second rewrite, so this also
+proves the second rewrite resurrected none of the original eight.
+
+| term | history | messages | tree |
+|---|---|---|---|
+| 9 — CLI-runner repo name | 0 | 0 | 0 |
+| 10 — eval-harness repo name | 0 | 0 | 0 |
+| 10a — eval-harness selftest path | 0 | 0 | 0 |
+| 1 — repo A kebab name | 0 | 0 | 0 |
+| 6a — repo B invoice-form name | 0 | 0 | 0 |
+| 6b — repo B sheet-form name | 0 | 0 | 0 |
+| 5 — repo C name | 0 | 0 | 0 |
+| 3 — repo D name | 0 | 0 | 0 |
+| 4 — repo E name | 0 | 0 | 0 |
+| 8 — home-directory prefix | 0 | 0 | 0 |
+
+(The PascalCase namespace forms — original terms 2 and 7 — are matched by
+the same case-insensitive optional-hyphen patterns as their repo names,
+so they are covered by the rows above.)
+
+## Open risks
+
+- Unchanged from the first pass, with one addition: the first pass's
+  "verified" claim was falsified by a broader sweep, so a final
+  independent sweep against the full list of the user's private project
+  names (not just the ones already found) remains worthwhile before the
+  push and visibility change.
+- `origin` still holds the PRE-rewrite history until the orchestrator
+  force-pushes; publishing without the force-push would re-expose the old
+  commits, now including the two terms scrubbed here.
