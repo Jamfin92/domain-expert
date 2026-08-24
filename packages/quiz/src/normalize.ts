@@ -9,7 +9,7 @@ import { plural, singular } from "@psq/extract";
 
 /**
  * Case, whitespace, punctuation and namespace differences are noise.
- * "corpus-repo-a.Api.Models.Domain.Order" and "order" both reduce to "order".
+ * "Acme.Api.Models.Domain.Order" and "order" both reduce to "order".
  */
 export function normalize(s: string): string {
   let t = s.trim().toLowerCase();

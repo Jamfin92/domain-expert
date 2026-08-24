@@ -84,6 +84,6 @@ accident, not a guarantee.
 ## Out of scope
 
 Everything under the original plan's "Out of scope" heading stays hardcoded:
-corpus-repo-d's `tasks.properties` length 15, the relation lists, the .NET corpus
+corpus repo D's wide-table property count, the relation lists, the .NET corpus
 assertions, and the corpus use in `graph`/`quiz` tests. M9 and beyond are
 separate phases.

@@ -1,5 +1,5 @@
 /**
- * DDL bound to a constant and executed elsewhere — corpus-repo-e's shape. A reader
+ * DDL bound to a constant and executed elsewhere — corpus repo E's shape. A reader
  * that only inspects the arguments of `exec()` finds neither of these tables.
  */
 export const LOG_SCHEMA = `

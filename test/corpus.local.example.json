@@ -1,0 +1,327 @@
+{
+  "repoA": {
+    "path": "/home/you/src/acme-csharp-app/server/src/Acme.Api",
+    "expect": {
+      "dotnet": {
+        "contextName": "AcmeDbContext",
+        "entityCount": 12,
+        "identityEntity": "User",
+        "notAnEntity": "OrderStatusConstants",
+        "relationCount": 14,
+        "navDup": {
+          "dependent": "OrderDocument",
+          "principal": "Order",
+          "foreignKey": "OrderId"
+        },
+        "tableNames": [
+          [
+            "Order",
+            "Orders"
+          ],
+          [
+            "Category",
+            "Categories"
+          ],
+          [
+            "User",
+            "AspNetUsers"
+          ]
+        ],
+        "identityMembers": [
+          "Email",
+          "PasswordHash",
+          "DisplayName"
+        ],
+        "identityKeyType": "Guid",
+        "compositeKey": {
+          "entity": "UserRegion",
+          "keys": [
+            "UserId",
+            "RegionId"
+          ]
+        },
+        "singleKey": {
+          "entity": "Region",
+          "keys": [
+            "Id"
+          ]
+        },
+        "facets": {
+          "entity": "Order",
+          "maxLengthProp": {
+            "name": "ReferenceNumber",
+            "maxLength": 32
+          },
+          "nullableProp": "Notes",
+          "collectionProp": {
+            "name": "OrderDocuments",
+            "baseType": "OrderDocument"
+          },
+          "precisionProp": {
+            "entity": "Product",
+            "name": "UnitPrice",
+            "precision": [
+              10,
+              2
+            ]
+          }
+        },
+        "relation": {
+          "dependent": "Product",
+          "principal": "Category",
+          "foreignKey": "CategoryId",
+          "principalNavigation": "Products",
+          "dependentNavigation": "Category"
+        },
+        "optionalRelation": {
+          "dependent": "Order",
+          "principal": "Coupon",
+          "deleteBehavior": "ClientSetNull"
+        }
+      },
+      "structure": {
+        "contextFile": "Data/AcmeDbContext.cs",
+        "contextType": "AcmeDbContext",
+        "namespace": "Acme.Api.Data",
+        "domainUsing": "Acme.Api.Models.Domain",
+        "contextBase": "IdentityDbContext<User,IdentityRole<Guid>,Guid>",
+        "dbSetCount": 11,
+        "dbSetContains": "Orders",
+        "entityFile": "Models/Domain/Order.cs",
+        "entityType": "Order",
+        "requiredProp": {
+          "name": "ReferenceNumber",
+          "type": "string",
+          "attributes": [
+            "Required",
+            "MaxLength"
+          ],
+          "attrArgs": [
+            "32"
+          ]
+        },
+        "nullableValueProp": {
+          "name": "CouponId",
+          "type": "int?"
+        },
+        "nullableRefProp": {
+          "name": "Notes",
+          "type": "string?"
+        },
+        "collectionProp": {
+          "name": "OrderDocuments",
+          "type": "ICollection<OrderDocument>",
+          "initializer": "[ ]"
+        },
+        "nullForgivingProps": [
+          {
+            "name": "User",
+            "type": "User"
+          },
+          {
+            "name": "Product",
+            "type": "Product"
+          }
+        ],
+        "constantsFile": "Models/Domain/OrderStatusConstants.cs"
+      },
+      "fluent": {
+        "contextFile": "Data/AcmeDbContext.cs",
+        "contextType": "AcmeDbContext",
+        "minRelationChains": 10,
+        "relChain": {
+          "entity": "Product",
+          "hasOne": [
+            "Category"
+          ],
+          "withMany": [
+            "Products"
+          ],
+          "foreignKey": [
+            "CategoryId"
+          ]
+        },
+        "compositeKey": {
+          "entity": "UserRegion",
+          "members": [
+            "UserId",
+            "RegionId"
+          ]
+        },
+        "minIndexes": 2,
+        "uniqueIndex": {
+          "entity": "Product",
+          "members": [
+            "CategoryId",
+            "Slug"
+          ]
+        }
+      },
+      "graph": {
+        "hub": {
+          "entity": "User",
+          "degree": 5
+        },
+        "path": {
+          "from": "Region",
+          "to": "Order",
+          "via": [
+            "Region",
+            "Warehouse",
+            "Product",
+            "Order"
+          ]
+        },
+        "unreachable": "AuditLog",
+        "orphans": [
+          "AuditLog",
+          "NewsletterSignup"
+        ]
+      },
+      "quiz": {
+        "minQuestions": 50,
+        "generatorCount": 8,
+        "namespacedEntity": {
+          "raw": "Acme.Api.Models.Domain.Region.",
+          "normalized": "region"
+        },
+        "aliasEntity": {
+          "name": "Region",
+          "spellings": [
+            "Region",
+            "regions",
+            "REGIONS"
+          ],
+          "nonMatch": "Product"
+        },
+        "plurals": [
+          [
+            "Region",
+            "Regions"
+          ],
+          [
+            "Category",
+            "Categories"
+          ],
+          [
+            "License",
+            "Licenses"
+          ]
+        ]
+      }
+    }
+  },
+  "repoB": {
+    "path": "/home/you/src/other-csharp-app/src/Ledger.Api",
+    "expect": {
+      "dotnet": {
+        "entityCount": 6,
+        "shadowEntity": {
+          "name": "Account",
+          "namespace": "Ledger.Api.Models.Entities",
+          "fileContains": "Models/Entities/Account.cs"
+        },
+        "cascade": {
+          "count": 4,
+          "behavior": "Cascade"
+        }
+      },
+      "fluent": {
+        "contextFile": "Data/LedgerDbContext.cs",
+        "contextType": "LedgerDbContext",
+        "onDelete": {
+          "count": 4,
+          "behavior": "Cascade"
+        }
+      }
+    }
+  },
+  "repoC": {
+    "path": "/home/you/src/schemaless-ts-service",
+    "expect": {
+      "node": {
+        "shapeName": "MarketDto"
+      }
+    }
+  },
+  "repoD": {
+    "path": "/home/you/src/inline-ddl-ts-app",
+    "ddl": "server/src/state/db.ts",
+    "expect": {
+      "node": {
+        "tableFloor": [
+          "comments",
+          "posts",
+          "settings",
+          "users"
+        ],
+        "minTables": 4,
+        "wideTable": {
+          "name": "posts",
+          "propertyCount": 9,
+          "keys": [
+            "id"
+          ]
+        },
+        "relationIds": [
+          "comments.post_id->posts",
+          "posts.user_id->users"
+        ],
+        "absentForeignKey": "tenant_id",
+        "houseStyleWarning": "id is the identifying column of 4 tables, so it reads as a naming convention; no relation inferred from it",
+        "zodShape": "Post",
+        "zodFieldsShape": {
+          "name": "UserUsage",
+          "contains": "userId"
+        },
+        "mirrorPairs": [
+          "PostRow->posts",
+          "Post->posts"
+        ],
+        "routes": [
+          "GET /api/health",
+          "POST /api/posts"
+        ]
+      }
+    }
+  },
+  "repoE": {
+    "path": "/home/you/src/const-schema-ts-app",
+    "ddl": "src/db.ts",
+    "expect": {
+      "node": {
+        "tableFloor": [
+          "prices",
+          "products",
+          "stock"
+        ],
+        "minTables": 3,
+        "noWarnings": true,
+        "relationIds": [
+          "prices.sku->products",
+          "stock.sku->products"
+        ],
+        "ownerTable": "products",
+        "oneToOneRelation": "stock.sku->products",
+        "utilityShape": {
+          "name": "SerializedDecision",
+          "fields": [
+            "due",
+            "reason",
+            "weight"
+          ]
+        },
+        "unionShape": {
+          "name": "FeedRow",
+          "discriminator": "kind"
+        },
+        "enumShape": {
+          "name": "EventKind",
+          "members": 5
+        },
+        "routeCount": 4,
+        "routeContains": "/products/:sku/news"
+      }
+    }
+  }
+}

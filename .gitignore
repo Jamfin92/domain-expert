@@ -5,3 +5,6 @@ runs/
 .DS_Store
 apps/web/dist/
 apps/desktop/dist/
+
+# private corpus configuration (paths and ground truth for local test repos)
+test/corpus.local.json

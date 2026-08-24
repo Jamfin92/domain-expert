@@ -7,9 +7,9 @@ import { createApp } from "./app.js";
 /**
  * Standalone entry point: `pnpm dev:server`, or booted by the Electron shell.
  *
- * Port 8092 is the default because this machine already runs llama-server on
- * 8080, mlx on 8083, corpus-repo-c on 8090 and corpus-repo-e on 8091. Pass 0 to
- * take any free port, which is what Electron does so two copies never clash.
+ * Port 8092 is the default because the development machine already has other
+ * local services parked on 8080–8091. Pass 0 to take any free port, which is
+ * what Electron does so two copies never clash.
  */
 
 const { app, workspace } = createApp();

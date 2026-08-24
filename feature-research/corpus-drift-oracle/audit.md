@@ -14,7 +14,7 @@ Nothing under `packages/extract/src/**` was touched.
 ### `test/fixtures.ts`
 - Import line now `import { existsSync, readFileSync } from "node:fs";` (added `readFileSync`).
 - Appended, exactly per the plan's design section:
-  - `CORPUS_DDL` — pins `corpus-repo-d` → `server/src/state/db.ts` and `corpus-repo-e` → `src/db.ts`, resolved off the unchanged `CORPUS` values.
+  - `CORPUS_DDL` — pins corpus repo D → `server/src/state/db.ts` and corpus repo E → `src/db.ts`, resolved off the unchanged `CORPUS` values.
   - `CREATE_TABLE_NAME` regex (module-private): `\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?` with `gi`.
   - `tablesInDdlText(text)` — walks `matchAll`; for each match takes the slice from the previous `\n` to the match index and skips the match when that slice contains `--`; dedupes via `Set`, returns sorted.
   - `tablesDeclaredIn(path)` — throws `no DDL file at ${path}` when absent, `${path} declares no CREATE TABLE` when the regex finds nothing; otherwise returns the names.
@@ -26,9 +26,9 @@ Nothing under `packages/extract/src/**` was touched.
 ### `packages/extract/test/node.test.ts`
 - Import line adds `CORPUS_DDL` and `tablesDeclaredIn`.
 - Header comment (`:5-11`) rewritten: table lists now come from the regex oracle, with the hand-checked core as backstop.
-- corpus-repo-d table test renamed to `"reads every table declared in one inline template literal"`; now asserts (1) names equal `tablesDeclaredIn(CORPUS_DDL.corpus-repo-d)`, (2) `arrayContaining` of the original eight-table stable core (deliberately excludes `model_variant_eta`, per the plan), (3) length >= 8.
-- corpus-repo-e table test renamed to `"reads every table from a constant exec'd ninety lines later"`; asserts oracle equality, `arrayContaining` of the five-table core, length >= 5, and keeps `expect(g.warnings).toEqual([])`.
-- `corpus-repo-c` block and every other test untouched.
+- Corpus repo D table test renamed to `"reads every table declared in one inline template literal"`; now asserts (1) names equal `tablesDeclaredIn` of the pinned DDL file, (2) `arrayContaining` of the original eight-table stable core (deliberately excludes the newcomer ninth table, per the plan), (3) length >= 8.
+- Corpus repo E table test renamed to `"reads every table from a constant exec'd ninety lines later"`; asserts oracle equality, `arrayContaining` of the five-table core, length >= 5, and keeps `expect(g.warnings).toEqual([])`.
+- corpus repo C block and every other test untouched.
 
 ## Deviations from the plan
 
@@ -46,7 +46,7 @@ Everything else matched the plan's ground truth: line numbers `:14` and `:77`, t
    Test Files  13 passed (13)
         Tests  188 passed (188)
    ```
-   Including `✓ test/oracle.test.ts (10 tests)` and `✓ packages/extract/test/node.test.ts (15 tests)` (corpus repos present on this machine, so the oracle equality ran live against corpus-repo-d's 9 tables and corpus-repo-e's 5).
+   Including `✓ test/oracle.test.ts (10 tests)` and `✓ packages/extract/test/node.test.ts (15 tests)` (corpus repos present on this machine, so the oracle equality ran live against corpus repo D's 9 tables and corpus repo E's 5).
 3. `PSQ_NO_CORPUS=1 pnpm exec vitest run` —
    ```
    Test Files  9 passed | 4 skipped (13)
@@ -107,10 +107,8 @@ packages/extract/src/** untouched.
 - `PSQ_NO_CORPUS=1 pnpm exec vitest run` —
   `Test Files  9 passed | 4 skipped (13)`,
   `Tests  138 passed | 55 skipped (193)`.
-- Corpus counts unchanged under the hardened rule: corpus-repo-d resolves to its 9
-  tables (approvals, audit, chat_messages, chats, model_variant_eta, packets,
-  settings, spend, tasks), corpus-repo-e to its 5 (feed_items, feed_state, meta,
-  quotes, tickers); the corpus tests in packages/extract/test/node.test.ts
+- Corpus counts unchanged under the hardened rule: corpus repo D resolves to its 9
+  tables, corpus repo E to its 5; the corpus tests in packages/extract/test/node.test.ts
   passed against the live repos.
 
 ### Open risks

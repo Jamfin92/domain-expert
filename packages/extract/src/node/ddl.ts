@@ -28,8 +28,8 @@ interface Candidate {
 /**
  * Every DDL literal in the repo, wherever it is written.
  *
- * Deliberately not "every literal passed to `exec()`": corpus-repo-d writes the DDL
- * inline in the call, corpus-repo-e binds it to `export const SCHEMA` and execs it
+ * Deliberately not "every literal passed to `exec()`": one corpus repo writes
+ * the DDL inline in the call, another binds it to `export const SCHEMA` and execs it
  * ninety lines later, and a third repo will do a third thing. What makes a
  * string the schema is that it says CREATE TABLE.
  */
@@ -216,11 +216,11 @@ function deleteBehaviorOf(onDelete: string): "Cascade" | "SetNull" | "Restrict" 
 /**
  * Relations, in descending order of evidence.
  *
- * 1. A declared FOREIGN KEY. Neither corpus-repo-d nor corpus-repo-e has one, but a
+ * 1. A declared FOREIGN KEY. No Node corpus repo has one, but a
  *    schema that declares them deserves to be believed.
  * 2. `task_id` / `taskId` naming, where a table of that concept exists.
  * 3. A column whose name is another table's sole identifying column, which is
- *    how corpus-repo-e joins everything on `symbol`.
+ *    how one corpus repo joins everything on its natural key.
  *
  * Everything from 2 and 3 is marked `inferred`, drawn dashed, and barred from
  * delete-behavior questions, because nobody wrote it down.
@@ -308,7 +308,7 @@ function buildRelations(tables: readonly TableRead[], warnings: string[]): Relat
 
   const ownerOf = new Map<string, TableRead>();
   for (const [column, candidates] of claimants) {
-    // Every corpus-repo-d table identifies itself with `id`. That makes `id` a house
+    // Every corpus repo D table identifies itself with `id`. That makes `id` a house
     // style, not a key one table lends to another, and a surrogate key is never
     // a reference to somebody else's. Two tables sharing a key is an extension;
     // six is a convention.

@@ -3,11 +3,11 @@ import { extractDotnet } from "@psq/extract";
 import { invariants, degrees, shortestPath, orphans, mermaid, layout } from "../src/index.js";
 import { MINI_EFCORE } from "../../../test/fixtures.js";
 
-import { CORPUS, hasCorpus } from "../../../test/fixtures.js";
+import { corpusRepo } from "../../../test/fixtures.js";
 
-const PP = CORPUS.corpus-repo-a;
-const present = hasCorpus(PP);
-const g = present ? extractDotnet(PP) : extractDotnet(MINI_EFCORE);
+const repoA = corpusRepo("repoA");
+const present = repoA !== null;
+const g = present ? extractDotnet(repoA.path) : extractDotnet(MINI_EFCORE);
 
 describe("graph invariants", () => {
   it("holds for a real extracted graph", () => {
@@ -34,25 +34,25 @@ describe("graph invariants", () => {
 });
 
 describe.skipIf(!present)("graph algorithms [corpus]", () => {
+  const exp = repoA?.expect.graph;
+
   it("ranks the hub entity highest and is stable", () => {
     const d = degrees(g);
-    expect(d[0]!.entity).toBe("User");
-    expect(d[0]!.degree).toBe(7);
+    expect(d[0]!.entity).toBe(exp!.hub.entity);
+    expect(d[0]!.degree).toBe(exp!.hub.degree);
     expect(degrees(g)).toEqual(d);
   });
 
   it("finds shortest paths and reports disconnection", () => {
-    expect(shortestPath(g, "County", "LicenseApplication")).toEqual([
-      "County", "Department", "LicenseType", "LicenseApplication",
-    ]);
-    expect(shortestPath(g, "County", "County")).toEqual(["County"]);
-    // JobRun has no relations at all, so nothing reaches it.
-    expect(shortestPath(g, "County", "JobRun")).toBeNull();
-    expect(shortestPath(g, "County", "Nope")).toBeNull();
+    expect(shortestPath(g, exp!.path.from, exp!.path.to)).toEqual(exp!.path.via);
+    expect(shortestPath(g, exp!.path.from, exp!.path.from)).toEqual([exp!.path.from]);
+    // The unreachable entity has no relations at all, so nothing reaches it.
+    expect(shortestPath(g, exp!.path.from, exp!.unreachable)).toBeNull();
+    expect(shortestPath(g, exp!.path.from, "Nope")).toBeNull();
   });
 
   it("reports unconnected entities", () => {
-    expect(orphans(g)).toEqual(["JobRun", "WaitlistEntry"]);
+    expect(orphans(g)).toEqual(exp!.orphans);
   });
 
   it("emits mermaid that names every entity and relation", () => {

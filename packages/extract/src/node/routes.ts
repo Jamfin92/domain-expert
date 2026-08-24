@@ -12,7 +12,7 @@ import { isTestFile, repoRelative } from "../files.js";
  *
  * Two things make a syntactic reader necessary. Most routes on this machine are
  * registered inside a factory body (`createApp()`), not at the top level, so
- * walking statements is not enough. And corpus-repo-c's factory is declared to
+ * walking statements is not enough. And corpus repo C's factory is declared to
  * return `unknown` and cast at the call site, so the checker knows less about
  * the receiver than the source plainly shows.
  */

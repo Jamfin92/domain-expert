@@ -3,7 +3,7 @@
  *
  * Why hand-rolled: the prebuilt tree-sitter C# wasm grammars available on npm
  * are built against tree-sitter 0.20 and fail to parse modern C# — verified
- * against corpus-repo-a's LicenseApplication.cs, which uses `required` members
+ * against a corpus repo's entity classes, which use `required` members
  * and collection expressions (`= []`). The current grammar has no compatible
  * prebuilt wasm, and the native binding needs node-gyp.
  *
@@ -110,8 +110,8 @@ export function lex(src: string): Token[] {
     // String literals, in one place so the prefix is scanned before the fence.
     // C# allows $, $$, @, $@ and @$ prefixes on 1-quote and 3+-quote forms.
     // Checking $" before """ misreads $$"""..."""  and unbalances every brace
-    // that follows it — verified against corpus-repo-a's
-    // Services/FormTemplateCheckRunner.cs, which uses $$""" JSON literals.
+    // that follows it — verified against a corpus repo service that uses
+    // $$""" JSON literals.
     if (c === '"' || c === "$" || c === "@") {
       let j = i;
       let dollars = 0;

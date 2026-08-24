@@ -42,7 +42,7 @@ export interface Layout {
 
 /**
  * A deep graph costs height, and height is what forces the fit-to-view scale
- * down until the labels stop being readable. corpus-repo-a is 9 levels deep,
+ * down until the labels stop being readable. Corpus repo A is 9 levels deep,
  * so every pixel per level is multiplied by nine. Box height still varies with
  * property count, because that carries real information, but it is capped.
  */

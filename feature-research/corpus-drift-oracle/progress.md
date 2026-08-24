@@ -5,7 +5,7 @@ Commits: `c2f3efb` (oracle), `d0ff8f8` (comment-rule hardening).
 
 ## What shipped
 
-The corpus-repo-d and corpus-repo-e `CREATE TABLE` assertions in
+The corpus repo D and corpus repo E `CREATE TABLE` assertions in
 `packages/extract/test/node.test.ts` no longer hardcode table lists. They now
 compare two independent readings of the same pinned schema file: a text regex
 (`tablesInDdlText` in `test/fixtures.ts`) against what the extractor reads back
@@ -24,7 +24,7 @@ Test counts moved 147 -> 193 full, 92 -> 138 under `PSQ_NO_CORPUS=1`.
   than scanning the repo. A repo-wide regex would have to reimplement
   `isTestFile` and the substituted-template refusal — that is reimplementing
   the extractor, which makes the oracle circular instead of independent.
-- **The floor is the original eight, not nine.** A table corpus-repo-d might later
+- **The floor is the original eight, not nine.** A table corpus repo D might later
   drop should not be encoded as a permanent requirement.
 - **Comment handling is per-match, never global.** A global `--` strip eats TS
   decrements (`count--;`).
@@ -52,7 +52,7 @@ From the second review, all non-blocking:
    scans that file — but re-pointing a test at it would pass by luck again.
 
 Everything under the plan's "Out of scope" heading is still hardcoded and still
-drift-prone: corpus-repo-d's `tasks.properties` length 15, the relation lists, the
+drift-prone: corpus repo D's wide-table property count, the relation lists, the
 .NET corpus assertions, and the corpus use in `graph`/`quiz` tests.
 
 ## Unrelated finds, for whoever picks this up

@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { parseCSharp } from "../src/csharp/structure.js";
 import { chainsOf, entityConfigs, lambdaMembers, enumMemberArg } from "../src/csharp/fluent.js";
 
-import { CORPUS, hasCorpus } from "../../../test/fixtures.js";
+import { corpusRepo, type CorpusFluentExpect } from "../../../test/fixtures.js";
 
-const PP = CORPUS.corpus-repo-a;
-const BI = CORPUS.corpus-repo-b;
+const repoA = corpusRepo("repoA");
+const repoB = corpusRepo("repoB");
 
 function contextConfigs(file: string, typeName: string) {
   const p = parseCSharp(readFileSync(file, "utf8"), file);
@@ -22,50 +22,56 @@ function contextChains(file: string, typeName: string) {
   return chainsOf(onModel.body);
 }
 
-describe.skipIf(!hasCorpus(PP) || !hasCorpus(BI))("EF fluent chains [corpus]", () => {
-  it("parses multi-line relationship chains in corpus-repo-a", () => {
-    const chains = contextChains(`${PP}/Data/AppDbContext.cs`, "AppDbContext");
+// Note: vitest executes even a skipped describe body during collection, so
+// everything at describe scope must tolerate an absent corpus.
+describe.skipIf(!repoA || !repoB)("EF fluent chains [corpus]", () => {
+  const a: CorpusFluentExpect = repoA?.expect.fluent ?? {};
+  const b: CorpusFluentExpect = repoB?.expect.fluent ?? {};
+  const aContext = `${repoA?.path}/${a.contextFile}`;
+  const bContext = `${repoB?.path}/${b.contextFile}`;
+
+  it("parses multi-line relationship chains in the flat-style repo", () => {
+    const chains = contextChains(aContext, a.contextType!);
 
     const rel = chains.filter((c) => c.calls.some((x) => x.name === "HasForeignKey"));
-    expect(rel.length).toBeGreaterThanOrEqual(15);
+    expect(rel.length).toBeGreaterThanOrEqual(a.minRelationChains!);
 
-    const dept = rel.find(
-      (c) => c.calls[0]!.name === "Entity" && c.calls[0]!.typeArgs[0] === "Department",
+    const chain = rel.find(
+      (c) => c.calls[0]!.name === "Entity" && c.calls[0]!.typeArgs[0] === a.relChain!.entity,
     )!;
-    expect(dept.calls.map((c) => c.name)).toEqual([
+    expect(chain.calls.map((c) => c.name)).toEqual([
       "Entity", "HasOne", "WithMany", "HasForeignKey",
     ]);
-    expect(lambdaMembers(dept.calls[1]!.args)).toEqual(["County"]);
-    expect(lambdaMembers(dept.calls[2]!.args)).toEqual(["Departments"]);
-    expect(lambdaMembers(dept.calls[3]!.args)).toEqual(["CountyId"]);
+    expect(lambdaMembers(chain.calls[1]!.args)).toEqual(a.relChain!.hasOne);
+    expect(lambdaMembers(chain.calls[2]!.args)).toEqual(a.relChain!.withMany);
+    expect(lambdaMembers(chain.calls[3]!.args)).toEqual(a.relChain!.foreignKey);
   });
 
   it("reads a composite key from an anonymous-object lambda", () => {
-    const chains = contextChains(`${PP}/Data/AppDbContext.cs`, "AppDbContext");
+    const chains = contextChains(aContext, a.contextType!);
     const hasKey = chains.find((c) => c.calls.some((x) => x.name === "HasKey"))!;
-    expect(hasKey.calls[0]!.typeArgs[0]).toBe("UserCounty");
+    expect(hasKey.calls[0]!.typeArgs[0]).toBe(a.compositeKey!.entity);
     const key = hasKey.calls.find((c) => c.name === "HasKey")!;
-    expect(lambdaMembers(key.args)).toEqual(["UserId", "CountyId"]);
+    expect(lambdaMembers(key.args)).toEqual(a.compositeKey!.members);
   });
 
   it("reads composite unique indexes", () => {
-    const chains = contextChains(`${PP}/Data/AppDbContext.cs`, "AppDbContext");
+    const chains = contextChains(aContext, a.contextType!);
     const idx = chains.filter((c) => c.calls.some((x) => x.name === "HasIndex"));
-    expect(idx.length).toBeGreaterThanOrEqual(3);
-    const dept = idx.find((c) => c.calls[0]!.typeArgs[0] === "Department")!;
-    expect(lambdaMembers(dept.calls.find((c) => c.name === "HasIndex")!.args)).toEqual([
-      "CountyId", "Slug",
-    ]);
-    expect(dept.calls.some((c) => c.name === "IsUnique")).toBe(true);
+    expect(idx.length).toBeGreaterThanOrEqual(a.minIndexes!);
+    const unique = idx.find((c) => c.calls[0]!.typeArgs[0] === a.uniqueIndex!.entity)!;
+    expect(lambdaMembers(unique.calls.find((c) => c.name === "HasIndex")!.args))
+      .toEqual(a.uniqueIndex!.members);
+    expect(unique.calls.some((c) => c.name === "IsUnique")).toBe(true);
   });
 
-  it("reads explicit OnDelete behavior in corpus-repo-b (nested style)", () => {
-    const chains = contextConfigs(`${BI}/Data/DebtTrackerDbContext.cs`, "DebtTrackerDbContext");
+  it("reads explicit OnDelete behavior in the nested-style repo", () => {
+    const chains = contextConfigs(bContext, b.contextType!);
     const withDelete = chains.filter((c) => c.calls.some((x) => x.name === "OnDelete"));
-    expect(withDelete).toHaveLength(7);
+    expect(withDelete).toHaveLength(b.onDelete!.count);
     for (const c of withDelete) {
       const call = c.calls.find((x) => x.name === "OnDelete")!;
-      expect(enumMemberArg(call.args)).toBe("Cascade");
+      expect(enumMemberArg(call.args)).toBe(b.onDelete!.behavior);
     }
   });
 });

@@ -1,63 +1,69 @@
 import { describe, expect, it } from "vitest";
 import { extractNode } from "../src/index.js";
-import { CORPUS, CORPUS_DDL, hasCorpus, tablesDeclaredIn } from "../../../test/fixtures.js";
+import {
+  corpusRepo,
+  corpusDdl,
+  tablesDeclaredIn,
+  NOT_A_PROJECT,
+  type CorpusNodeExpect,
+} from "../../../test/fixtures.js";
 
 /**
  * Extraction against real Node backends, validated against schemas psq did not
- * write. The hermetic coverage is in `test/mini-node.test.ts`. The table lists
- * come from a CREATE TABLE regex over the pinned schema file (`tablesDeclaredIn`),
- * so they track the live corpus; a hand-checked stable core backstops the
- * oracle so the comparison can never pass vacuously.
+ * write. The hermetic coverage is in `test/mini-node.test.ts`. The repos are
+ * private, so their paths and every ground-truth value live in the gitignored
+ * `test/corpus.local.json`. The table lists come from a CREATE TABLE regex
+ * over the pinned schema file (`tablesDeclaredIn`), so they track the live
+ * corpus; a hand-checked stable core in the local config backstops the oracle
+ * so the comparison can never pass vacuously.
  */
 
-describe.skipIf(!hasCorpus(CORPUS.corpus-repo-d))("corpus-repo-d [corpus]", () => {
-  const g = extractNode(CORPUS.corpus-repo-d);
+const repoD = corpusRepo("repoD");
+const repoE = corpusRepo("repoE");
+const repoC = corpusRepo("repoC");
+
+// Note: vitest executes even a skipped describe body during collection, so
+// everything at describe scope must tolerate an absent corpus.
+describe.skipIf(!repoD)("repoD: inline-DDL TS backend [corpus]", () => {
+  const repo = repoD!;
+  const exp: CorpusNodeExpect = repo?.expect.node ?? {};
+  const g = extractNode(repo?.path ?? NOT_A_PROJECT);
 
   it("reads every table declared in one inline template literal", () => {
     const names = g.entities.map((e) => e.name);
     // The oracle: text-read names must equal SQLite-read names.
-    expect(names).toEqual(tablesDeclaredIn(CORPUS_DDL.corpus-repo-d));
+    expect(names).toEqual(tablesDeclaredIn(corpusDdl(repo)));
     // The floor: hand-verified, must never regress even if the oracle breaks too.
-    expect(names).toEqual(expect.arrayContaining([
-      "approvals", "audit", "chat_messages", "chats",
-      "packets", "settings", "spend", "tasks",
-    ]));
-    expect(names.length).toBeGreaterThanOrEqual(8);
+    expect(names).toEqual(expect.arrayContaining(exp.tableFloor!));
+    expect(names.length).toBeGreaterThanOrEqual(exp.minTables!);
   });
 
-  it("does not mistake the thirty prepare() strings for schema", () => {
+  it("does not mistake the many prepare() strings for schema", () => {
     // Every one of them names a table; none of them declares one.
-    const tasks = g.entities.find((e) => e.name === "tasks")!;
-    expect(tasks.properties).toHaveLength(15);
-    expect(tasks.keys).toEqual(["id"]);
+    const wide = g.entities.find((e) => e.name === exp.wideTable!.name)!;
+    expect(wide.properties).toHaveLength(exp.wideTable!.propertyCount);
+    expect(wide.keys).toEqual(exp.wideTable!.keys);
   });
 
   it("infers relations from <table>_id, and only where the table exists", () => {
-    expect(g.relations.map((r) => r.id)).toEqual([
-      "approvals.task_id->tasks",
-      "audit.task_id->tasks",
-      "chat_messages.chat_id->chats",
-      "packets.task_id->tasks",
-      "spend.task_id->tasks",
-    ]);
-    // project_id, worker_id, host_id and parent_chat_id name no table here, so
-    // they get no edge rather than a plausible-looking wrong one.
-    expect(g.relations.map((r) => r.foreignKeyProperty)).not.toContain("project_id");
+    expect(g.relations.map((r) => r.id)).toEqual(exp.relationIds!);
+    // Several other *_id columns name no table here, so they get no edge
+    // rather than a plausible-looking wrong one.
+    expect(g.relations.map((r) => r.foreignKeyProperty)).not.toContain(exp.absentForeignKey!);
     expect(g.relations.every((r) => r.source === "inferred")).toBe(true);
   });
 
   it("treats a primary key named `id` as a house style, not a reference", () => {
-    // Six tables key on `id`. Linking them to each other would connect the
+    // Many tables key on `id`. Linking them to each other would connect the
     // whole schema to whichever table happened to be widest.
-    expect(g.warnings).toContain(
-      "id is the identifying column of 6 tables, so it reads as a naming convention; no relation inferred from it",
-    );
+    expect(g.warnings).toContain(exp.houseStyleWarning!);
   });
 
   it("reads the zod layer, including schemas extended across files", () => {
     const byName = new Map(g.shapes.map((s) => [s.name, s]));
-    expect(byName.get("Task")?.kind).toBe("zod");
-    expect(byName.get("WorkerUsage")?.fields.map((f) => f.name)).toContain("workerId");
+    expect(byName.get(exp.zodShape!)?.kind).toBe("zod");
+    expect(byName.get(exp.zodFieldsShape!.name)?.fields.map((f) => f.name))
+      .toContain(exp.zodFieldsShape!.contains);
   });
 
   it("pairs each row interface and each zod DTO with its table", () => {
@@ -65,72 +71,67 @@ describe.skipIf(!hasCorpus(CORPUS.corpus-repo-d))("corpus-repo-d [corpus]", () =
       .filter((s) => s.mirrors)
       .map((s) => `${s.name}->${s.mirrors}`)
       .sort();
-    expect(paired).toContain("TaskRow->tasks");
-    expect(paired).toContain("Task->tasks");
+    for (const pair of exp.mirrorPairs!) expect(paired).toContain(pair);
   });
 
   it("records the regex SPA route as a warning rather than a path", () => {
-    expect(g.routes.map((r) => `${r.method} ${r.path}`)).toEqual([
-      "GET /api/health",
-      "POST /api/notify/test",
-    ]);
+    expect(g.routes.map((r) => `${r.method} ${r.path}`)).toEqual(exp.routes!);
     expect(g.warnings.some((w) => /regular expression/.test(w))).toBe(true);
   });
 });
 
-describe.skipIf(!hasCorpus(CORPUS.corpus-repo-e))("corpus-repo-e [corpus]", () => {
-  const g = extractNode(CORPUS.corpus-repo-e);
+describe.skipIf(!repoE)("repoE: constant-bound-DDL TS backend [corpus]", () => {
+  const repo = repoE!;
+  const exp: CorpusNodeExpect = repo?.expect.node ?? {};
+  const g = extractNode(repo?.path ?? NOT_A_PROJECT);
 
   it("reads every table from a constant exec'd ninety lines later", () => {
     const names = g.entities.map((e) => e.name);
     // The oracle: text-read names must equal SQLite-read names.
-    expect(names).toEqual(tablesDeclaredIn(CORPUS_DDL.corpus-repo-e));
+    expect(names).toEqual(tablesDeclaredIn(corpusDdl(repo)));
     // The floor: hand-verified, must never regress even if the oracle breaks too.
-    expect(names).toEqual(expect.arrayContaining([
-      "feed_items", "feed_state", "meta", "quotes", "tickers",
-    ]));
-    expect(names.length).toBeGreaterThanOrEqual(5);
+    expect(names).toEqual(expect.arrayContaining(exp.tableFloor!));
+    expect(names.length).toBeGreaterThanOrEqual(exp.minTables!);
     expect(g.warnings).toEqual([]);
   });
 
   it("links on a natural key that is not named like a foreign key", () => {
     // Nothing here ends in _id. A suffix rule finds no relations at all.
-    expect(g.relations.map((r) => r.id)).toEqual([
-      "feed_items.symbol->tickers",
-      "feed_state.symbol->tickers",
-      "quotes.symbol->tickers",
-    ]);
+    expect(g.relations.map((r) => r.id)).toEqual(exp.relationIds!);
   });
 
   it("picks the owner of a shared key rather than linking both ways", () => {
-    // `symbol` is the sole primary key of BOTH tickers and feed_state.
-    expect(g.relations.find((r) => r.dependent === "tickers")).toBeUndefined();
+    // The shared column is the sole primary key of BOTH its owner table and
+    // one dependent.
+    expect(g.relations.find((r) => r.dependent === exp.ownerTable!)).toBeUndefined();
     // A unique foreign key can only point at one parent row.
-    expect(g.relations.find((r) => r.id === "feed_state.symbol->tickers")?.cardinality)
+    expect(g.relations.find((r) => r.id === exp.oneToOneRelation!)?.cardinality)
       .toBe("one-to-one");
   });
 
   it("resolves a utility type the syntax alone cannot", () => {
-    const wire = g.shapes.find((s) => s.name === "SerializedRefreshDecision")!;
-    // Omit<RefreshDecision, three keys> & { those three, widened }.
-    expect(wire.fields.map((f) => f.name).sort()).toEqual([
-      "due", "effectiveMove", "hoursSinceRefresh", "reason", "threshold", "weight",
-    ]);
+    const wire = g.shapes.find((s) => s.name === exp.utilityShape!.name)!;
+    // Omit<T, some keys> & { those keys, widened }.
+    expect(wire.fields.map((f) => f.name).sort()).toEqual(exp.utilityShape!.fields);
   });
 
   it("reads a discriminated union declared without zod", () => {
-    expect(g.shapes.find((s) => s.name === "FeedRow")?.discriminator).toBe("kind");
-    expect(g.shapes.find((s) => s.name === "EventClass")?.members).toHaveLength(8);
+    expect(g.shapes.find((s) => s.name === exp.unionShape!.name)?.discriminator)
+      .toBe(exp.unionShape!.discriminator);
+    expect(g.shapes.find((s) => s.name === exp.enumShape!.name)?.members)
+      .toHaveLength(exp.enumShape!.members);
   });
 
   it("finds routes declared inside createApp()", () => {
-    expect(g.routes).toHaveLength(6);
-    expect(g.routes.map((r) => r.path)).toContain("/tickers/:symbol/news");
+    expect(g.routes).toHaveLength(exp.routeCount!);
+    expect(g.routes.map((r) => r.path)).toContain(exp.routeContains!);
   });
 });
 
-describe.skipIf(!hasCorpus(CORPUS.corpus-repo-c))("corpus-repo-c [corpus]", () => {
-  const g = extractNode(CORPUS.corpus-repo-c);
+describe.skipIf(!repoC)("repoC: schemaless TS backend [corpus]", () => {
+  const repo = repoC!;
+  const exp: CorpusNodeExpect = repo?.expect.node ?? {};
+  const g = extractNode(repo?.path ?? NOT_A_PROJECT);
 
   it("reports no schema, and says why, without throwing", () => {
     expect(g.entities).toEqual([]);
@@ -141,6 +142,6 @@ describe.skipIf(!hasCorpus(CORPUS.corpus-repo-c))("corpus-repo-c [corpus]", () =
     // createApp() is declared to return `unknown` and cast at the call site,
     // so the receiver has to be recognized syntactically.
     expect(g.routes.length).toBeGreaterThan(0);
-    expect(g.shapes.map((s) => s.name)).toContain("GammaMarket");
+    expect(g.shapes.map((s) => s.name)).toContain(exp.shapeName!);
   });
 });

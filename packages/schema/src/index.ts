@@ -15,9 +15,9 @@ export const Cardinality = z.enum(["one-to-one", "one-to-many", "many-to-many"])
 export type Cardinality = z.infer<typeof Cardinality>;
 
 /**
- * EF's DeleteBehavior set. `source` matters: corpus-repo-a declares no
+ * EF's DeleteBehavior set. `source` matters: corpus repo A declares no
  * OnDelete at all, so its behavior is derived from EF convention (required FK
- * => Cascade, optional => ClientSetNull). corpus-repo-b declares seven
+ * => Cascade, optional => ClientSetNull). Corpus repo B declares its own
  * explicitly. A question must never present a convention-derived value as if
  * it were written in the source.
  */

@@ -6,7 +6,7 @@ import { isTestFile, repoRelative } from "../files.js";
  * Read declared structures with the TypeScript checker rather than by matching
  * syntax.
  *
- * The difference is not stylistic. corpus-repo-e declares
+ * The difference is not stylistic. Corpus repo E declares
  * `Omit<RefreshDecision, 'weight' | …> & { … }`; a syntactic reader sees three
  * properties where there are ten, and a question built on that is wrong rather
  * than merely absent. Asking the checker for the properties of the resolved

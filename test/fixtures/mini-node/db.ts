@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { LOG_SCHEMA } from "./schema.js";
 
 /**
- * DDL written inline in the call — corpus-repo-d's shape. Between the two files this
+ * DDL written inline in the call — corpus repo D's shape. Between the two files this
  * fixture covers both ways a Node repo hands SQLite its schema.
  */
 export function open(): DatabaseSync {
@@ -11,7 +11,7 @@ export function open(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS crews (
       callsign     TEXT PRIMARY KEY,
       name         TEXT NOT NULL,
-      -- A comment between two columns. corpus-repo-e has these, corpus-repo-d does not,
+      -- A comment between two columns. Corpus repo E has these, repo D does not,
       -- and a column-line parser reads this one as a column.
       home_port    TEXT,
       founded_year INTEGER NOT NULL

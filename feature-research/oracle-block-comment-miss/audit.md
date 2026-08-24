@@ -135,7 +135,7 @@ original 6/6 — see deviation 2.)
 
 ## Test results
 
-Run with the repo's own toolchain (`pnpm` via `~/.local/nodejs-corpus-repo-d/bin`).
+Run with the repo's own toolchain (`pnpm` via a local node install).
 
 | gate | before | after (incl. review fixes) |
 |---|---|---|

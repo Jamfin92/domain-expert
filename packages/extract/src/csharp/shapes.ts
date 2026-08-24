@@ -5,7 +5,7 @@ import type { FileParse, TypeDecl } from "./structure.js";
  * The classes an EF graph throws away.
  *
  * `extractDotnet` keeps only what is reachable from a `DbSet<T>`, which is what
- * stops corpus-repo-b's stale duplicates from being counted as entities.
+ * stops corpus repo B's stale duplicates from being counted as entities.
  * Those discarded classes are not noise, though: the DTOs among them are the
  * other half of every drift question, so they are collected here instead of
  * dropped.

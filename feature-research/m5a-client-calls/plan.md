@@ -31,16 +31,16 @@ an oversight later:
 
 | repo | route facts | React client |
 | --- | --- | --- |
-| `corpus-repo-c` | Express, extracted | none |
-| `corpus-repo-e` | Express, extracted | none |
-| `corpus-repo-d` | none | ~24 `.tsx`, **client is WebSocket-only** (`web/src/lib/ws.ts`) |
-| `corpus-repo-a` | C# backend, **no route facts at all** — `readRoutes` is Express-only | ~129 `.tsx`, but outside the pinned `CORPUS.corpus-repo-a` path |
-| `corpus-repo-b` | C# | none first-party |
+| corpus repo C | Express, extracted | none |
+| corpus repo E | Express, extracted | none |
+| corpus repo D | none | ~24 `.tsx`, **client is WebSocket-only** (a single ws wrapper module) |
+| corpus repo A | C# backend, **no route facts at all** — `readRoutes` is Express-only | ~129 `.tsx`, but outside the pinned corpus path |
+| corpus repo B | C# | none first-party |
 | `MINI_NODE` fixture | 3 routes | **no client code** |
 
-Note the corpus repos' *servers* do call `fetch` — `corpus-repo-d/server/src/notify.ts:45,136`,
-`corpus-repo-d/server/src/registry/hosts.ts:102,125,282`, `corpus-repo-c/src/gamma.ts:119`,
-`corpus-repo-e/src/server.ts:113`. `extractNode` sees these. They are outbound calls
+Note the corpus repos' *servers* do call `fetch` — repo D in two server-side
+modules (five call sites), repo C and repo E in one each. `extractNode` sees
+these. They are outbound calls
 to external hosts, not clients of the repo's own routes, and the warning policy
 below exists mainly because of them.
 
@@ -51,7 +51,7 @@ Two consequences:
    surface and an HTTP-calling client of it. Self-analysing `domain-expert` is
    the only candidate and is rejected below.
 
-A third constraint is about *shape*, from corpus-repo-a, the one real React app
+A third constraint is about *shape*, from corpus repo A, the one real React app
 available: the URL literal sits **3 hops** from the component (component →
 react-query hook → `*.service.ts` → shared axios instance carrying only
 `baseURL: "/api"`). A reader that looks for `fetch()` inside a `.tsx` component
@@ -154,7 +154,7 @@ enclosing function is a React component; that is M5b's.
 route in every repo is also recorded as a client call, and `linkCalls` then
 matches each phantom call to the route that produced it — a fabricated fact, not
 a heuristic miss. It would fire on `test/fixtures/mini-node/server.ts:10,14,18`,
-on `corpus-repo-e/src/server.ts` (6 routes, pinned at `packages/extract/test/node.test.ts:127`),
+on corpus repo E's server module (every route, pinned at `packages/extract/test/node.test.ts:127`),
 and on this plan's own fixture.
 
 Two guards, both required:
@@ -176,11 +176,11 @@ Two guards, both required:
 The first draft said "anything not literal becomes a warning", following
 `routes.ts:102`. That is wrong here and would break two zero-warning contracts:
 `test/mini-node.test.ts:17` and `packages/extract/test/node.test.ts:93`
-(corpus-repo-e). `corpus-repo-e/src/server.ts:113` alone trips it.
+(corpus repo E). A single server-side `fetch` in repo E alone trips it.
 
 The reasoning: an unread *route* is a gap in the repo's HTTP surface and deserves
 a warning. A `.get(` that is not a client call — `res.headers.get(…)`,
-`stmts.selectOne.get(symbol)`, `jar.get(scope)` — is not an unread construct, it
+`stmts.selectOne.get(key)`, `jar.get(scope)` — is not an unread construct, it
 is a call this reader is not about. Same for `fetch` to an absolute external URL.
 Silence is correct; the miss list in the schema comment is where these are
 recorded.
@@ -258,7 +258,7 @@ be missed by rule 1 anyway.)
 | `test/fixtures/mini-fullstack/**` | **new** hermetic fixture, per constraints above |
 | `test/fixtures.ts` | add `MINI_FULLSTACK` |
 | `test/mini-fullstack.test.ts` | **new** — exact `toEqual` on `clientCalls`, matched and unmatched, plus `warnings` empty |
-| `packages/extract/test/node.test.ts` | **verify** the corpus-repo-e zero-warning contract (:93) and route count (:127) still hold; edit only if the exclusion rules require it |
+| `packages/extract/test/node.test.ts` | **verify** the corpus repo E zero-warning contract (:93) and route count (:127) still hold; edit only if the exclusion rules require it |
 | `README.md` | split the M5 row into M5a/M5b as M9 was split; renumber "Next" |
 
 No re-export from `packages/extract/src/index.ts`: the pattern there is that
@@ -280,7 +280,7 @@ Four gates, the same set M9a and M9b were held to:
 - `pnpm test:e2e` (expected unchanged — no UI in this phase)
 
 `PSQ_NO_CORPUS=1` skips exactly the tests that catch the Express-registration and
-warning-policy defects. A green hermetic run proves nothing about corpus-repo-e's
+warning-policy defects. A green hermetic run proves nothing about corpus repo E's
 zero-warning contract. The corpus-on run is the gate that matters.
 
 Additionally, and non-negotiably: **demonstrate the matcher can fail.** M9b's
@@ -303,5 +303,5 @@ server routes appear as phantom self-matching calls.
   (`Dashboard.tsx:55`) is the precedent for rendering a linked pair; `RouteList`
   (`Dashboard.tsx:90`) is where routes already render. `apps/web/src/lib/api.ts:106`
   needs the mirrored field then.
-- A C# route reader, without which corpus-repo-a can never participate.
+- A C# route reader, without which corpus repo A can never participate.
 - `baseURL` / prefix resolution; URL-by-concatenation.

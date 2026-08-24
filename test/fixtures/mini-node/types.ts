@@ -1,7 +1,7 @@
 /** A string-literal union, which is how both real fixtures spell an enum. */
 export type Weather = "calm" | "squall" | "gale" | "fog";
 
-/** A real TS enum, which neither corpus-repo-d nor corpus-repo-e has. */
+/** A real TS enum, which no Node corpus repo has. */
 export enum Rating {
   Bronze = "bronze",
   Silver = "silver",

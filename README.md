@@ -61,7 +61,7 @@ Node 24 or later. No native build step.
 
 ```bash
 # extract the entity graph
-pnpm psq graph --repo ../corpus-repo-a/server/src/corpus-repo-a.Api
+pnpm psq graph --repo ../some-csharp-app/server/src/Some.Api
 
 # write the graph and a mermaid diagram to disk
 pnpm psq graph --repo <path> --out .psq
@@ -206,8 +206,8 @@ Both refuse more than they accept:
 
 | Repo | Tables | Relations | Warnings |
 |---|---|---|---|
-| `corpus-repo-d` | 8 | 5 | 2, both naming the thing psq refused to guess |
-| `corpus-repo-e` | 5 | 3 | 0 |
+| corpus repo D (inline DDL) | 8 | 5 | 2, both naming the thing psq refused to guess |
+| corpus repo E (constant-bound DDL) | 5 | 3 | 0 |
 
 ## Drift
 
@@ -245,7 +245,7 @@ An entity is a class you can reach from a `DbSet<T>` or from an Identity base
 type argument. Every other class is ignored. That rule is what keeps DTOs,
 services, and stale duplicates out of the graph.
 
-Measured against `corpus-repo-a`:
+Measured against corpus repo A, a private C# + React project:
 
 | Fact | Value |
 |---|---|
@@ -276,7 +276,7 @@ generates and psq never writes. The snapshot declares 17 domain entities and
 ### Why the parser is hand-written
 
 The prebuilt tree-sitter C# grammars on npm are built against tree-sitter 0.20.
-That grammar fails on `corpus-repo-a/.../LicenseApplication.cs`, which uses
+That grammar fails on corpus repo A's entity classes, which use
 `required` members and `= []`. The current grammar has no compatible prebuilt
 wasm, and the native binding needs node-gyp.
 
@@ -294,10 +294,10 @@ one you are looking at:
 - `convention` — EF's default: `Cascade` for a required foreign key,
   `ClientSetNull` for an optional one
 
-`corpus-repo-a` declares no `OnDelete` at all, so psq marks all 20 of its
+Corpus repo A declares no `OnDelete` at all, so psq marks all 20 of its
 relations `convention` and **asks no delete-behavior questions about it**.
 A question must test the codebase, not an EF default.
-`corpus-repo-b` declares seven, so those become questions.
+Corpus repo B declares seven, so those become questions.
 
 ## `psq selftest`
 
@@ -326,8 +326,11 @@ There is no linter. `tsc` under `strict` is the gate.
 
 The suite has two layers. Hermetic tests run against
 `test/fixtures/mini-efcore`, which lives in this repo. Corpus tests run against
-real projects on this machine and validate extraction against ground truth psq
-did not produce. Corpus tests skip when those projects are absent:
+real private projects on the developer's machine and validate extraction
+against ground truth psq did not produce. Their paths and expected values live
+in a gitignored `test/corpus.local.json` (shape documented by
+`test/corpus.local.example.json`); to use your own repos, copy the example and
+fill it in. Corpus tests skip when the config or the projects are absent:
 
 ```bash
 PSQ_NO_CORPUS=1 pnpm test   # 138 tests, no external repo needed

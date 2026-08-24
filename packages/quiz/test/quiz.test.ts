@@ -7,18 +7,19 @@ import { selectQuiz } from "../src/select.js";
 import { normalize, matches, plural, singular, entityAliases } from "../src/normalize.js";
 import { rng } from "../src/rng.js";
 
-import { CORPUS, hasCorpus, MINI_EFCORE } from "../../../test/fixtures.js";
+import { corpusRepo, MINI_EFCORE } from "../../../test/fixtures.js";
 
-const PP = CORPUS.corpus-repo-a;
-const present = hasCorpus(PP);
-const g = present ? extractDotnet(PP) : extractDotnet(MINI_EFCORE);
+const repoA = corpusRepo("repoA");
+const present = repoA !== null;
+const exp = repoA?.expect.quiz;
+const g = present ? extractDotnet(repoA.path) : extractDotnet(MINI_EFCORE);
 const questions = generateEntityMcq(g, 1337);
 
 describe.skipIf(!present)("question generation [corpus]", () => {
   it("produces a question bank from every generator", () => {
-    expect(questions.length).toBeGreaterThan(80);
+    expect(questions.length).toBeGreaterThan(exp!.minQuestions);
     const gens = new Set(questions.map((q) => q.generator));
-    expect(gens.size).toBe(10);
+    expect(gens.size).toBe(exp!.generatorCount);
   });
 
   it("is deterministic for a seed and responsive to a change of seed", () => {
@@ -27,7 +28,7 @@ describe.skipIf(!present)("question generation [corpus]", () => {
   });
 
   it("never asks about a delete rule the repo did not write", () => {
-    // corpus-repo-a declares no OnDelete anywhere, so a delete-behavior
+    // This corpus repo declares no OnDelete anywhere, so a delete-behavior
     // question here would be testing an EF default, not the codebase.
     expect(questions.some((q) => q.generator === "delete-behavior")).toBe(false);
   });
@@ -95,23 +96,25 @@ describe.skipIf(!present)("grading [corpus]", () => {
 describe.skipIf(!present)("answer normalization [corpus]", () => {
   it("ignores case, spacing, punctuation and namespaces", () => {
     expect(normalize("  ICollection< Order >  ")).toBe("icollection<order>");
-    expect(normalize("corpus-repo-a.Api.Models.Domain.County.")).toBe("county");
+    expect(normalize(exp!.namespacedEntity.raw)).toBe(exp!.namespacedEntity.normalized);
   });
 
   it("accepts every spelling of an entity through its aliases", () => {
-    const aliases = entityAliases(g, "County");
-    for (const spelling of ["County", "counties", "COUNTIES"]) {
-      expect(matches(spelling, "County", aliases)).toBe(true);
+    const entity = exp!.aliasEntity.name;
+    const aliases = entityAliases(g, entity);
+    for (const spelling of exp!.aliasEntity.spellings) {
+      expect(matches(spelling, entity, aliases)).toBe(true);
     }
-    expect(matches("Department", "County", aliases)).toBe(false);
-    expect(matches("", "County", aliases)).toBe(false);
+    expect(matches(exp!.aliasEntity.nonMatch, entity, aliases)).toBe(false);
+    expect(matches("", entity, aliases)).toBe(false);
   });
 
   it("pluralizes the way EF's DbSet names do", () => {
-    expect(plural("County")).toBe("Counties");
-    expect(plural("FeedbackEntry")).toBe("FeedbackEntries");
-    expect(plural("License")).toBe("Licenses");
-    expect(singular("Counties")).toBe("County");
+    for (const [one, many] of exp!.plurals) {
+      expect(plural(one)).toBe(many);
+    }
+    const [one, many] = exp!.plurals[0]!;
+    expect(singular(many)).toBe(one);
   });
 });
 

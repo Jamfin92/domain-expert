@@ -38,7 +38,7 @@ unchanged.
 
 `PSQ_NO_CORPUS=1` **skips exactly the tests that catch this phase's defects.**
 The corpus-on run is the load-bearing gate. A green hermetic run proves nothing
-about corpus-repo-e's zero-warning contract.
+about corpus repo E's zero-warning contract.
 
 PATH note, superseding M9a's advice: `export PATH="$HOME/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH"`.
 
@@ -48,8 +48,8 @@ PATH note, superseding M9a's advice: `export PATH="$HOME/.local/share/fnm/node-v
 "one AST node over" from the last.**
 
 1. Guard 2 rejected any call whose second argument was a bare identifier, which
-   killed `api.post("/licenses", data)` — *the* axios signature, present verbatim
-   in corpus-repo-a. Silent, undocumented.
+   killed `api.post("/things", data)` — *the* axios signature, present verbatim
+   in corpus repo A. Silent, undocumented.
 2. `fetchMethod` returned an unconditional `GET` whenever it failed to
    *recognise* a key form. `{ "method": "POST" }` — answer in the source — was
    reported as GET.
@@ -71,7 +71,7 @@ held up; keep it.
 ## Decisions made
 
 - **The reader does not look inside components**, despite "React clients". The
-  one real React app available (corpus-repo-a) puts the URL literal **3 hops**
+  one real React app available (corpus repo A) puts the URL literal **3 hops**
   from the component — component → react-query hook → `*.service.ts` → axios
   instance holding only `baseURL: "/api"`. A component-local search finds zero
   call sites there. M5a records calls where they physically are; attribution is
@@ -80,7 +80,7 @@ held up; keep it.
   anything non-literal", following `routes.ts:102`. That would have broken two
   zero-warning contracts (`test/mini-node.test.ts:17`,
   `packages/extract/test/node.test.ts:93`) — `res.headers.get(…)`,
-  `stmts.selectOne.get(symbol)` and dozens more. An unread *route* is a gap in
+  `stmts.selectOne.get(key)` and dozens more. An unread *route* is a gap in
   the HTTP surface and deserves a warning; a `.get(` that isn't a client call is
   simply not this reader's business. Silence plus a catalogued miss list.
 - **Two Express guards, both now independently pinned.** Guard 1 skips files
@@ -90,7 +90,7 @@ held up; keep it.
   `app.get(path, handler(...))` — a CallExpression guard 2 never sees.
 - **Computed keys are skipped blanket**, not just literal `["method"]`. `[k]`
   can't be ruled out as `method` without a checker. Drops calls rather than
-  inventing methods; costs nothing measurable (corpus-repo-a unaffected).
+  inventing methods; costs nothing measurable (corpus repo A unaffected).
 - **Corpus test rejected.** No repo on disk has both an Express route surface and
   an HTTP-calling client of it. Self-analysing `domain-expert` would turn every
   future `apps/web` edit into a failure in an unrelated phase.
@@ -100,7 +100,7 @@ held up; keep it.
 - **`enclosing: null` is documented as "module scope" but is also returned for
   object-literal arrow properties, class property arrows, constructors,
   get-accessors and anonymous default exports.** A small fabricated fact.
-  **M5b depends on this field** — tighten it there. corpus-repo-a's services use
+  **M5b depends on this field** — tighten it there. corpus repo A's services use
   object-literal *methods*, which do resolve correctly.
 - Trailing slashes and `#fragments` are not normalised: `fetch("/api/items/")`
   never matches route `/api/items`. Silent, uncatalogued.
@@ -141,7 +141,7 @@ Also still open, unchanged from M9b: **3D picking** (raycast against building
 meshes; `selected` is treated two ways in 3D — header badge hidden, aside still
 shows the stale 2D selection) and orbit controls. Neither is a README milestone.
 
-A C# route reader would let corpus-repo-a participate — it is the only real React
+A C# route reader would let corpus repo A participate — it is the only real React
 client on disk, and its 50 extracted calls all sit at `matches: null` purely
 because its backend is C# and produces no route facts.
 

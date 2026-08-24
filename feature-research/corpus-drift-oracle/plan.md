@@ -3,11 +3,11 @@
 ## Context
 
 `packages/extract/test/node.test.ts` validates the Node extractor against real repos on this
-machine (`corpus-repo-d`, `corpus-repo-e`, `corpus-repo-c`). Two of its tests hardcode the full list of
+machine (corpus repo D, corpus repo E, corpus repo C). Two of its tests hardcode the full list of
 tables those repos declare. Those repos are live and actively developed, so the lists go stale
 and the suite fails for a reason that has nothing to do with psq.
 
-This already happened once: corpus-repo-d added a ninth table, `model_variant_eta`, and
+This already happened once: corpus repo D added a ninth table, and
 `node.test.ts:14` failed until commit `424c321` updated the literal by hand. It will happen
 again on the tenth table.
 
@@ -31,9 +31,9 @@ alphabetical. A regex yields source order, so both sides must be sorted before c
 
 | Corpus | DDL file | Tables | Delivery |
 |---|---|---|---|
-| `corpus-repo-d` | `server/src/state/db.ts` | 9 | one inline `db.exec(\`…\`)` at line 15 |
-| `corpus-repo-e` | `src/db.ts` | 5 | `export const SCHEMA = \`…\``, exec'd ~90 lines later |
-| `corpus-repo-c` | none | 0 | negative fixture — no DDL anywhere |
+| corpus repo D | `server/src/state/db.ts` | 9 | one inline `db.exec(\`…\`)` at line 15 |
+| corpus repo E | `src/db.ts` | 5 | `export const SCHEMA = \`…\``, exec'd ~90 lines later |
+| corpus repo C | none | 0 | negative fixture — no DDL anywhere |
 
 **Two literals the extractor deliberately refuses**, which a naive whole-repo regex would wrongly
 pick up: DDL under a test/fixtures path (`isTestFile`, `packages/extract/src/files.ts:53`) and
@@ -64,8 +64,8 @@ Add to `test/fixtures.ts`:
 /** The file that holds each corpus repo's schema. Pinned, so the oracle reads
  *  one known file instead of reimplementing the extractor's file selection. */
 export const CORPUS_DDL = {
-  corpus-repo-d: resolve(CORPUS.corpus-repo-d, "server/src/state/db.ts"),
-  corpus-repo-e: resolve(CORPUS.corpus-repo-e, "src/db.ts"),
+  corpus repo D: resolve(CORPUS.corpus repo D, "server/src/state/db.ts"),
+  repoE: resolve(CORPUS.repoE, "src/db.ts"),
 } as const;
 
 const CREATE_TABLE_NAME =
@@ -87,18 +87,17 @@ Each corpus table test then becomes three assertions:
 it("reads every table declared in the schema file", () => {
   const names = g.entities.map((e) => e.name);
   // The oracle: text-read names must equal SQLite-read names.
-  expect(names).toEqual(tablesDeclaredIn(CORPUS_DDL.corpus-repo-d));
+  expect(names).toEqual(tablesDeclaredIn(CORPUS_DDL.repoD));
   // The floor: hand-verified, must never regress even if the oracle breaks too.
   expect(names).toEqual(expect.arrayContaining([
-    "approvals", "audit", "chat_messages", "chats",
-    "packets", "settings", "spend", "tasks",
+    /* the eight hand-verified stable table names */
   ]));
   expect(names.length).toBeGreaterThanOrEqual(8);
 });
 ```
 
 Note the floor is the **original eight**, not nine — it is the set known stable, and a table
-corpus-repo-d might later drop should not be encoded as a permanent requirement.
+corpus repo D might later drop should not be encoded as a permanent requirement.
 
 ## Stage 1 — The helper, hermetic
 
@@ -121,14 +120,14 @@ sorted, and both throw cases.
 
 Rewrite two tests in `packages/extract/test/node.test.ts`:
 
-- `:14` corpus-repo-d — currently `"reads all nine tables from one inline template literal"`
-- `:77` corpus-repo-e — currently `"reads five tables from a constant exec'd ninety lines later"`
+- `:14` corpus repo D — currently `"reads all nine tables from one inline template literal"`
+- `:77` corpus repo E — currently `"reads five tables from a constant exec'd ninety lines later"`
 
 Keep each test's existing name-and-premise flavour, since the delivery mechanism is the thing
-under test. Keep corpus-repo-e's `expect(g.warnings).toEqual([])`. Its stable core is
-`feed_items`, `feed_state`, `meta`, `quotes`, `tickers` with a floor of 5.
+under test. Keep corpus repo E's `expect(g.warnings).toEqual([])`. Its stable core is
+its five hand-verified table names with a floor of 5.
 
-Leave the `corpus-repo-c` block alone — it asserts zero entities, which is the point of the
+Leave the corpus repo C block alone — it asserts zero entities, which is the point of the
 fixture and cannot drift upward without a real code change.
 
 Update the file's header comment (`:5-9`), which currently says these tests "assert the counts a
@@ -153,7 +152,7 @@ found".
 |---|---|
 | `test/fixtures.ts` | Add `CORPUS_DDL`, `tablesInDdlText`, `tablesDeclaredIn`; add `readFileSync` import. `CORPUS` and `hasCorpus` unchanged |
 | `test/oracle.test.ts` | **New.** Hermetic coverage of the two helpers |
-| `packages/extract/test/node.test.ts` | Rewrite the corpus-repo-d (`:14`) and corpus-repo-e (`:77`) table tests; refresh the header comment |
+| `packages/extract/test/node.test.ts` | Rewrite the corpus repo D (`:14`) and corpus repo E (`:77`) table tests; refresh the header comment |
 | `feature-research/corpus-drift-oracle/audit.md` | **New.** Implementer's audit |
 
 Nothing in `packages/extract/src/**` changes. This is a test-infrastructure change only; if a
@@ -175,10 +174,10 @@ production file needs editing, stop and report instead.
 These corpus assertions are drift-prone in the same way and are **deliberately left alone**;
 raise them as a follow-up if they start failing:
 
-- corpus-repo-d: `tasks.properties` length 15, `tasks.keys`, the 5-relation list, the "6 tables" warning
-  text, the 2-route list, the `Task`/`WorkerUsage`/`TaskRow` shape pairs
-- corpus-repo-e: the 3-relation list, `EventClass` members 8, `routes` length 6,
-  `SerializedRefreshDecision` fields
+- corpus repo D: the wide table's property length and keys, the 5-relation list, the "6 tables" warning
+  text, the 2-route list, the row/DTO/table shape pairs
+- corpus repo E: the 3-relation list, the enum-shape member count, the route count,
+  the resolved utility-type fields
 - All .NET corpus assertions in `dotnet.test.ts`, `fluent.test.ts`, `structure.test.ts`
 - Corpus use in `packages/graph/test/graph.test.ts`, `packages/quiz/test/quiz.test.ts`
 - Any change to the shape of `CORPUS`

@@ -72,7 +72,7 @@ function isScalar(base: string): boolean {
 }
 
 /**
- * Members ASP.NET Core Identity puts on IdentityUser<TKey>. corpus-repo-a's
+ * Members ASP.NET Core Identity puts on IdentityUser<TKey>. Corpus repo A's
  * User declares none of them — including its primary key — yet they are real
  * columns. Without them a "which is NOT a property of User" question could
  * offer `Email` as a wrong answer when `Email` genuinely is one.
@@ -177,7 +177,7 @@ function findContexts(parses: FileParse[]): ContextInfo[] {
       }
 
       // IdentityDbContext<TUser, TRole, TKey> contributes TUser as an entity
-      // that has no DbSet of its own. corpus-repo-a's User arrives only here.
+      // that has no DbSet of its own. Corpus repo A's User arrives only here.
       const identityEntities: string[] = [];
       const identityBase = decl.bases.find((b) => b.split("<")[0]!.includes("IdentityDbContext"));
       if (identityBase && identityBase.includes("<")) {
@@ -200,10 +200,10 @@ function findContexts(parses: FileParse[]): ContextInfo[] {
 /**
  * Resolve a type name to its declaration using the context's using directives.
  *
- * This is what separates corpus-repo-b's live entities from its stale
- * shadow copies: `Models/CreditLine.cs` and `Models/Entities/CreditLine.cs`
- * declare the same class name, and only the namespace imported by the context
- * (`corpus-repo-b.Api.Models.Entities`) is the real one.
+ * This is what separates corpus repo B's live entities from its stale shadow
+ * copies: a class under `Models/` and one under `Models/Entities/` declare the
+ * same name, and only the namespace imported by the context (the
+ * `*.Models.Entities` one) is the real one.
  */
 function resolveType(
   name: string,
@@ -462,8 +462,8 @@ export function extractDotnet(
       const onDelete = cfg.calls.find((c) => c.name === "OnDelete");
       const isRequiredCall = cfg.calls.find((c) => c.name === "IsRequired");
       // `.IsRequired(false)` marks a relationship OPTIONAL. Treating the mere
-      // presence of the call as "required" inverts the fact — corpus-repo-a
-      // uses exactly this on LicenseApplication -> FormTemplate.
+      // presence of the call as "required" inverts the fact — corpus repo A
+      // uses exactly this on one of its optional relationships.
       const isRequiredValue = isRequiredCall ? callBool(isRequiredCall) : null;
       if (!hasOne && !hasMany) continue;
 
@@ -546,10 +546,10 @@ export function extractDotnet(
   }
 
   // A navigation defines exactly one relationship. Fluent config may name a
-  // foreign key that does not follow the "<Nav>Id" convention -- in
-  // corpus-repo-a, ApplicationDocument.LicenseApplication is keyed by
-  // ApplicationId -- so matching on the FK name alone lets the convention pass
-  // add a second, foreign-key-less copy of a relationship it already has.
+  // foreign key that does not follow the "<Nav>Id" convention -- corpus repo A
+  // keys one navigation by a shortened FK name -- so matching on the FK name
+  // alone lets the convention pass add a second, foreign-key-less copy of a
+  // relationship it already has.
   const coveredNavigations = new Set<string>();
   for (const r of relations) {
     if (r.dependentNavigation) coveredNavigations.add(`${r.dependent}.${r.dependentNavigation}`);

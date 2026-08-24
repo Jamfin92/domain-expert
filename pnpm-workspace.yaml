@@ -6,6 +6,6 @@ packages:
 # pnpm blocks unapproved build scripts and then exits 1 from the implicit deps
 # check that runs before EVERY script, so without this `build`, `typecheck` and
 # `test` all fail identically for a reason unrelated to the code.
-# Same fix as corpus-repo-e/pnpm-workspace.yaml.
+# Same fix other local pnpm repos need.
 allowBuilds:
   esbuild: true

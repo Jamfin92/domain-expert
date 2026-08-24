@@ -58,7 +58,7 @@ Test counts 193 -> 198 full, 138 -> 143 under `PSQ_NO_CORPUS=1`.
    judged it not worth another round.
 
 Everything under the original plan's "Out of scope" heading is still
-hardcoded: corpus-repo-d's `tasks.properties` length 15, the relation lists, the
+hardcoded: corpus repo D's wide-table property count, the relation lists, the
 .NET corpus assertions, and the corpus use in `graph`/`quiz` tests.
 
 ## Next phase: M9

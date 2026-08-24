@@ -1,110 +1,114 @@
 import { describe, it, expect } from "vitest";
 import { extractDotnet } from "../src/dotnet.js";
 
-import { CORPUS, hasCorpus } from "../../../test/fixtures.js";
+import { corpusRepo, NOT_A_PROJECT, type CorpusDotnetExpect } from "../../../test/fixtures.js";
 
-const PP = CORPUS.corpus-repo-a;
-const BI = CORPUS.corpus-repo-b;
-const NEG = CORPUS.corpus-repo-c;
+const repoA = corpusRepo("repoA");
+const repoB = corpusRepo("repoB");
+const repoC = corpusRepo("repoC");
 
-describe.skipIf(!hasCorpus(PP))("EF Core extraction [corpus]", () => {
-  const g = extractDotnet(PP);
+// Note: vitest executes even a skipped describe body during collection, so
+// everything at describe scope must tolerate an absent corpus.
+describe.skipIf(!repoA)("EF Core extraction [corpus]", () => {
+  const exp: CorpusDotnetExpect = repoA?.expect.dotnet ?? {};
+  const g = extractDotnet(repoA?.path ?? NOT_A_PROJECT);
 
-  it("finds the Identity-derived context and its 17 domain entities", () => {
-    // Ground truth: AppDbContextModelSnapshot.cs declares 17 distinct
-    // corpus-repo-a.Api.Models.Domain.* entities = 16 DbSets + User, which
-    // reaches the model only as IdentityDbContext's first type argument.
-    expect(g.contextName).toBe("AppDbContext");
-    expect(g.entities).toHaveLength(17);
-    expect(g.entities.map((e) => e.name)).toContain("User");
-    expect(g.entities.find((e) => e.name === "User")!.dbSetName).toBeNull();
+  it("finds the Identity-derived context and its domain entities", () => {
+    // Ground truth: the repo's EF migration snapshot declares `entityCount`
+    // distinct domain entities = (entityCount - 1) DbSets + the Identity user,
+    // which reaches the model only as IdentityDbContext's first type argument.
+    expect(g.contextName).toBe(exp.contextName);
+    expect(g.entities).toHaveLength(exp.entityCount!);
+    expect(g.entities.map((e) => e.name)).toContain(exp.identityEntity);
+    expect(g.entities.find((e) => e.name === exp.identityEntity)!.dbSetName).toBeNull();
     // The static constants class must not be mistaken for an entity.
-    expect(g.entities.map((e) => e.name)).not.toContain("FormTemplateStatus");
+    expect(g.entities.map((e) => e.name)).not.toContain(exp.notAnEntity);
   });
 
   it("matches the migration snapshot's relationship count", () => {
-    // AppDbContextModelSnapshot.cs has 26 HasForeignKey calls; 6 belong to the
+    // The snapshot's HasForeignKey calls, minus the ones belonging to the
     // Identity join tables (RoleClaim, UserClaim, UserLogin, UserRole x2,
-    // UserToken), leaving 20 in the domain model.
-    expect(g.relations).toHaveLength(20);
-    // One navigation, one relationship: ApplicationDocument.LicenseApplication
-    // is keyed by ApplicationId, so a name-based convention pass would add a
-    // second, foreign-key-less duplicate.
+    // UserToken), leave `relationCount` in the domain model.
+    expect(g.relations).toHaveLength(exp.relationCount!);
+    // One navigation, one relationship: one entity's navigation is keyed by a
+    // foreign key that does not follow the `<Nav>Id` convention, so a
+    // name-based convention pass would add a second, foreign-key-less
+    // duplicate.
     const dup = g.relations.filter(
-      (r) => r.dependent === "ApplicationDocument" && r.principal === "LicenseApplication",
+      (r) => r.dependent === exp.navDup!.dependent && r.principal === exp.navDup!.principal,
     );
     expect(dup).toHaveLength(1);
-    expect(dup[0]!.foreignKeyProperty).toBe("ApplicationId");
+    expect(dup[0]!.foreignKeyProperty).toBe(exp.navDup!.foreignKey);
   });
 
   it("uses EF table naming, including AspNetUsers for the Identity entity", () => {
     const tables = new Map(g.entities.map((e) => [e.name, e.tableName]));
-    expect(tables.get("County")).toBe("Counties");
-    expect(tables.get("FeedbackEntry")).toBe("FeedbackEntries");
-    expect(tables.get("User")).toBe("AspNetUsers");
+    for (const [entity, table] of exp.tableNames!) {
+      expect(tables.get(entity)).toBe(table);
+    }
   });
 
   it("includes members inherited from IdentityUser", () => {
-    const user = g.entities.find((e) => e.name === "User")!;
+    const user = g.entities.find((e) => e.name === exp.identityEntity)!;
     const names = user.properties.map((p) => p.name);
     expect(user.keys).toEqual(["Id"]);
-    expect(names).toContain("Email");
-    expect(names).toContain("PasswordHash");
-    expect(names).toContain("FirstName");
-    expect(user.properties.find((p) => p.name === "Id")!.type).toBe("Guid");
+    for (const member of exp.identityMembers!) expect(names).toContain(member);
+    expect(user.properties.find((p) => p.name === "Id")!.type).toBe(exp.identityKeyType);
   });
 
-  it("reads keys, including the composite key on UserCounty", () => {
-    expect(g.entities.find((e) => e.name === "UserCounty")!.keys).toEqual([
-      "UserId", "CountyId",
-    ]);
-    expect(g.entities.find((e) => e.name === "County")!.keys).toEqual(["Id"]);
+  it("reads keys, including a composite key", () => {
+    expect(g.entities.find((e) => e.name === exp.compositeKey!.entity)!.keys)
+      .toEqual(exp.compositeKey!.keys);
+    expect(g.entities.find((e) => e.name === exp.singleKey!.entity)!.keys)
+      .toEqual(exp.singleKey!.keys);
   });
 
   it("reads property facets from attributes and fluent config", () => {
-    const la = g.entities.find((e) => e.name === "LicenseApplication")!;
-    const conf = la.properties.find((p) => p.name === "ConfirmationNumber")!;
-    expect(conf.maxLength).toBe(20);
-    expect(conf.nullable).toBe(false);
+    const entity = g.entities.find((e) => e.name === exp.facets!.entity)!;
+    const capped = entity.properties.find((p) => p.name === exp.facets!.maxLengthProp.name)!;
+    expect(capped.maxLength).toBe(exp.facets!.maxLengthProp.maxLength);
+    expect(capped.nullable).toBe(false);
 
-    const formData = la.properties.find((p) => p.name === "FormData")!;
-    expect(formData.nullable).toBe(true);
+    const nullable = entity.properties.find((p) => p.name === exp.facets!.nullableProp)!;
+    expect(nullable.nullable).toBe(true);
 
-    const docs = la.properties.find((p) => p.name === "ApplicationDocuments")!;
-    expect(docs.isCollection).toBe(true);
-    expect(docs.isNavigation).toBe(true);
-    expect(docs.baseType).toBe("ApplicationDocument");
+    const coll = entity.properties.find((p) => p.name === exp.facets!.collectionProp.name)!;
+    expect(coll.isCollection).toBe(true);
+    expect(coll.isNavigation).toBe(true);
+    expect(coll.baseType).toBe(exp.facets!.collectionProp.baseType);
 
-    const fee = g.entities
-      .find((e) => e.name === "LicenseType")!
-      .properties.find((p) => p.name === "ApplicationFee")!;
-    expect(fee.precision).toEqual([10, 2]);
+    const precise = g.entities
+      .find((e) => e.name === exp.facets!.precisionProp.entity)!
+      .properties.find((p) => p.name === exp.facets!.precisionProp.name)!;
+    expect(precise.precision).toEqual(exp.facets!.precisionProp.precision);
   });
 
   it("resolves relationships and marks foreign keys", () => {
-    const dept = g.relations.find(
-      (r) => r.dependent === "Department" && r.principal === "County",
+    const rel = g.relations.find(
+      (r) => r.dependent === exp.relation!.dependent && r.principal === exp.relation!.principal,
     )!;
-    expect(dept.cardinality).toBe("one-to-many");
-    expect(dept.foreignKeyProperty).toBe("CountyId");
-    expect(dept.principalNavigation).toBe("Departments");
-    expect(dept.dependentNavigation).toBe("County");
+    expect(rel.cardinality).toBe("one-to-many");
+    expect(rel.foreignKeyProperty).toBe(exp.relation!.foreignKey);
+    expect(rel.principalNavigation).toBe(exp.relation!.principalNavigation);
+    expect(rel.dependentNavigation).toBe(exp.relation!.dependentNavigation);
 
     const fk = g.entities
-      .find((e) => e.name === "Department")!
-      .properties.find((p) => p.name === "CountyId")!;
+      .find((e) => e.name === exp.relation!.dependent)!
+      .properties.find((p) => p.name === exp.relation!.foreignKey)!;
     expect(fk.isForeignKey).toBe(true);
   });
 
   it("derives delete behavior from convention when no OnDelete is written", () => {
-    // corpus-repo-a declares zero OnDelete calls; every value must therefore
-    // be marked as convention-derived, never presented as written source.
+    // The repo declares zero OnDelete calls; every value must therefore be
+    // marked as convention-derived, never presented as written source.
     expect(g.relations.every((r) => r.deleteBehaviorSource === "convention")).toBe(true);
     const optional = g.relations.find(
-      (r) => r.dependent === "LicenseApplication" && r.principal === "FormTemplate",
+      (r) =>
+        r.dependent === exp.optionalRelation!.dependent &&
+        r.principal === exp.optionalRelation!.principal,
     )!;
     expect(optional.required).toBe(false);
-    expect(optional.deleteBehavior).toBe("ClientSetNull");
+    expect(optional.deleteBehavior).toBe(exp.optionalRelation!.deleteBehavior);
   });
 
   it("parses the whole repo without warnings", () => {
@@ -112,28 +116,29 @@ describe.skipIf(!hasCorpus(PP))("EF Core extraction [corpus]", () => {
   });
 });
 
-describe.skipIf(!hasCorpus(BI))("shadow-class disambiguation [corpus]", () => {
-  const g = extractDotnet(BI);
+describe.skipIf(!repoB)("shadow-class disambiguation [corpus]", () => {
+  const exp: CorpusDotnetExpect = repoB?.expect.dotnet ?? {};
+  const g = extractDotnet(repoB?.path ?? NOT_A_PROJECT);
 
   it("keeps only the entities the context imports", () => {
-    // Models/CreditLine.cs and Models/Payment.cs are stale siblings of the
-    // Models/Entities/* classes. Only the namespace the context imports counts.
-    expect(g.entities).toHaveLength(9);
-    const cl = g.entities.find((e) => e.name === "CreditLine")!;
-    expect(cl.namespace).toBe("corpus-repo-b.Api.Models.Entities");
-    expect(cl.file).toContain("Models/Entities/CreditLine.cs");
+    // The repo declares stale siblings of its Models/Entities/* classes under
+    // Models/*. Only the namespace the context imports counts.
+    expect(g.entities).toHaveLength(exp.entityCount!);
+    const shadow = g.entities.find((e) => e.name === exp.shadowEntity!.name)!;
+    expect(shadow.namespace).toBe(exp.shadowEntity!.namespace);
+    expect(shadow.file).toContain(exp.shadowEntity!.fileContains);
   });
 
   it("reads explicitly declared cascade behavior", () => {
     const cascades = g.relations.filter((r) => r.deleteBehaviorSource === "fluent");
-    expect(cascades.length).toBe(7);
-    expect(cascades.every((r) => r.deleteBehavior === "Cascade")).toBe(true);
+    expect(cascades.length).toBe(exp.cascade!.count);
+    expect(cascades.every((r) => r.deleteBehavior === exp.cascade!.behavior)).toBe(true);
   });
 });
 
-describe.skipIf(!hasCorpus(NEG))("negative fixture [corpus]", () => {
+describe.skipIf(!repoC)("negative fixture [corpus]", () => {
   it("reports zero entities for a backend with no ORM, without throwing", () => {
-    const g = extractDotnet(NEG);
+    const g = extractDotnet(repoC!.path);
     expect(g.entities).toEqual([]);
     expect(g.relations).toEqual([]);
     expect(g.contextName).toBeNull();

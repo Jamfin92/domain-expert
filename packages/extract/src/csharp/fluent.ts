@@ -189,7 +189,7 @@ export function chainsOf(body: Token[]): FluentChain[] {
  *   flat    builder.Entity<Department>().HasOne(...).WithMany(...);
  *   nested  builder.Entity<User>(entity => { entity.HasOne(...)...; ... });
  *
- * corpus-repo-a is entirely flat; corpus-repo-b is entirely nested.
+ * Corpus repo A is entirely flat; corpus repo B is entirely nested.
  * Reading only one style silently loses every relationship in the other repo,
  * so both normalize to the same shape here: the entity being configured, plus
  * one call chain per configuration statement.

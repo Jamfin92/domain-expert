@@ -96,7 +96,7 @@ None in behaviour or scope. Two notes:
 - `pnpm test` (corpus on) — **pass**: `Test Files 14 passed (14)`,
   `Tests 211 passed (211)`. Includes `test/mini-fullstack.test.ts (4 tests)`,
   `test/mini-node.test.ts (24)`, `packages/extract/test/node.test.ts (15)` —
-  the corpus-repo-e zero-warning contract and 6-route count ran and held.
+  the corpus repo E zero-warning contract and 6-route count ran and held.
 - `PSQ_NO_CORPUS=1 pnpm test` — **pass**:
   `Tests 156 passed | 55 skipped (211)`, `10 passed | 4 skipped` files.
 - `pnpm test:e2e` — **pass**, unchanged: `Tests 19 passed (19)`, ~23s.
@@ -206,7 +206,7 @@ M5b per the orchestrator.
 
 - `pnpm typecheck` — pass (root, e2e, @psq/web, @psq/desktop).
 - `pnpm test` (corpus ON) — pass: `Test Files 14 passed (14)`,
-  `Tests 211 passed (211)`; mini-fullstack, mini-node, and the corpus-repo-e
+  `Tests 211 passed (211)`; mini-fullstack, mini-node, and the corpus repo E
   contracts all ran.
 - `PSQ_NO_CORPUS=1 pnpm test` — pass: `Tests 156 passed | 55 skipped (211)`.
 - `pnpm test:e2e` — pass: `Tests 19 passed (19)`.
@@ -228,19 +228,16 @@ M5b per the orchestrator.
      phantom `GET /local/route` from the `bus.get` registration decoy.
    Both reverted; all four gates re-run green afterwards.
 
-### corpus-repo-a probe (not a test)
+### corpus repo A probe (not a test)
 
-`extractNode("~/Developer/corpus-repo-a/client")` now finds
-**50 client calls** (previously the service-module calls with identifier
-bodies were dropped). Examples:
+`extractNode` over corpus repo A's client now finds **50 client calls**
+(previously the service-module calls with identifier bodies were dropped).
+Spot-checked examples: a POST recorded from a service module — the reviewer's
+exact counter-example, now recorded — plus a login POST, a PUT with one
+wildcard segment, and a GET whose path nests two wildcard segments, each read
+from a service module three hops from the component that uses it.
 
-- `src/services/license.service.ts:15 POST /licenses` — the reviewer's exact
-  counter-example, now recorded.
-- `src/services/auth.service.ts:10 POST /auth/login`
-- `src/services/application.service.ts:32 PUT /applications/*`
-- `src/services/county.service.ts:26 GET /counties/*/departments/*/license-types`
-
-All `matches: null`, as expected — corpus-repo-a's backend is C# and produces
+All `matches: null`, as expected — corpus repo A's backend is C# and produces
 no route facts. The extraction's single warning is the pre-existing
 no-CREATE-TABLE notice, not from the client reader. No corpus test added,
 per instruction.
@@ -332,12 +329,12 @@ the fixture, to keep the fixture noise down).
 
 ### Corpus probes re-run (not tests)
 
-- `corpus-repo-a/client`: still **50 client calls** — unchanged, as the
+- `corpus repo A/client`: still **50 client calls** — unchanged, as the
   spot-checked service-module calls use `api.<verb>` property access, not
   bare fetch, so the fetchMethod rewrite does not touch them. All
   `matches: null`; the single warning is the pre-existing no-CREATE-TABLE
   notice.
-- domain-expert, corpus-repo-d, corpus-repo-c, corpus-repo-e: 0 client calls each and
+- domain-expert, corpus repo D, corpus repo C, corpus repo E: 0 client calls each and
   0 client-reader warnings (the only warning `linkCalls` can emit is the
   ambiguous-match "could match"; none present). Each repo's total warnings
   are the pre-existing schema/DDL notices (8 / 2 / 1 / 0), untouched by this
@@ -411,10 +408,10 @@ both `method: "GET"` and both `matches: "GET /api/items"`. Hoist restored.
 
 ### Corpus probes re-run (not tests)
 
-- `corpus-repo-a/client`: still exactly **50 client calls**, all
+- `corpus repo A/client`: still exactly **50 client calls**, all
   `matches: null`, 1 warning (the pre-existing no-CREATE-TABLE notice) —
   identical to round 2.
-- domain-expert / corpus-repo-d / corpus-repo-c / corpus-repo-e: **0 client calls**
+- domain-expert / corpus repo D / corpus repo C / corpus repo E: **0 client calls**
   each; warnings 8 / 2 / 1 / 0 — identical to round 2.
 
 Not committed.

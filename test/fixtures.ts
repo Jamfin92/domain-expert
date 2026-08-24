@@ -25,35 +25,162 @@ export const MINI_FULLSTACK = resolve(here, "fixtures/mini-fullstack");
 export const NOT_A_PROJECT = resolve(here, "fixtures/not-a-project");
 
 /**
- * Real repos on this machine, used to validate extraction against ground
- * truth that psq did not produce (an EF migration snapshot, a live schema).
- * They are not part of this repo, so corpus tests skip when they are absent
- * rather than failing for a reason unrelated to the code.
+ * Real repos on the developer's machine, used to validate extraction against
+ * ground truth psq did not produce (an EF migration snapshot, a live schema).
+ * They are private and not part of this repo, so both the paths and the
+ * ground-truth expectations live in a gitignored `test/corpus.local.json`
+ * (shape documented by `test/corpus.local.example.json`). Corpus tests skip
+ * when the config or a repo is absent rather than failing for a reason
+ * unrelated to the code.
  */
-export const CORPUS = {
-  corpus-repo-a: "~/Developer/corpus-repo-a/server/src/corpus-repo-a.Api",
-  corpus-repo-b: "~/Developer/corpus-repo-b/src/corpus-repo-b.Api",
-  corpus-repo-c: "~/Developer/corpus-repo-c",
-  corpus-repo-d: "~/Developer/corpus-repo-d",
-  corpus-repo-e: "~/Developer/corpus-repo-e",
-} as const;
+export type CorpusKey = "repoA" | "repoB" | "repoC" | "repoD" | "repoE";
 
-export function hasCorpus(path: string): boolean {
-  // PSQ_NO_CORPUS=1 forces the hermetic path, so the skip behavior itself can
-  // be exercised on a machine that does happen to have the repos.
-  if (process.env["PSQ_NO_CORPUS"] === "1") return false;
-  return existsSync(path);
+export interface CorpusRepo {
+  /** Absolute path to the repo (or the project directory inside it). */
+  path: string;
+  /** Repo-relative path to the single pinned DDL file, where one exists.
+   *  Pinned so the oracle reads one known file instead of reimplementing the
+   *  extractor's file selection. Drift mode the pin does not catch: if the
+   *  repo adds a second DDL file, the extractor sees the extra tables and the
+   *  oracle does not, and the failure will look like a psq bug rather than a
+   *  stale pin. */
+  ddl?: string;
+  /** Ground-truth expectations, grouped by the test file that consumes them.
+   *  Data, not code: no name from a private repo may appear in a committed
+   *  test. */
+  expect: {
+    node?: CorpusNodeExpect;
+    dotnet?: CorpusDotnetExpect;
+    structure?: CorpusStructureExpect;
+    fluent?: CorpusFluentExpect;
+    graph?: CorpusGraphExpect;
+    quiz?: CorpusQuizExpect;
+  };
 }
 
-/** The file that holds each corpus repo's schema. Pinned, so the oracle reads
- *  one known file instead of reimplementing the extractor's file selection.
- *  Drift mode the pin does not catch: if a corpus repo adds a second DDL file,
- *  the extractor sees the extra tables and this oracle does not, and the
- *  failure will look like a psq bug rather than a stale pin. */
-export const CORPUS_DDL = {
-  corpus-repo-d: resolve(CORPUS.corpus-repo-d, "server/src/state/db.ts"),
-  corpus-repo-e: resolve(CORPUS.corpus-repo-e, "src/db.ts"),
-} as const;
+export interface CorpusNodeExpect {
+  /** Hand-verified floor of table names; must never regress even if the
+   *  text oracle breaks too. */
+  tableFloor?: string[];
+  minTables?: number;
+  noWarnings?: boolean;
+  wideTable?: { name: string; propertyCount: number; keys: string[] };
+  relationIds?: string[];
+  absentForeignKey?: string;
+  houseStyleWarning?: string;
+  zodShape?: string;
+  zodFieldsShape?: { name: string; contains: string };
+  mirrorPairs?: string[];
+  routes?: string[];
+  routeCount?: number;
+  routeContains?: string;
+  ownerTable?: string;
+  oneToOneRelation?: string;
+  utilityShape?: { name: string; fields: string[] };
+  unionShape?: { name: string; discriminator: string };
+  enumShape?: { name: string; members: number };
+  shapeName?: string;
+}
+
+export interface CorpusDotnetExpect {
+  contextName?: string;
+  entityCount?: number;
+  identityEntity?: string;
+  notAnEntity?: string;
+  relationCount?: number;
+  navDup?: { dependent: string; principal: string; foreignKey: string };
+  tableNames?: [entity: string, table: string][];
+  identityMembers?: string[];
+  identityKeyType?: string;
+  compositeKey?: { entity: string; keys: string[] };
+  singleKey?: { entity: string; keys: string[] };
+  facets?: {
+    entity: string;
+    maxLengthProp: { name: string; maxLength: number };
+    nullableProp: string;
+    collectionProp: { name: string; baseType: string };
+    precisionProp: { entity: string; name: string; precision: [number, number] };
+  };
+  relation?: {
+    dependent: string;
+    principal: string;
+    foreignKey: string;
+    principalNavigation: string;
+    dependentNavigation: string;
+  };
+  optionalRelation?: { dependent: string; principal: string; deleteBehavior: string };
+  shadowEntity?: { name: string; namespace: string; fileContains: string };
+  cascade?: { count: number; behavior: string };
+}
+
+export interface CorpusStructureExpect {
+  contextFile: string;
+  contextType: string;
+  namespace: string;
+  domainUsing: string;
+  contextBase: string;
+  dbSetCount: number;
+  dbSetContains: string;
+  entityFile: string;
+  entityType: string;
+  requiredProp: { name: string; type: string; attributes: string[]; attrArgs: string[] };
+  nullableValueProp: { name: string; type: string };
+  nullableRefProp: { name: string; type: string };
+  collectionProp: { name: string; type: string; initializer: string };
+  nullForgivingProps: { name: string; type: string }[];
+  constantsFile: string;
+}
+
+export interface CorpusFluentExpect {
+  contextFile?: string;
+  contextType?: string;
+  minRelationChains?: number;
+  relChain?: { entity: string; hasOne: string[]; withMany: string[]; foreignKey: string[] };
+  compositeKey?: { entity: string; members: string[] };
+  minIndexes?: number;
+  uniqueIndex?: { entity: string; members: string[] };
+  onDelete?: { count: number; behavior: string };
+}
+
+export interface CorpusGraphExpect {
+  hub: { entity: string; degree: number };
+  path: { from: string; to: string; via: string[] };
+  unreachable: string;
+  orphans: string[];
+}
+
+export interface CorpusQuizExpect {
+  minQuestions: number;
+  generatorCount: number;
+  namespacedEntity: { raw: string; normalized: string };
+  aliasEntity: { name: string; spellings: string[]; nonMatch: string };
+  plurals: [singular: string, plural: string][];
+}
+
+const corpusConfigPath = resolve(here, "corpus.local.json");
+
+const corpusConfig: Partial<Record<CorpusKey, CorpusRepo>> | null = existsSync(corpusConfigPath)
+  ? (JSON.parse(readFileSync(corpusConfigPath, "utf8")) as Partial<Record<CorpusKey, CorpusRepo>>)
+  : null;
+
+/**
+ * The corpus entry for a repo, or null when it cannot be used: no local
+ * config, no entry, repo not on disk, or PSQ_NO_CORPUS=1 (which forces the
+ * hermetic path so the skip behavior itself can be exercised on a machine
+ * that does have the repos).
+ */
+export function corpusRepo(key: CorpusKey): CorpusRepo | null {
+  if (process.env["PSQ_NO_CORPUS"] === "1") return null;
+  const repo = corpusConfig?.[key];
+  if (!repo || !existsSync(repo.path)) return null;
+  return repo;
+}
+
+/** Absolute path of a corpus repo's pinned DDL file. */
+export function corpusDdl(repo: CorpusRepo): string {
+  if (!repo.ddl) throw new Error(`corpus repo at ${repo.path} pins no DDL file`);
+  return resolve(repo.path, repo.ddl);
+}
 
 // Assumes the SQLite-ish DDL subset the corpus actually uses: plain
 // `CREATE [TEMP[ORARY]] TABLE [IF NOT EXISTS] name`. Known misses, none of

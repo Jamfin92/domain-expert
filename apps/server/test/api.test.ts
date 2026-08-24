@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import request from "supertest";
 import type { Express } from "express";
 import { createApp } from "../src/app.js";
@@ -46,7 +48,9 @@ describe("opening a repo", () => {
   });
 
   it("says so plainly, and says why, when a repo has no model psq can read", async () => {
-    const res = await request(app).post("/api/repos").send({ path: "~/Developer/domain-expert/packages" });
+    // This repo's own packages/ directory: real code, but nothing psq can read.
+    const packagesDir = resolve(fileURLToPath(import.meta.url), "../../../../packages");
+    const res = await request(app).post("/api/repos").send({ path: packagesDir });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("No entities found");
     // The reason names what psq actually looked for in THIS repo, not a generic apology.
