@@ -166,6 +166,50 @@ export const Route = z.object({
 });
 export type Route = z.infer<typeof Route>;
 
+/**
+ * An HTTP call site in client code, matched to a Route when the evidence
+ * allows. Detection is a heuristic and deliberately partial. Catalogued
+ * misses, all silent — a `.get(` that is not a client call is not an unread
+ * construct, it is a call the reader is not about:
+ *   - calls through a wrapper function: `call<T>(...)` in this repo's own
+ *     apps/web/src/lib/api.ts is invisible, because the wrapper's inner fetch
+ *     receives a parameter, never a literal
+ *   - URLs built by string concatenation ("/api/x/" + id is a
+ *     BinaryExpression; rejected outright)
+ *   - non-literal URLs: identifiers, config lookups, absolute external URLs
+ *   - `fetch(url, init)` where init is an identifier, a call, or an object
+ *     literal with a spread, a computed property key, or a `method` that is
+ *     shorthand (`{ method, body }` — a wrapper forwarding its argument) or
+ *     has a non-literal value: the method is unknowable, so the call is
+ *     skipped rather than fabricated as a GET
+ *   - calls relative to a configured baseURL: no prefix inference, so they
+ *     are recorded but match nothing
+ *   - a file that both imports express and makes client calls is skipped whole
+ * And one catalogued false positive, the reverse of a miss: in a file with no
+ * express import, a router-shaped registration whose extra arguments are
+ * identifiers rather than inline functions — `router.get("/users",
+ * authenticate, listUsers)`, `router.get("/things", ctrl.list)` — is recorded
+ * as a client call: neither guard can tell it from an axios-style call. It
+ * can only ever sit unmatched (`matches: null`), because `readRoutes` skips
+ * the same files, but the record itself is a guessed fact.
+ */
+export const ClientCall = z.object({
+  method: z.string(),
+  /**
+   * The call's path as written, with ${} holes as * and any query string
+   * dropped. Route :params are normalised to * at match time only; a literal
+   * `:id` in a call path is stored verbatim.
+   */
+  path: z.string(),
+  file: z.string(),
+  line: z.number().int().nonnegative(),
+  /** Nearest enclosing named function, or null at module scope. */
+  enclosing: z.string().nullable(),
+  /** The matched route's raw "METHOD path", or null when unmatched. */
+  matches: z.string().nullable(),
+});
+export type ClientCall = z.infer<typeof ClientCall>;
+
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
   repo: z.string(),
@@ -176,8 +220,10 @@ export const EntityGraph = z.object({
   relations: z.array(Relation),
   /** Declared structures beside the tables: DTOs, interfaces, enums, zod. */
   shapes: z.array(Shape),
-  /** HTTP surface, when the repo has one. Facts only until M5. */
+  /** HTTP surface, when the repo has one. Facts only; questions are M5b+. */
   routes: z.array(Route),
+  /** HTTP call sites in the repo's client code, matched against `routes`. */
+  clientCalls: z.array(ClientCall),
   /** Non-fatal parse problems. Never silently dropped. */
   warnings: z.array(z.string()),
 });

@@ -14,6 +14,13 @@ export const MINI_EFCORE = resolve(here, "fixtures/mini-efcore");
  */
 export const MINI_NODE = resolve(here, "fixtures/mini-node");
 
+/**
+ * A Node repo with both halves: an express server and an HTTP-calling client.
+ * No corpus repo has both, so this fixture is the only gate on the client-call
+ * reader and its route matching (M5a).
+ */
+export const MINI_FULLSTACK = resolve(here, "fixtures/mini-fullstack");
+
 /** Neither of the above, so psq must say so rather than report an empty repo. */
 export const NOT_A_PROJECT = resolve(here, "fixtures/not-a-project");
 

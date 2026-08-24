@@ -19,7 +19,7 @@ import { isTestFile, repoRelative } from "../files.js";
 
 const METHODS = new Set(["get", "post", "put", "patch", "delete", "head", "options", "all"]);
 
-function importsExpress(source: ts.SourceFile): boolean {
+export function importsExpress(source: ts.SourceFile): boolean {
   return source.statements.some(
     (s) =>
       ts.isImportDeclaration(s) &&

@@ -6,6 +6,7 @@ import { walk } from "./files.js";
 import { collectDdl, readSchema } from "./node/ddl.js";
 import { readShapes } from "./node/shapes.js";
 import { readRoutes } from "./node/routes.js";
+import { linkCalls, readClientCalls } from "./node/clients.js";
 import { pairShapes } from "./pair.js";
 
 /**
@@ -87,6 +88,7 @@ export function extractNode(repoRoot: string): EntityGraph {
   const { entities, relations } = readSchema(collectDdl(repoRoot, sources, warnings), warnings);
   const shapes = pairShapes(entities, readShapes(repoRoot, checker, sources, warnings), warnings);
   const routes = readRoutes(repoRoot, sources, warnings);
+  const clientCalls = linkCalls(routes, readClientCalls(repoRoot, sources, warnings), warnings);
 
   if (entities.length === 0 && shapes.length > 0) {
     warnings.push(
@@ -104,6 +106,7 @@ export function extractNode(repoRoot: string): EntityGraph {
     relations,
     shapes,
     routes,
+    clientCalls,
     warnings,
   };
 }
