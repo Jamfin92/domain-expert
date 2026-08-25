@@ -8,6 +8,8 @@
   ],
   "exclude": [
     "**/dist",
+    "test/fixtures/mini-react",
+    "test/fixtures/mini-solution-tie",
     "apps/desktop",
     "apps/web",
     "e2e",

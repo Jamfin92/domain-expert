@@ -21,6 +21,7 @@ import {
 const repoD = corpusRepo("repoD");
 const repoE = corpusRepo("repoE");
 const repoC = corpusRepo("repoC");
+const repoAClient = corpusRepo("repoAClient");
 
 // Note: vitest executes even a skipped describe body during collection, so
 // everything at describe scope must tolerate an absent corpus.
@@ -143,5 +144,42 @@ describe.skipIf(!repoC)("repoC: schemaless TS backend [corpus]", () => {
     // so the receiver has to be recognized syntactically.
     expect(g.routes.length).toBeGreaterThan(0);
     expect(g.shapes.map((s) => s.name)).toContain(exp.shapeName!);
+  });
+});
+
+describe.skipIf(!repoAClient)("repoAClient: Vite React client [corpus]", () => {
+  const repo = repoAClient!;
+  const exp: CorpusNodeExpect = repo?.expect.node ?? {};
+  const g = extractNode(repo?.path ?? NOT_A_PROJECT);
+
+  it("resolves the solution-style tsconfig through its app project", () => {
+    // Without project-reference resolution the fallback walk() program has no
+    // `@/*` paths and no bundler resolution, every cross-file chain breaks,
+    // and every call reports components: [] — indistinguishable from "no
+    // owner". The hermetic gate is test/mini-react.test.ts; this pins the
+    // real repo. The dropped second reference is a named warning, not silence.
+    expect(g.warnings.some((w) => /referenced projects; reading only/.test(w))).toBe(true);
+    expect(g.components.length).toBeGreaterThan(0);
+  });
+
+  // skipIf, not `!`: a corpus entry added without componentChains must skip
+  // like any other absent expectation, not throw mid-run (see the note at the
+  // top of this file about tolerating an absent corpus).
+  it.skipIf(!repoAClient?.expect.node?.componentChains)(
+    "attributes each hand-verified call site to exactly its components", () => {
+    for (const chain of exp.componentChains!) {
+      const call = g.clientCalls.find((c) => c.file === chain.file && c.line === chain.line);
+      // The pinned site must exist AND carry exactly the hand-verified keys —
+      // a moved line fails here rather than passing vacuously.
+      expect(call, `${chain.file}:${chain.line}`).toBeDefined();
+      expect(call!.components, `${chain.file}:${chain.line}`).toEqual(chain.components);
+    }
+  });
+
+  it("resolves every attributed key against components[]", () => {
+    const keys = new Set(g.components.map((c) => c.key));
+    for (const call of g.clientCalls) {
+      for (const key of call.components) expect(keys.has(key), key).toBe(true);
+    }
   });
 });

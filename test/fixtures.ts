@@ -21,6 +21,20 @@ export const MINI_NODE = resolve(here, "fixtures/mini-node");
  */
 export const MINI_FULLSTACK = resolve(here, "fixtures/mini-fullstack");
 
+/**
+ * A Vite-shaped React client: solution-style tsconfig (project references,
+ * `@/*` paths), components, hooks, services. The only hermetic gate on
+ * project-reference resolution and component attribution (M5b).
+ */
+export const MINI_REACT = resolve(here, "fixtures/mini-react");
+
+/**
+ * Two referenced projects with EQUAL file counts and reversed declaration
+ * order, so the winner can only come from the explicit lexicographic
+ * tiebreak — never from reference order or sort stability.
+ */
+export const MINI_SOLUTION_TIE = resolve(here, "fixtures/mini-solution-tie");
+
 /** Neither of the above, so psq must say so rather than report an empty repo. */
 export const NOT_A_PROJECT = resolve(here, "fixtures/not-a-project");
 
@@ -33,7 +47,7 @@ export const NOT_A_PROJECT = resolve(here, "fixtures/not-a-project");
  * when the config or a repo is absent rather than failing for a reason
  * unrelated to the code.
  */
-export type CorpusKey = "repoA" | "repoB" | "repoC" | "repoD" | "repoE";
+export type CorpusKey = "repoA" | "repoAClient" | "repoB" | "repoC" | "repoD" | "repoE";
 
 export interface CorpusRepo {
   /** Absolute path to the repo (or the project directory inside it). */
@@ -80,6 +94,8 @@ export interface CorpusNodeExpect {
   unionShape?: { name: string; discriminator: string };
   enumShape?: { name: string; members: number };
   shapeName?: string;
+  /** Hand-verified component attributions for pinned call sites (M5b). */
+  componentChains?: { file: string; line: number; components: string[] }[];
 }
 
 export interface CorpusDotnetExpect {

@@ -46,7 +46,7 @@ function rel(principal: string, dependent: string): Relation {
 function graph(entities: Entity[], relations: Relation[] = []): EntityGraph {
   return {
     kind: "entity", repo: "synthetic", provider: "none", contextName: null,
-    entities, relations, shapes: [], routes: [], clientCalls: [], warnings: [],
+    entities, relations, shapes: [], routes: [], clientCalls: [], components: [], warnings: [],
   };
 }
 

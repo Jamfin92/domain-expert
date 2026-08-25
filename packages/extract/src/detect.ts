@@ -50,6 +50,7 @@ export function extract(repoRoot: string): EntityGraph {
         shapes: [],
         routes: [],
         clientCalls: [],
+        components: [],
         warnings: [
           "No .csproj, .cs, package.json, tsconfig.json or TypeScript source found here. " +
             "psq reads .NET projects with an EF Core DbContext and Node backends with a SQLite schema.",

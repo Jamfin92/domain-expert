@@ -55,16 +55,40 @@ function normaliseRoutePath(path: string): string {
   return path.replace(/:[^/]+/g, "*");
 }
 
-/** Nearest enclosing named function, or null at module scope. */
+/**
+ * Nearest enclosing named function, or null at module scope. The named forms:
+ * function declarations (an anonymous `export default function () {}` is
+ * "default"), methods, constructors ("constructor"), get/set-accessors, named
+ * function expressions, and arrows/function expressions whose name comes from
+ * the binding site — a variable, an object-literal property, a class
+ * property, or `export default` ("default"). An arrow bound to none of those
+ * (an inline callback argument, say) contributes no name and the walk
+ * continues outward, exactly as before.
+ */
 function enclosingName(node: ts.Node): string | null {
   for (let cur = node.parent; cur; cur = cur.parent) {
-    if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.text;
+    if (ts.isFunctionDeclaration(cur)) return cur.name?.text ?? "default";
     if (ts.isMethodDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
+    if (ts.isConstructorDeclaration(cur)) return "constructor";
+    if (
+      (ts.isGetAccessorDeclaration(cur) || ts.isSetAccessorDeclaration(cur)) &&
+      ts.isIdentifier(cur.name)
+    ) {
+      return cur.name.text;
+    }
     if (ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)) {
       if (ts.isFunctionExpression(cur) && cur.name) return cur.name.text;
-      if (ts.isVariableDeclaration(cur.parent) && ts.isIdentifier(cur.parent.name)) {
-        return cur.parent.name.text;
+      const holder = cur.parent;
+      if (ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name)) {
+        return holder.name.text;
       }
+      if (
+        (ts.isPropertyAssignment(holder) || ts.isPropertyDeclaration(holder)) &&
+        (ts.isIdentifier(holder.name) || ts.isStringLiteral(holder.name))
+      ) {
+        return holder.name.text;
+      }
+      if (ts.isExportAssignment(holder)) return "default";
     }
   }
   return null;
@@ -130,6 +154,12 @@ export function readClientCalls(
   root: string,
   sources: readonly ts.SourceFile[],
   _warnings: string[],
+  /**
+   * Filled with the AST node of every recorded call, for the attribution
+   * pass (`refs.ts`) that runs after matching. The node never enters the
+   * schema; `components` on the call is what survives.
+   */
+  callNodes?: Map<ClientCall, ts.CallExpression>,
 ): ClientCall[] {
   const out: ClientCall[] = [];
 
@@ -161,14 +191,19 @@ export function readClientCalls(
           const raw = literalPath(node.arguments[0]!);
           if (raw !== null && raw.startsWith("/")) {
             const { line } = source.getLineAndCharacterOfPosition(node.getStart());
-            out.push({
+            const call: ClientCall = {
               method,
               path: raw.split("?")[0]!,
               file: rel,
               line: line + 1,
               enclosing: enclosingName(node),
               matches: null,
-            });
+              // Overwritten for every call by the attribution pass; [] here
+              // is "attribution has not run", not a finding.
+              components: [],
+            };
+            out.push(call);
+            callNodes?.set(call, node);
           }
         }
       }

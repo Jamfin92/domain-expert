@@ -185,6 +185,63 @@ export type Route = z.infer<typeof Route>;
  *   - calls relative to a configured baseURL: no prefix inference, so they
  *     are recorded but match nothing
  *   - a file that both imports express and makes client calls is skipped whole
+ * Attribution (`components`, M5b) has its own catalogued misses, also silent:
+ *   - only the NEAREST component in the reference graph is recorded; ancestor
+ *     components above it are deliberately absent, because attributing to
+ *     every reaching component makes the root App own every call in the app
+ *   - the provider swallow, by name: a context provider component that itself
+ *     contains the auth calls is attributed, and the components consuming its
+ *     hook are not — the hook reads a context value, so no reference edge
+ *     connects the consumers to the call. No heuristic skips providers; that
+ *     would be a guess
+ *   - reverse reachability stops silently at depth 8, so a chain more than
+ *     eight definitions deep loses its component
+ *   - a component the JSX+PascalCase detector cannot see (a lowercase-named
+ *     component, a component whose JSX is produced indirectly — returned from
+ *     a helper, built with createElement) is never attributed to
+ *   - an anonymous `export default` keys as "default", which fails the
+ *     PascalCase test, so an anonymous default-exported component can never
+ *     be detected or attributed to
+ *   - a CLASS component's own calls: a method of a class is its own
+ *     definition, and no reference edge connects a class's methods to the
+ *     class, so a fetch inside `load()` of a JSX-rendering class stays
+ *     unattributed unless some other definition references that method
+ *   - an object-literal member that cannot be a definition (a computed key,
+ *     a spread, an accessor), a class member other than a named method (a
+ *     constructor, a property arrow, an accessor, a computed-name method, a
+ *     static block), and every member of a class EXPRESSION: a call inside
+ *     one is unattributed — the construct is dropped, and ownership never
+ *     spills outward to the holding object, class, or variable, where it
+ *     would fan out to every component touching any sibling. The
+ *     constructor gets no exception: a type annotation, instanceof, a
+ *     static access and extends all reference a class without constructing
+ *     it, and the reader cannot tell them from `new`
+ *   - a call inside a SIBLING-BEARING container that is not itself a set of
+ *     definitions — an object literal passed to a factory call, returned
+ *     from a factory arrow or an IIFE, or an array of handler objects, with
+ *     two or more members — is unattributed when the enclosing definition
+ *     is not a component: attributing it would fan out across every
+ *     sibling's callers. Inside a COMPONENT the same shape (the
+ *     useMutation({ mutationFn, ... }) options object) attributes to that
+ *     component, which is its genuine owner. A SINGLE-member container
+ *     (`mk({ only() { fetch(...) } })`, `forwardRef(cb)`) still attributes
+ *     to the enclosing definition — accepted because there are no siblings
+ *     to fan across, NOT because every referrer provably reaches the call:
+ *     a referrer that only takes the definition's type still gets counted
+ *     as an owner. A decision, stated as one
+ *   - everything inside a namespace (a ModuleDeclaration) is invisible to
+ *     attribution: its statements are not SourceFile-scope definitions, so
+ *     its calls are unattributed and nothing references into or out of it
+ *   - an overloaded function's canonical declaration is its first SIGNATURE,
+ *     which has no body: an overloaded component is undetectable, and a call
+ *     in the overload implementation is unattributed
+ *   - member keys do not escape ".": `{ "a.b": x }` and a nested
+ *     `a: { b: y }` in one file produce the same key — the second warns and
+ *     is dropped like any collision, unattributed rather than merged
+ *   - two definitions sharing one key keep the first and warn; calls owned by
+ *     the second stay unattributed rather than mis-attributed (the loser's
+ *     declaration is recorded, and ownership walks stop at it instead of
+ *     spilling to the enclosing declaration)
  * And one catalogued false positive, the reverse of a miss: in a file with no
  * express import, a router-shaped registration whose extra arguments are
  * identifiers rather than inline functions — `router.get("/users",
@@ -207,8 +264,32 @@ export const ClientCall = z.object({
   enclosing: z.string().nullable(),
   /** The matched route's raw "METHOD path", or null when unmatched. */
   matches: z.string().nullable(),
+  /**
+   * Component keys (`Component.key`) this call attributes to, sorted;
+   * resolved against `EntityGraph.components`. KEYS, not names: the same
+   * component name recurs across directories in real repos, and a bare name
+   * resolving against several entries is a fabricated fact. Empty when the
+   * call is genuinely unowned (module scope, or no component reaches it
+   * through the reference graph).
+   */
+  components: z.array(z.string()),
 });
 export type ClientCall = z.infer<typeof ClientCall>;
+
+/**
+ * A UI component definition, found by a stack-specific detector (today:
+ * JSX + PascalCase, i.e. React). `key` is "<repo-relative file>#<name>" and
+ * is what `ClientCall.components` stores — names alone are ambiguous in any
+ * repo with two same-named components.
+ */
+export const Component = z.object({
+  key: z.string(),
+  name: z.string(),
+  /** Repo-relative path of the declaring file. */
+  file: z.string(),
+  line: z.number().int().nonnegative(),
+});
+export type Component = z.infer<typeof Component>;
 
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
@@ -224,6 +305,8 @@ export const EntityGraph = z.object({
   routes: z.array(Route),
   /** HTTP call sites in the repo's client code, matched against `routes`. */
   clientCalls: z.array(ClientCall),
+  /** UI component definitions; `ClientCall.components` resolves against this. */
+  components: z.array(Component),
   /** Non-fatal parse problems. Never silently dropped. */
   warnings: z.array(z.string()),
 });

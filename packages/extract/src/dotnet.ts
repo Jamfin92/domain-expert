@@ -290,7 +290,7 @@ export function extractDotnet(
   if (contexts.length === 0) {
     return {
       kind: "entity", repo: repoRoot, provider: "efcore", contextName: null,
-      entities: [], relations: [], shapes: [], routes: [], clientCalls: [], warnings,
+      entities: [], relations: [], shapes: [], routes: [], clientCalls: [], components: [], warnings,
     };
   }
   if (contexts.length > 1) {
@@ -612,6 +612,7 @@ export function extractDotnet(
     shapes: shapes.sort((a, b) => a.name.localeCompare(b.name)),
     routes: [],
     clientCalls: [],
+    components: [],
     warnings,
   };
 }

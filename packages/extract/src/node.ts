@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import ts from "typescript";
-import type { EntityGraph } from "@psq/schema";
-import { walk } from "./files.js";
+import type { ClientCall, EntityGraph } from "@psq/schema";
+import { repoRelative, walk } from "./files.js";
 import { collectDdl, readSchema } from "./node/ddl.js";
 import { readShapes } from "./node/shapes.js";
 import { readRoutes } from "./node/routes.js";
 import { linkCalls, readClientCalls } from "./node/clients.js";
+import { attributeComponents } from "./node/refs.js";
 import { pairShapes } from "./pair.js";
 
 /**
@@ -33,7 +34,83 @@ const FALLBACK_OPTIONS: ts.CompilerOptions = {
   skipLibCheck: true,
   noEmit: true,
   allowJs: false,
+  // Near-no-op — .tsx parses as JSX by extension regardless, and no
+  // diagnostics are read — but it keeps the fallback program from carrying a
+  // "JSX is off" option that a future diagnostic reader would trip over.
+  jsx: ts.JsxEmit.Preserve,
 };
+
+/**
+ * A solution-style tsconfig (`"files": []` + `"references"` — the Vite React
+ * default) names no files itself; the options that make the repo resolve
+ * (`paths`, `jsx`, `moduleResolution: "bundler"`) live in the referenced
+ * projects. Pick ONE referenced project — the one with the most files,
+ * tiebroken by lexicographic config path — and use its file set AND its
+ * options verbatim. Never union file sets or overlay options: a project
+ * reference is a separate compilation unit, and a merged compilation is one
+ * tsc has never run — the overlay would leak `types`/`lib` from a config the
+ * winner never extended, and the union would compile `vite.config.ts` under
+ * the app project's options. One level only: a referenced config that is
+ * itself solution-style contributes nothing.
+ */
+function pickReferencedProject(
+  repoRoot: string,
+  parsed: ts.ParsedCommandLine,
+): { configPath: string; parsed: ts.ParsedCommandLine; contributors: number } | null {
+  const prefix = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
+  // A reference is only as useful as the files it contributes UNDER the repo
+  // root: `ownSources` filters everything else away afterwards, so counting
+  // out-of-root files here would crown a winner whose entire program is then
+  // discarded — a silent empty read. The predicate APPROXIMATES ownSources
+  // conservatively rather than mirroring it exactly: `.d.ts` by suffix here
+  // vs `isDeclarationFile` there (which also covers .d.mts/.d.cts), and the
+  // config's own fileNames here vs the whole program with transitive imports
+  // there. Both differences only undercount, and an undercount can only push
+  // a reference toward the warned fall-through — never crown a winner whose
+  // in-root read is empty.
+  const ownCount = (files: readonly string[]): number =>
+    files.filter(
+      (f) => f.startsWith(prefix) && !f.includes("/node_modules/") && !f.endsWith(".d.ts"),
+    ).length;
+
+  let winner: { configPath: string; parsed: ts.ParsedCommandLine; own: number } | null = null;
+  let contributors = 0;
+  for (const ref of parsed.projectReferences ?? []) {
+    // `projectReferences` paths are already absolute; this only resolves
+    // directory-vs-file ("./app" -> "./app/tsconfig.json").
+    const refPath = ts.resolveProjectReferencePath(ref);
+    const read = ts.readConfigFile(refPath, ts.sys.readFile);
+    if (read.error) continue;
+    // basePath MUST be the referenced config's own directory, not the repo
+    // root: a referenced `include: ["src"]` resolves against the config that
+    // wrote it. Against the wrong root it would yield zero files — a wrong
+    // answer wearing "no files" as a disguise.
+    const refParsed = ts.parseJsonConfigFileContent(
+      read.config,
+      ts.sys,
+      dirname(refPath),
+      undefined,
+      refPath,
+    );
+    const own = ownCount(refParsed.fileNames);
+    // A reference pointing outside the repo (a sibling package, say) may
+    // parse to plenty of files and still contribute nothing psq can read.
+    // It must not win; if no reference contributes, the caller warns and
+    // falls back to the directory scan, which still sees in-repo source.
+    if (own === 0) continue;
+    contributors += 1;
+    if (
+      winner === null ||
+      own > winner.own ||
+      (own === winner.own && refPath < winner.configPath)
+    ) {
+      winner = { configPath: refPath, parsed: refParsed, own };
+    }
+  }
+  return winner === null
+    ? null
+    : { configPath: winner.configPath, parsed: winner.parsed, contributors };
+}
 
 function programFor(repoRoot: string, warnings: string[]): ts.Program {
   const configPath = join(repoRoot, "tsconfig.json");
@@ -56,6 +133,34 @@ function programFor(repoRoot: string, warnings: string[]): ts.Program {
           noEmit: true,
         });
       }
+      const chosen = pickReferencedProject(repoRoot, parsed);
+      if (chosen) {
+        const refs = parsed.projectReferences ?? [];
+        if (chosen.contributors > 1) {
+          // At least one OTHER reference contributed in-root files and was
+          // dropped. For a Vite client that is by design (the loser holds
+          // vite.config.ts); for a monorepo solution config it is a
+          // half-read, so say so. A reference contributing nothing readable
+          // (out-of-root, empty) is not a drop and does not warn.
+          warnings.push(
+            `tsconfig.json: ${refs.length} referenced projects; reading only ${repoRelative(repoRoot, chosen.configPath)}`,
+          );
+        }
+        return ts.createProgram(chosen.parsed.fileNames, {
+          ...chosen.parsed.options,
+          strictNullChecks: true,
+          noEmit: true,
+        });
+      }
+      // A tsconfig existed, parsed, and yielded no files — directly or through
+      // any referenced project. The directory scan below is a degraded read
+      // (no `paths`, no bundler resolution), and degrading in silence is
+      // against the house rule. This branch is unreachable when there is no
+      // tsconfig at all: that case never enters the else-arm.
+      warnings.push(
+        "tsconfig.json names no files and no referenced project contributes files " +
+          "under this directory; falling back to a directory scan with default compiler options",
+      );
     }
   }
 
@@ -88,7 +193,12 @@ export function extractNode(repoRoot: string): EntityGraph {
   const { entities, relations } = readSchema(collectDdl(repoRoot, sources, warnings), warnings);
   const shapes = pairShapes(entities, readShapes(repoRoot, checker, sources, warnings), warnings);
   const routes = readRoutes(repoRoot, sources, warnings);
-  const clientCalls = linkCalls(routes, readClientCalls(repoRoot, sources, warnings), warnings);
+  const callNodes = new Map<ClientCall, ts.CallExpression>();
+  const clientCalls = linkCalls(
+    routes,
+    readClientCalls(repoRoot, sources, warnings, callNodes),
+    warnings,
+  );
 
   if (entities.length === 0 && shapes.length > 0) {
     warnings.push(
@@ -96,6 +206,17 @@ export function extractNode(repoRoot: string): EntityGraph {
         "psq reads a schema from raw DDL only; an ORM-defined schema is not read.",
     );
   }
+
+  // Attribution runs LAST: a later phase that synthesises ClientCalls (the
+  // deferred wrapper unwrapping) must be seen by it.
+  const components = attributeComponents(
+    repoRoot,
+    sources,
+    checker,
+    clientCalls,
+    callNodes,
+    warnings,
+  );
 
   return {
     kind: "entity",
@@ -107,6 +228,7 @@ export function extractNode(repoRoot: string): EntityGraph {
     shapes,
     routes,
     clientCalls,
+    components,
     warnings,
   };
 }

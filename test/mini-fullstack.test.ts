@@ -37,26 +37,33 @@ describe("reading client calls", () => {
     expect(g.clientCalls).toEqual([
       // bare fetch defaults to GET
       { method: "GET", path: "/api/items", file: "client.ts", line: 23,
-        enclosing: "listItems", matches: "GET /api/items" },
+        enclosing: "listItems", matches: "GET /api/items",
+        components: [] },
       // an explicit method in the options object wins
       { method: "POST", path: "/api/items", file: "client.ts", line: 28,
-        enclosing: "createItem", matches: "POST /api/items" },
+        enclosing: "createItem", matches: "POST /api/items",
+        components: [] },
       // ${} hole and :id both normalise to *
       { method: "GET", path: "/api/items/*", file: "client.ts", line: 32,
-        enclosing: "itemById", matches: "GET /api/items/:id" },
+        enclosing: "itemById", matches: "GET /api/items/:id",
+        components: [] },
       // axios-style property access, any receiver
       { method: "GET", path: "/health", file: "client.ts", line: 36,
-        enclosing: "checkHealth", matches: "GET /health" },
+        enclosing: "checkHealth", matches: "GET /health",
+        components: [] },
       // no such route: matches stays null, no warning
       { method: "POST", path: "/api/orders", file: "client.ts", line: 41,
-        enclosing: "submitOrder", matches: null },
+        enclosing: "submitOrder", matches: null,
+        components: [] },
       // module scope (enclosing null); query string dropped before matching
       { method: "GET", path: "/api/items", file: "client.ts", line: 45,
-        enclosing: null, matches: "GET /api/items" },
+        enclosing: null, matches: "GET /api/items",
+        components: [] },
       // identifier body — the standard axios signature; the property name
       // carries the method, so the second argument is never ambiguous
       { method: "POST", path: "/api/items", file: "client.ts", line: 63,
-        enclosing: "replaceItems", matches: "POST /api/items" },
+        enclosing: "replaceItems", matches: "POST /api/items",
+        components: [] },
       // ABSENT on purpose: fetch("/api/orders", init) at client.ts:71 — an
       // identifier init leaves the method unknowable, so the call is skipped
       // rather than fabricated as a GET.
@@ -71,7 +78,8 @@ describe("reading client calls", () => {
       // GET before it proves nothing either; skipped the same way.
       // A string-literal "method" key is still a literal method: recorded.
       { method: "POST", path: "/api/items", file: "client.ts", line: 104,
-        enclosing: "quotedKey", matches: "POST /api/items" },
+        enclosing: "quotedKey", matches: "POST /api/items",
+        components: [] },
     ]);
   });
 
