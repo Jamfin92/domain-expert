@@ -32,7 +32,7 @@ answer is right. A model that both writes and grades measures nothing.
 | M3 — server, web UI, Electron shell | done |
 | M4 — Node backends, data structures | done |
 | M5a — client call facts: HTTP call sites matched to routes | done |
-| M5b — React clients: component attribution, route↔table link | planned |
+| M5b — React clients: component attribution (done), route↔table link (next) | in progress |
 | M6 — agent-authored prose, STE checks, grading stays deterministic | planned |
 | M7 — working memory export (`psq export`), domain brief | planned |
 | M8 — 3D city layout and renderer, not wired into the UI | done |
@@ -44,8 +44,8 @@ answer is right. A model that both writes and grades measures nothing.
 The table above says what each milestone is. This is the order the remaining
 work happens in:
 
-1. M5b — call sites are now facts; attributing them to components (and
-   tracing route→table) is the remaining half of the client link.
+1. M5b (rest) — calls now carry their nearest component; tracing what a
+   matched route touches (route→table) is the remaining half of the link.
 2. M6 — agent prose only matters once the clients and links exist.
 3. M7 — export ships last; it packages what the earlier milestones produce.
 
