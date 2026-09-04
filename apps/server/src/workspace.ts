@@ -119,10 +119,18 @@ export class Workspace {
           : graph.provider === "sqlite-ddl"
             ? "This looks like a Node project, but no CREATE TABLE statement was found. " +
               "psq reads a schema from raw DDL; an ORM-defined schema is not read yet."
-            : "psq did not recognize this as a project it can read.";
+            : graph.provider === "fullstack"
+              ? // psq read both halves of this repo. Saying it "did not recognize" the
+                // project would be a plain lie, and would send the reader looking for a
+                // detection bug instead of at the DbContext.
+                "This repo has both a .NET and a TypeScript side, and psq read both, but " +
+                "nothing on the .NET side is reachable from a DbSet and the TypeScript " +
+                "side declares no CREATE TABLE."
+              : "psq did not recognize this as a project it can read.";
       throw new Error(
-        `No entities found. ${reason} psq reads .NET projects with an EF Core DbContext ` +
-          "and Node backends with a SQLite schema; React clients arrive in a later milestone.",
+        `No entities found. ${reason} psq reads .NET projects with an EF Core DbContext, ` +
+          "Node backends with a SQLite schema, and React clients — a repo with both is read " +
+          "as both.",
       );
     }
 

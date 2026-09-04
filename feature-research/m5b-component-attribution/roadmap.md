@@ -138,6 +138,25 @@ which is exactly how corpus repoA is already configured. No production change.
 answer and it is what `table<->route<->component` ultimately needs, but it is a
 separate feature and it needs a C# route reader, which does not exist.
 
+> **SUPERSEDED 2026-09-03 by complexity-facts Phase 1b-i.** The merged provider
+> was built, and the two premises above did not survive contact:
+>
+> - **It did not need a C# route reader.** `dotnet.ts` still hardcodes
+>   `routes: []`. The merge joins entities, shapes, client calls and components;
+>   route↔table reachability is a later phase and is not a precondition for any
+>   of that.
+> - **"Two explicit roots" is what the merge does INTERNALLY, not an
+>   alternative to it.** `extract()` now runs the .NET reader on the repo root
+>   and the TypeScript reader on whichever directory owns the `tsconfig.json`,
+>   then re-prefixes every node-side path into the outer root. Asking the user
+>   to pass two roots was never the cheaper option — it just moved the merge out
+>   of psq and into the user's head, and left `EntityGraph.contextName`, the
+>   entity model and the cross-stack DTO comparison with no single home.
+>
+> `Provider` is now `"efcore" | "sqlite-ddl" | "fullstack" | "none"`. See
+> `feature-research/complexity-facts/plan-phase1b.md` and
+> `packages/extract/src/merge.ts`.
+
 ### C3. Vendoring, and how it stays current
 
 Vendor the testbed source (minus lockfiles, `node_modules`, `.git`) into

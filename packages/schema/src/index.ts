@@ -294,8 +294,13 @@ export type Component = z.infer<typeof Component>;
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
   repo: z.string(),
-  /** "efcore" | "sqlite-ddl" | "none" */
-  provider: z.string(),
+  /**
+   * Which reader produced this graph. An enum rather than a string so the
+   * compiler can find every consumer when a provider is added: each
+   * `provider === "..."` narrows, and a switch with a missing arm stops
+   * compiling. "fullstack" is both readers merged (`extract/src/merge.ts`).
+   */
+  provider: z.enum(["efcore", "sqlite-ddl", "fullstack", "none"]),
   contextName: z.string().nullable(),
   entities: z.array(Entity),
   relations: z.array(Relation),

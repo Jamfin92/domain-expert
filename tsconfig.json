@@ -8,6 +8,7 @@
   ],
   "exclude": [
     "**/dist",
+    "test/fixtures/mini-fullstack-csharp",
     "test/fixtures/mini-react",
     "test/fixtures/mini-solution-tie",
     "apps/desktop",

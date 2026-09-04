@@ -47,6 +47,28 @@ export const MINI_NODE = resolve(here, "fixtures/mini-node");
 export const MINI_FULLSTACK = resolve(here, "fixtures/mini-fullstack");
 
 /**
+ * The only fixture holding C# and React together, and the gate on full-stack
+ * detection and the two-root merge.
+ *
+ * Three things it is a control for, in order of how easily they break:
+ *
+ * 1. **The aliased import.** `client/` carries the only `tsconfig.json` — the
+ *    fixture root has none — and ProductList reaches its `fetch` ONLY through
+ *    `@/services/products`. Read the TypeScript side from the fixture root and
+ *    the alias does not resolve, so the call comes back `components: []`.
+ *    Measured: every other number in this fixture is byte-identical either way
+ *    (same 2 shapes, same 1 component, same 1 call, same file paths). The
+ *    attribution assertion is the whole control; a count-based test would pass
+ *    against a broken root selection.
+ * 2. **The shared DTO name.** `ProductDto` is declared once in C# and once in
+ *    TypeScript, differing only in field casing. A merge that deduped shapes by
+ *    name would delete a real fact.
+ * 3. **The rewritten schema warning.** The node reader always says "no schema
+ *    here" on a client, and that is false of the merged graph.
+ */
+export const MINI_FULLSTACK_CSHARP = resolve(here, "fixtures/mini-fullstack-csharp");
+
+/**
  * A Vite-shaped React client: solution-style tsconfig (project references,
  * `@/*` paths), components, hooks, services. The only hermetic gate on
  * project-reference resolution and component attribution (M5b).

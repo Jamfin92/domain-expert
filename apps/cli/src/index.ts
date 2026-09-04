@@ -104,6 +104,16 @@ async function main(): Promise<void> {
         `${BOLD}${g.contextName ?? "(no context)"}${OFF}  ` +
           `${g.entities.length} entities, ${g.relations.length} relations`,
       );
+      // The non-relational half of the graph. Without this a full-stack repo
+      // prints exactly what its .NET half alone would print, and the client
+      // side — shapes, routes, calls, components — is invisible on stdout.
+      // Also newly visible for a Node repo, which has always had these facts.
+      if (g.shapes.length + g.routes.length + g.clientCalls.length + g.components.length > 0) {
+        console.log(
+          `${DIM}${g.provider}${OFF}  ${g.shapes.length} shapes, ${g.routes.length} routes, ` +
+            `${g.clientCalls.length} client calls, ${g.components.length} components`,
+        );
+      }
       if (g.warnings.length > 0) {
         console.log(`${YELLOW}${g.warnings.length} warning(s):${OFF}`);
         for (const w of g.warnings) console.log(`  - ${w}`);

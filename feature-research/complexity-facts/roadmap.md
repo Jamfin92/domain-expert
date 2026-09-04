@@ -70,6 +70,11 @@ question prose*, not code conventions. Do not count it toward this work.
 
 ## The blocker that precedes everything
 
+**RESOLVED by Phase 1b-i, 2026-09-03. Everything below is the state before that
+phase, kept because it records why the decision was made and why it was
+reversed.** `detectProvider` now returns `"fullstack"` for a repo holding both,
+and `extract()` runs both readers and merges them.
+
 `packages/extract/src/detect.ts:17-22` returns `"efcore"` if a single `.cs` or
 `.csproj` file exists anywhere, before looking at the TS side. **A React + .NET
 repo therefore routes entirely to the EF reader and the React pipeline never
@@ -171,7 +176,13 @@ entity model, so this comes first. See `plan-phase1.md`.
 **Ends with: a modern C# repo yields its entities, and a DbSet-less context
 warns instead of returning silence.**
 
-### Phase 1b — Reverse `detectProvider`, and give it a fixture
+### Phase 1b-i — Reverse `detectProvider`, and give it a fixture (DONE 2026-09-03)
+
+Delivered: `"fullstack"` provider, `packages/extract/src/merge.ts` (two roots,
+one graph), `test/fixtures/mini-fullstack-csharp`, and open question 2 answered
+below. Northwind now yields 8 entities / 8 relations / 43 shapes / 5 client calls
+/ 77 components in one graph, with all five attributions intact. Plan:
+`plan-phase1b.md`. Audit: `audit-1b.md`.
 
 Make a repo with both stacks extract as both. Add a C#+React fixture (a
 `mini-fullstack-csharp`, or the vendored Northwind tag — decide in the plan).
@@ -181,6 +192,34 @@ Make a repo with both stacks extract as both. Add a C#+React fixture (a
 calls. Touches `detect.ts`, its docblock, a new fixture, and the tests that pin
 provider choice. **Ends with: a React+.NET repo yields both components and
 entities in one graph.**
+
+### Phase 1b-ii — shape-name ambiguity in the DS bank
+
+**Split out of 1b-i, and a pre-existing defect rather than something the merge
+invents.** `selftest.ts:123-129` keys its cross-question answer table on the raw
+`q.prompt`, and five prompt sites name only `shape.name` while keying the
+question id on `shape.file` — so two same-named shapes read as one prompt with
+two answers.
+
+Measured 2026-09-03, all on real repos: **Northwind reports 2 findings across
+113 questions** (`OrderDto.details` against `Details`), and the new
+`mini-fullstack-csharp` fixture reproduces it hermetically, 2 findings across 16
+questions. Corpus repoAClient (≥18 duplicated shape names) and repoD (≥39) hit
+the same thing with no .NET side involved at all.
+
+The five sites: `ds-mcq.ts:125/127` `optionalField`, `ds-mcq.ts:147/149`
+`collectionField`, `ds-mcq.ts:180/182` `notAMember`, `ds-cloze.ts:91/93`
+`discriminator`, `ds-cloze.ts:71/73` `fieldType`. Likely fix is one helper —
+`shapeLabel(g, shape)` returning `shape.name` when unique in the graph and
+`shape.name (shape.file)` when not — byte-identical wherever the name is unique.
+
+Also record for the cross-stack-mirrors phase: `ds-mcq.ts:82` and `ds-mcq.ts:103`
+build ids as `ds.drift.entity.${entity.name}.${shape.name}` with **no file**, so
+two same-named shapes mirroring one entity produce duplicate question ids. Not
+reachable while TS shapes carry `mirrors: null` — a landmine for the moment they
+stop.
+
+**Ends with: a repo with two same-named shapes passes `psq selftest`.**
 
 ### Phase 2 — TypeScript complexity as a fact
 
@@ -233,10 +272,38 @@ service (M5b's attribution already computes the input), route→table reachabili
    `northwind-testbed/progress-b2b-3.md`. A hermetic mini fixture is faster and
    keeps Phase 1 self-contained. **Probably both, eventually — decide which
    gates Phase 1.**
-2. **What does a merged full-stack graph look like?** One `EntityGraph` with
-   both providers' facts, or two graphs the CLI composes? `EntityGraph.provider`
-   is currently a single value, which suggests this needs a real answer, not a
-   cast.
+2. ~~**What does a merged full-stack graph look like?**~~ **ANSWERED by Phase
+   1b-i, 2026-09-03. One `EntityGraph`, two roots.**
+
+   `Provider` gained `"fullstack"`, and `EntityGraph.provider` became a
+   `z.enum` rather than a `z.string()` so every consumer of it narrows and a
+   missing arm stops compiling. `extract()` runs the .NET reader on the repo
+   root and the TypeScript reader on whichever directory owns the
+   `tsconfig.json`, then `merge.ts` re-prefixes every node-side path — including
+   `Component.key` and every `DefKey` inside `ClientCall.components` — into the
+   outer root.
+
+   **Two roots, not one shared root.** Measured on Northwind: read from the
+   outer root, three of five client calls lose their component attribution
+   entirely (every call reached through an `@/services/...` import), because the
+   client's `paths` and `moduleResolution: "bundler"` live in
+   `client/tsconfig.app.json` and the outer root falls back to a directory scan
+   with default options. Shape, component and call COUNTS are identical either
+   way, which is why this was nearly missed: **a count is not a control.**
+
+   **One graph, not two the CLI composes.** Both readers produce one coordinate
+   system once the prefix is applied; `contextName` and the entity model get
+   exactly one home; and the merge's most valuable product — comparing a C# DTO
+   against its TypeScript twin — is only computable with both in one array.
+   Nine of ten Northwind C# DTOs share a name with a TypeScript shape.
+
+   **What the merge deliberately does NOT do:** dedupe shapes by name (it would
+   delete nine real Northwind facts, non-deterministically), or recompute
+   `mirrors` across stacks. `pairShapes` matches on names alone and would mostly
+   *succeed* mechanically today — which is exactly the danger, since the
+   evidence bar of rule 4a has never been argued for `number` against `int`.
+   The merge emits one warning saying so, and cross-stack drift is a later
+   phase.
 3. **Does complexity attach to components as well as functions?** A React
    component *is* a function, so `FunctionFact` may cover it — but the quiz
    probably wants "which component is most complex", which needs the component

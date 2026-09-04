@@ -265,6 +265,12 @@ function keyShape(ctx: Ctx): Question[] {
     if (q) out.push(q);
   }
 
+  // Storage classes for a raw-DDL graph, C# types for everything else. The
+  // else-branch covers "fullstack" as well as "efcore", and is correct there
+  // only because a fullstack graph's entities come wholly from the .NET side —
+  // `extract/src/merge.ts` warns loudly if both stacks ever contribute
+  // entities, and that warning is what keeps this ternary honest. `invariants()`
+  // does not check it: it only catches a name COLLISION between the two.
   const padding =
     ctx.g.provider === "sqlite-ddl"
       ? ["TEXT", "INTEGER", "REAL", "BLOB"]

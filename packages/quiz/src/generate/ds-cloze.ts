@@ -108,6 +108,15 @@ function discriminator(ctx: Ctx): Question[] {
  * Only for a graph read from raw DDL, where the declared type IS the storage
  * class. An EF graph carries C# types, and the mapping between the two is EF's
  * business rather than something the repo wrote down.
+ *
+ * A "fullstack" graph is dormant here on purpose, not by omission: its entities
+ * come wholly from the .NET side, so they carry C# types for the same reason an
+ * "efcore" graph does. A React client contributes no DDL.
+ *
+ * The gate belongs to THIS generator and nowhere else. `GENERATORS` below also
+ * holds `fieldType` and `discriminator`, both of which are ungated and already
+ * run on efcore graphs; hoisting this condition to `generateDsCloze` would
+ * silently delete two question classes from every .NET repo.
  */
 function columnType(ctx: Ctx): Question[] {
   if (ctx.g.provider !== "sqlite-ddl") return [];

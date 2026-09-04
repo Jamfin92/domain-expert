@@ -333,8 +333,8 @@ in a gitignored `test/corpus.local.json` (shape documented by
 fill it in. Corpus tests skip when the config or the projects are absent:
 
 ```bash
-PSQ_NO_CORPUS=1 pnpm test   # 138 tests, no external repo needed
-pnpm test                    # 193 tests
+PSQ_NO_CORPUS=1 pnpm test   # 204 tests, no external repo needed
+pnpm test                    # 262 tests
 ```
 
 `test/fixtures/mini-node` is the Node counterpart to `mini-efcore`, and is

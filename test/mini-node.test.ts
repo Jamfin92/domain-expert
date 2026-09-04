@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { extract, extractNode, detectProvider, drift } from "@psq/extract";
 import { invariants } from "@psq/graph";
 import { generateDsMcq, generateDsCloze, selftest } from "@psq/quiz";
-import { MINI_EFCORE, MINI_NODE, NOT_A_PROJECT } from "./fixtures.js";
+import { MINI_EFCORE, MINI_FULLSTACK_CSHARP, MINI_NODE, NOT_A_PROJECT } from "./fixtures.js";
 
 /**
  * The Node reader against a fixture that lives in this repo, so the whole path
@@ -214,6 +214,11 @@ describe("choosing a reader", () => {
   it("recognizes each fixture for what it is", () => {
     expect(detectProvider(MINI_NODE)).toBe("sqlite-ddl");
     expect(detectProvider(MINI_EFCORE)).toBe("efcore");
+    // Both stacks present is its own answer, not the .NET one. Kept beside
+    // the two single-stack cases deliberately: the risk in reversing this
+    // decision was never "fullstack is wrong", it was "efcore stopped
+    // happening".
+    expect(detectProvider(MINI_FULLSTACK_CSHARP)).toBe("fullstack");
   });
 
   it("returns an empty graph with a warning for a repo it cannot read", () => {
