@@ -134,6 +134,21 @@ close, not live today (Northwind has 0 `.ts` outside `client/`).
 could drop back to 9 without reddening, provided the nine pinned routes survive.
 Ordering and route-addition detection were traded for a runnable gate.
 
+**4a. The SIBLING corpus assertion went stale the next day, and is red now.**
+Step 13 split the repo-D *routes* assertion. `packages/extract/test/node.test.ts:49`
+(*infers relations from `<table>_id`*) is the same construct — a full ordered
+`toEqual` over the same live repo — and nobody split it. repoD took a commit on
+2026-09-03 adding two tables, so the full suite is **2 failed / 260 passed**
+as of 2026-09-04, entirely in that one test. Verified not caused by this phase:
+`git diff a064d80..HEAD` touches only the routes assertion, and the hermetic
+suite is 204 passed / 0 failed.
+
+The fix is the one already approved for routes — `expect.arrayContaining` plus
+a length floor — but decide the semantics first: for relations, unlike routes, a
+DELETED relation is arguably the interesting failure, so a pure floor may be the
+wrong shape. **Phase 1's D-2 stands: do not re-pin.** Sweep for any other
+`toEqual` against a corpus value while in there.
+
 **5. `apps/server/src/workspace.ts:122-128`'s new `"fullstack"` arm has no test.**
 A message string only — but this phase's own Gate 7 standard is that an
 untriggered branch may not work.
