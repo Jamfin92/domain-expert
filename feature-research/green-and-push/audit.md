@@ -1,7 +1,9 @@
 # Phase A — AUDIT (items A1, A2, A3, A4, A6; A5 deliberately not done)
 
 Plan: `feature-research/green-and-push/plan.md` (verbatim copy of the approved
-plan). Branch `m5b-component-attribution`. **Everything left uncommitted.**
+plan). Branch `m5b-component-attribution`. Everything was left uncommitted by
+this pass; James committed and pushed it afterwards as `fbcb380` — see
+**"Push and cleanup"** at the end of this file.
 
 ## Files changed
 
@@ -219,7 +221,8 @@ commits after a force-push — that only applies once something is pushed.)
 
 No `git commit`, `git checkout`, `git merge`, `git push`, or any other
 state-changing git command was run. Working tree left dirty on
-`m5b-component-attribution`.
+`m5b-component-attribution`. **Superseded**: James later committed and pushed
+the work himself — see "Push and cleanup" below.
 
 ## Deviations and open items
 
@@ -364,19 +367,56 @@ paths:
 | `progress.md` | 0 | 0 | 0 |
 | `audit.md` | 0 | 0 | 0 |
 
-**Backups retained — MUST NEVER BE PUSHED.** Three local-only refs:
+**Backups retained at the time of the rewrite — since DELETED, see "Push and
+cleanup" below.** Three local-only refs:
 `backup/pre-scrub-2026-09-04` (original tip `4e2b7d6`),
 `refs/original/refs/heads/m5b-component-attribution` (filter-branch's own), and
 `wip/backup-2026-09-01` — a working-tree snapshot taken before Phase 1, branched
 off the old HEAD: **3 commits beyond `origin/master`, 12 leaking lines in
 `git log -p`.** All three contain the private corpus names and the absolute
 corpus path in full. All three are local-only and exist nowhere on the remote.
-The first two are the only rollback, so they stay until the push of the
-rewritten branch is verified and are deleted immediately after. All three are to
-be deleted once the push is verified — **subject to James's word on the wip
-snapshot**, which holds 46 lines HEAD does not and so may be worth salvaging
-before it goes.
+They were kept as the only rollback until the push of the rewritten branch was
+verified, and all three were deleted immediately after it — James approved
+deleting the wip snapshot along with the other two.
 
 **Second decision recorded (James).** Non-corpus local project names — the
 public testbed repos named across 22 phase records — **stay as-is**. They are
 not private, and the rewrite deliberately did not touch them.
+
+---
+
+## Push and cleanup (2026-09-04)
+
+Executed by James after the review verdict. No further file was edited in this
+pass beyond `progress.md` and this file.
+
+**Commit and push.** The phase's working-tree changes were committed as
+`fbcb380` — *"test(extract): corpus-aggregate assertions become subset + floor;
+green-and-push record"* — on top of the rewritten tip `2a4aacf`. `master` was
+fast-forwarded to it and pushed; `origin/master` and
+`origin/m5b-component-attribution` are both at `fbcb380`, and
+`git log origin/master..master` is empty.
+
+**Post-push sweep of the entire pushed history**, not just the phase range:
+`git log -p origin/master` plus all commit messages, against the corpus
+basename set derived programmatically from `test/corpus.local.json` and against
+absolute corpus paths.
+
+| Sweep target | Hits |
+|---|---|
+| Whole pushed history, content + messages | **0** |
+| Positive control: the pre-scrub backup ref | **8** |
+
+The positive control ran against the backup ref before it was deleted, so the 0
+is a clean result rather than a broken grep.
+
+**Backup refs deleted.** James approved deleting all three never-push refs, and
+they were deleted after the sweep: `backup/pre-scrub-2026-09-04` (was
+`4e2b7d6`), `wip/backup-2026-09-01` (was `8c1eb50`), and
+`refs/original/refs/heads/m5b-component-attribution`.
+`git for-each-ref refs/original` is empty. The pre-scrub objects remain only in
+the local reflog until it expires and are reachable by no ref.
+
+**Review verdict: Ship.** One cosmetic leftover accepted rather than fixed: a
+redundant `repoE (repoE)` phrasing in
+`feature-research/m5b-component-attribution/plan.md`.

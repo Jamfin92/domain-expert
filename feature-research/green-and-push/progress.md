@@ -1,11 +1,13 @@
 # Phase A — green and push — PROGRESS
 
-**Status: implemented; history rewritten; awaiting re-review, then push.
-The unpushed range has been scrubbed and rebuilt — branch
-`m5b-component-attribution` now tips at `2a4aacf` (was `4e2b7d6`). The phase's
-own test changes remain UNCOMMITTED in the working tree on top of that new tip.
-James commits and pushes. A5 (the push) is no longer blocked on a leak: see
-"History rewrite" below.**
+**Status: SHIPPED and pushed 2026-09-04 at `fbcb380`; reviewer Ship; backup
+refs deleted.** The phase's own test changes were committed as `fbcb380`
+("test(extract): corpus-aggregate assertions become subset + floor;
+green-and-push record") on top of the rewritten tip `2a4aacf`. `master` was
+fast-forwarded, and `origin/master` and `origin/m5b-component-attribution` are
+both at `fbcb380`; `git log origin/master..master` is empty. A post-push sweep
+of the entire pushed history found 0 corpus basenames and 0 absolute corpus
+paths. All three never-push backup refs have been deleted.
 
 Plan: `plan.md` (verbatim copy of the approved plan). Audit: `audit.md`.
 Previous phase record: `../complexity-facts/progress-1b.md`.
@@ -149,19 +151,17 @@ here. All 7 pair up by subject.
 The first commit is unchanged — it touched no record file, so the filter was a
 no-op and its SHA survived. Every commit after it is rewritten.
 
-**Backups kept locally — NEVER PUSH THESE:**
+**Backups — kept locally until the push, then DELETED (2026-09-04):**
 
-- branch `backup/pre-scrub-2026-09-04` (the original tip, `4e2b7d6`)
+- branch `backup/pre-scrub-2026-09-04` (the original tip, was `4e2b7d6`)
 - `refs/original/refs/heads/m5b-component-attribution` (filter-branch's own)
-- branch `wip/backup-2026-09-01` — a working-tree snapshot from before Phase 1,
-  created off the old HEAD: **3 commits beyond `origin/master`, 12 leaking lines
-  in `git log -p`**
+- branch `wip/backup-2026-09-01` (was `8c1eb50`) — a working-tree snapshot from
+  before Phase 1, created off the old HEAD
 
-**All three still contain the private corpus names in full**, and all three are
-local-only — none exists on the remote. Pushing any one of them undoes the
-entire scrub and puts the names on a public GitHub repo. Delete all three only
-once the push of the rewritten branch is verified — **subject to James's word on
-the wip snapshot**, which holds 46 lines HEAD does not.
+All three held the private corpus names in full, and all three were local-only —
+none ever existed on the remote. James approved deleting all three; they were
+deleted after the post-push sweep, and `git for-each-ref refs/original` is now
+empty. Their objects remain only in the local reflog until it expires.
 
 ---
 
@@ -189,10 +189,10 @@ arrays, the precision tuple, `structure.test.ts` attribute arrays, every scalar
 which stays intact as the historical record. No code change.
 
 **D-A-3. Push shape**: fast-forward `master` to HEAD and push `master`; push the
-branch too. GitHub's default branch is `master`. `master` is an ancestor of
-HEAD, so the fast-forward is safe. Re-verified after the rewrite: `master` is
-still an ancestor of HEAD (`2a4aacf`). **No longer gated — the A3 leak is
-resolved.**
+branch too. GitHub's default branch is `master`. **Executed 2026-09-04**:
+`master` was fast-forwarded to `fbcb380` and both `origin/master` and
+`origin/m5b-component-attribution` now point at it; `git log origin/master..master`
+is empty.
 
 **D-A-4. Deploy shape**: a LaunchAgent on a tailnet port for personal use, AND
 keep the door open to packaging the app cross-platform (Windows/Mac/Linux) so
@@ -221,18 +221,15 @@ Carried forward, not addressed in this phase:
 - **No Dockerfile, no CI, no hosting config anywhere.**
 - **The corpus config is the only copy of the ground truth.** It is gitignored;
   a dropped test count is the only signal it has gone missing.
-- **Three backup refs exist locally and MUST NEVER BE PUSHED**:
-  `backup/pre-scrub-2026-09-04`,
-  `refs/original/refs/heads/m5b-component-attribution`, and
-  `wip/backup-2026-09-01` (a working-tree snapshot from before Phase 1, created
-  off the old HEAD: **3 commits beyond `origin/master`, 12 leaking lines in
-  `git log -p`**). All three hold the pre-scrub commits with the private corpus
-  names and one full absolute corpus path; all three are local-only and exist
-  nowhere on the remote. Pushing any one defeats the rewrite. **Delete all three
-  once the push of the rewritten branch is verified** (`git push` succeeded and
-  `origin/master` matches HEAD), and not before — until then the first two are
-  the only rollback. Deleting `wip/backup-2026-09-01` is **subject to James's
-  word**: it holds 46 lines HEAD does not.
+- **The three backup refs are gone.** After the push was verified
+  (`origin/master` == `master` == `fbcb380`) and the post-push sweep of the
+  whole pushed history returned 0, James approved deleting all three and they
+  were deleted: `backup/pre-scrub-2026-09-04` (was `4e2b7d6`),
+  `wip/backup-2026-09-01` (was `8c1eb50`), and
+  `refs/original/refs/heads/m5b-component-attribution`.
+  `git for-each-ref refs/original` is empty. Nothing pre-scrub is reachable by
+  any ref; the objects survive only in the local reflog until it expires, so
+  there is no rollback to the pre-scrub state and none is wanted.
 - **Sweep every new phase record against the corpus basenames before it is
   committed.** This leak was not in the original publish scrub; it was
   *introduced afterwards*, by records written later that quoted corpus repo
