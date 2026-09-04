@@ -76,3 +76,74 @@ describe.skipIf(!repoA)("C# structural parser [corpus]", () => {
     for (const t of p.types) expect(t.modifiers).toContain("static");
   });
 });
+
+/**
+ * Hermetic. The fixture tests cover the same ground end to end, but they
+ * cannot say which half broke: an empty entity model looks identical whether
+ * the header reader stopped early or the DbSet reader failed. These pin the
+ * header reader itself.
+ */
+describe("base constructor argument lists", () => {
+  it("reads the body and the full base list past `: Base(args)`", () => {
+    const p = parseCSharp(
+      "class C(int o) : DbContext(o), IThing { public DbSet<A> As => Set<A>(); void M(){} }",
+      "T.cs",
+    );
+    const t = p.types[0]!;
+    // Before the fix: bases ["DbContext"], properties ["o"], methods [].
+    // `contextName` still resolved off that first base, which is exactly why
+    // the failure was silent.
+    expect(t.bases).toEqual(["DbContext", "IThing"]);
+    expect(t.properties.map((x) => `${x.name}:${x.type}`)).toEqual(["o:int", "As:DbSet<A>"]);
+    expect(t.methods.map((m) => m.name)).toEqual(["M"]);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it("does the same for a record, which is not a separate code path", () => {
+    const p = parseCSharp(
+      'record R(int Id) : Base(Id) { public string X { get; set; } }',
+      "T.cs",
+    );
+    const t = p.types[0]!;
+    expect(t.bases).toEqual(["Base"]);
+    expect(t.properties.map((x) => x.name)).toEqual(["Id", "X"]);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it("leaves a correctly terminated bodyless declaration silent", () => {
+    const p = parseCSharp("record R(int Id) : Base(Id);", "T.cs");
+    expect(p.types[0]!.properties.map((x) => x.name)).toEqual(["Id"]);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it("keeps `abstract` in modifiers, which the zero-entity warning reads", () => {
+    // dotnet.ts skips the zero-entity warning for an abstract context; that
+    // depends on this modifier surviving the header reader.
+    const p = parseCSharp("abstract class BaseContext : DbContext { }", "T.cs");
+    expect(p.types[0]!.modifiers).toContain("abstract");
+    expect(p.warnings).toEqual([]);
+  });
+});
+
+describe("unterminated type headers", () => {
+  it("warns instead of emitting a truncated type silently", () => {
+    // `global::` is valid C# the reader does not consume. It stops at the
+    // `::`, so the body is never entered.
+    const p = parseCSharp(
+      "class C : global::N.Base { public int X { get; set; } public int Y { get; set; } }",
+      "T.cs",
+    );
+    expect(p.types[0]!.properties).toEqual([]);
+    expect(p.warnings).toHaveLength(1);
+    expect(p.warnings[0]).toContain("type C header not terminated");
+    expect(p.warnings[0]).toContain("stopped at '::'");
+  });
+
+  it("also catches a base whose generic arguments close with `>>`", () => {
+    const p = parseCSharp(
+      "class C : Dictionary<string, List<int>> { public int X { get; set; } }",
+      "T.cs",
+    );
+    expect(p.warnings.some((w) => /header not terminated/.test(w))).toBe(true);
+  });
+});

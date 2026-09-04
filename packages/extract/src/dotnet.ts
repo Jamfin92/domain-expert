@@ -437,6 +437,26 @@ export function extractDotnet(
     });
   }
 
+  // A context that contributed nothing is a result no repo actually has: an
+  // EF context exists precisely to expose an entity set. Say so rather than
+  // returning an empty model that reads exactly like a repo with no entities.
+  //
+  // Deliberately narrow, because the obvious wider conditions both fire
+  // falsely:
+  //   - NOT "zero DbSet<T> members". `IdentityDbContext<User, ...>` contributes
+  //     `User` as an entity with no DbSet of its own (see identityEntities
+  //     above); such a context parses perfectly and must not be warned about.
+  //   - `abstract` is skipped: `abstract class BaseContext : DbContext` with
+  //     the DbSets declared on the derived type is a normal .NET pattern.
+  // It also fires for the SELECTED context only, not for every context found —
+  // a second, empty context is already covered by the multiple-context warning
+  // above, and warning per-context would fire on the abstract-base pattern.
+  if (entities.length === 0 && !ctx.decl.modifiers.includes("abstract")) {
+    warnings.push(
+      `${ctx.parse.file}:${ctx.decl.line}: DbContext ${ctx.decl.name} contributed no entities; the model is empty`,
+    );
+  }
+
   const entityByName = new Map(entities.map((e) => [e.name, e]));
 
   // ---- relations --------------------------------------------------------

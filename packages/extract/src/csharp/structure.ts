@@ -492,6 +492,16 @@ export function parseCSharp(src: string, file: string): FileParse {
           if (!text) break;
           bases.push(text);
           k = next;
+          // A base constructor argument list: `class C(DbContextOptions o) :
+          // DbContext(o)`. `readTypeRef` stops on the `(`, so without this the
+          // loop breaks here, the `{` check below fails, and the type is
+          // emitted through the bodyless branch with NO members and NO further
+          // bases — silently. That is how a whole entity model disappears.
+          if (tokens[k]?.text === "(") {
+            const close = matchBracket(tokens, k);
+            if (close === -1) break;
+            k = close + 1;
+          }
           if (tokens[k]?.text === ",") {
             k++;
             continue;
@@ -529,7 +539,19 @@ export function parseCSharp(src: string, file: string): FileParse {
         i = close + 1;
         continue;
       }
-      // declaration without a body (e.g. `record X(...);`)
+      // Declaration without a body (e.g. `record X(...);`). A correctly-read
+      // header arrives here sitting on `;`. Anything else means the reader met
+      // a construct it does not know and stopped mid-header — and this branch
+      // would then emit the type with whatever it happened to have collected,
+      // silently. Rule 3: warn, never guess. This catches the whole class of
+      // truncation, not just contexts: a DTO truncated this way loses its
+      // properties, falls under MIN_PROPERTIES and vanishes from the graph.
+      if (tokens[k]?.text !== ";") {
+        const stoppedAt = tokens[k]?.text ?? "end of file";
+        warnings.push(
+          `${file}:${line}: type ${name} header not terminated by '{' or ';' (stopped at '${stoppedAt}'); members and any remaining base types were not read`,
+        );
+      }
       types.push({
         name, keyword, modifiers, bases, namespace: fileNamespace,
         properties: positional, methods: [], line,

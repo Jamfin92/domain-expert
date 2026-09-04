@@ -8,6 +8,31 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const MINI_EFCORE = resolve(here, "fixtures/mini-efcore");
 
 /**
+ * A context written with a C# 12 primary constructor AND a base constructor
+ * argument list — `: DbContext(options), ILibraryContext` — plus a record with
+ * base arguments and a class listing an interface after one. Every one of
+ * those headers used to truncate at the `(`, so the type reached the graph
+ * with no members, no methods and no further bases, and the entity model came
+ * back empty with zero warnings. The only hermetic gate on that.
+ *
+ * Kept separate from MINI_EFCORE deliberately: adding a second context there
+ * fires the multiple-DbContext warning, and mini.test.ts asserts an empty
+ * warning list twice.
+ */
+export const MINI_EFCORE_PRIMARY_CTOR = resolve(here, "fixtures/mini-efcore-primary-ctor");
+
+/**
+ * The positive control for both new warnings, and a separate directory for the
+ * same reason: a DbSet-less context alongside MINI_EFCORE_PRIMARY_CTOR's would
+ * make `contexts.length === 2` and fire the multiple-context warning instead.
+ *
+ * Holds a context that contributes no entities at all, and a type whose header
+ * the reader genuinely cannot consume (`global::`-qualified base). A warning
+ * never triggered in a test is a warning that may not work.
+ */
+export const MINI_EFCORE_EMPTY_CONTEXT = resolve(here, "fixtures/mini-efcore-empty-context");
+
+/**
  * The Node counterpart. Resolves `zod` and `express` through this repo's own
  * node_modules, which is the only way the zod and route readers can be covered
  * without vendoring a dependency tree into a fixture.
