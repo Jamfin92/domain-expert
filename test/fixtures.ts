@@ -126,8 +126,12 @@ export interface CorpusNodeExpect {
   minTables?: number;
   noWarnings?: boolean;
   wideTable?: { name: string; propertyCount: number; keys: string[] };
+  /** Hand-verified SUBSET of inferred relation ids, not the whole list: the
+   *  reader may return more as the live repo grows. Asserted as a floor. */
   relationIds?: string[];
   absentForeignKey?: string;
+  /** Stable PREFIX of the house-style warning, stopping before the table
+   *  count the text embeds; matched with startsWith. */
   houseStyleWarning?: string;
   zodShape?: string;
   zodFieldsShape?: { name: string; contains: string };
@@ -173,6 +177,8 @@ export interface CorpusDotnetExpect {
   };
   optionalRelation?: { dependent: string; principal: string; deleteBehavior: string };
   shadowEntity?: { name: string; namespace: string; fileContains: string };
+  /** `count` is a hand-verified floor over a live repo, not an exact count:
+   *  the reader may find more cascades as the repo grows. */
   cascade?: { count: number; behavior: string };
 }
 

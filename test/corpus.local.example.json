@@ -268,7 +268,7 @@
           "posts.user_id->users"
         ],
         "absentForeignKey": "tenant_id",
-        "houseStyleWarning": "id is the identifying column of 4 tables, so it reads as a naming convention; no relation inferred from it",
+        "houseStyleWarning": "id is the identifying column of",
         "zodShape": "Post",
         "zodFieldsShape": {
           "name": "UserUsage",

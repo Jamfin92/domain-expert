@@ -47,7 +47,16 @@ describe.skipIf(!repoD)("repoD: inline-DDL TS backend [corpus]", () => {
   });
 
   it("infers relations from <table>_id, and only where the table exists", () => {
-    expect(g.relations.map((r) => r.id)).toEqual(exp.relationIds!);
+    // A FLOOR, not the exact list. This was a full ordered `toEqual` over a
+    // live repo that takes commits under the test, so it went stale the day
+    // the repo gained two tables, and a permanently-red gate verifies nothing
+    // at all. `relationIds` is the hand-verified subset: every one of them
+    // must still be inferred, and the count may only grow. A relation the
+    // repo genuinely deletes still reddens this, and that is a stale pin to
+    // update rather than a psq bug.
+    const ids = g.relations.map((r) => r.id);
+    expect(ids).toEqual(expect.arrayContaining(exp.relationIds!));
+    expect(ids.length).toBeGreaterThanOrEqual(exp.relationIds!.length);
     // Several other *_id columns name no table here, so they get no edge
     // rather than a plausible-looking wrong one.
     expect(g.relations.map((r) => r.foreignKeyProperty)).not.toContain(exp.absentForeignKey!);
@@ -57,7 +66,9 @@ describe.skipIf(!repoD)("repoD: inline-DDL TS backend [corpus]", () => {
   it("treats a primary key named `id` as a house style, not a reference", () => {
     // Many tables key on `id`. Linking them to each other would connect the
     // whole schema to whichever table happened to be widest.
-    expect(g.warnings).toContain(exp.houseStyleWarning!);
+    // Matched by stable prefix: the warning text embeds a table count, which
+    // grows with the repo, so the pinned value stops before the number.
+    expect(g.warnings.some((w) => w.startsWith(exp.houseStyleWarning!))).toBe(true);
   });
 
   it("reads the zod layer, including schemas extended across files", () => {
@@ -110,7 +121,12 @@ describe.skipIf(!repoE)("repoE: constant-bound-DDL TS backend [corpus]", () => {
 
   it("links on a natural key that is not named like a foreign key", () => {
     // Nothing here ends in _id. A suffix rule finds no relations at all.
-    expect(g.relations.map((r) => r.id)).toEqual(exp.relationIds!);
+    // A FLOOR, for the same reason as the repoD relations above: `relationIds`
+    // is the hand-verified subset over a live repo, so it must all still be
+    // found and the count may only grow.
+    const ids = g.relations.map((r) => r.id);
+    expect(ids).toEqual(expect.arrayContaining(exp.relationIds!));
+    expect(ids.length).toBeGreaterThanOrEqual(exp.relationIds!.length);
   });
 
   it("picks the owner of a shared key rather than linking both ways", () => {

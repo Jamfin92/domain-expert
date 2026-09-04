@@ -131,7 +131,8 @@ describe.skipIf(!repoB)("shadow-class disambiguation [corpus]", () => {
 
   it("reads explicitly declared cascade behavior", () => {
     const cascades = g.relations.filter((r) => r.deleteBehaviorSource === "fluent");
-    expect(cascades.length).toBe(exp.cascade!.count);
+    // Aggregate over a live repo: a floor, not an exact count.
+    expect(cascades.length).toBeGreaterThanOrEqual(exp.cascade!.count);
     expect(cascades.every((r) => r.deleteBehavior === exp.cascade!.behavior)).toBe(true);
   });
 });
