@@ -94,6 +94,10 @@ pnpm build:web    # then: pnpm dev:server serves the UI itself on 8092
 pnpm desktop      # the Electron app
 ```
 
+`PSQ_PORT` moves the server off 8092 and `PSQ_HOST` chooses the address it
+binds; unset, it binds `127.0.0.1` and answers only this machine. To serve it
+to anything else, read [Hosting](#hosting) first.
+
 One core, one UI, two shells. All the work lives in `packages/*`; the CLI, the
 server and the desktop app are consumers.
 
@@ -115,6 +119,76 @@ you do. Offline does not separate the two — a localhost server is offline.
 
 The server grades every answer. Questions reach the client without their
 answers, so the score means something.
+
+## Hosting
+
+psq is a personal tool that reads code, so a hosted one is only ever as safe as
+its front door. Three environment variables are the whole configuration:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PSQ_HOST` | `127.0.0.1` | the one address to bind |
+| `PSQ_PORT` | `8092` | the port to listen on |
+| `PSQ_TOKEN` | none | when set, every `/api` request must present it |
+
+**The server refuses to start when those disagree.** Binding anything but
+loopback with no `PSQ_TOKEN` exits 1 rather than coming up open, and `PSQ_HOST`
+set to an empty string, `0.0.0.0` or `::` is refused outright — all three mean
+"every interface", which is the thing the check exists to prevent. Bind one
+address you meant to bind.
+
+This is not ceremony: `POST /api/repos` opens any directory the server process
+can read, and the SQL grader runs queries you send it. On a reachable address
+with no token, that is a shell-shaped hole.
+
+With a token set, every `/api/*` route answers `401` without
+`Authorization: Bearer <token>`. The static UI stays open — it is public asset
+bytes, a page navigation cannot carry a header, and every byte of data is
+behind `/api`. The token is only ever read from the header, never a cookie or
+query string, so a request from another site cannot borrow your session.
+
+Enter it once by opening the app as `<url>/#token=<token>`. The fragment never
+reaches the server, the app moves the token into `localStorage` and strips it
+from the address bar, and every later request carries it. Opening
+`<url>/#token=` with an empty value forgets it again.
+
+**The token travels in plain HTTP.** Bind a private-network address you trust —
+a tailnet address, for instance, is encrypted on the wire. On an open LAN or
+the public internet, put TLS in front of it.
+
+### Deploying it on a Mac
+
+```bash
+scripts/deploy.sh              # build, install the LaunchAgent, prove it answers
+scripts/deploy.sh --show-url   # same, and print the URL with the real token
+```
+
+`PSQ_DEPLOY_ENV` points the script at a different config file, which is how you
+try a configuration out without disturbing the real one.
+
+The first run writes `~/.config/psq/deploy.env` (mode 600) with a fresh token
+and a port, leaves `PSQ_HOST` commented out, and exits 1: exposure is an
+explicit choice, never a default. Set `PSQ_HOST` in that file and run it again.
+That file lives outside the repo because it holds a secret.
+
+Each run validates the config with the server's own code, builds the web
+bundle, writes `~/Library/LaunchAgents/com.psq.server.plist`, reloads it
+(`bootout` then `bootstrap` — launchd caches the plist it was bootstrapped
+with, so a changed port or token would otherwise be ignored), and then proves
+the result: `/api/health` must return 200 with the token and exactly 401
+without it. A redeploy is the same command again.
+
+Logs are at `~/Library/Logs/psq/server.{out,err}.log`. The job has `KeepAlive`,
+so a configuration the server refuses shows up as a restart loop — the same
+message repeating in `server.err.log` every 30 seconds. To stop the service:
+
+```bash
+launchctl bootout gui/$(id -u)/com.psq.server
+```
+
+Note that this runs the TypeScript sources directly through `tsx`: the checkout
+is the deployment, and an edit under `apps/server/src` is live on the next
+restart.
 
 ## SQL questions
 

@@ -439,3 +439,49 @@ describe.skipIf(reason !== "")("a Node backend in the browser", () => {
     await page.close();
   });
 });
+
+/**
+ * The hosted shape: the same bundle, behind a token.
+ *
+ * This runs its own server and browser rather than reusing `h`, so the 19
+ * tests above keep talking to an open API and this one proves the gated path
+ * end to end — fragment, storage, header, 200 — through the rendered UI
+ * rather than a raw fetch (a raw in-page fetch bypasses `call()` and would
+ * 401 here, which would prove nothing).
+ */
+const E2E_TOKEN = "e2e0123456789abcdef0123456789abcd";
+
+describe.skipIf(reason !== "")("behind a token", () => {
+  let gated: Harness;
+
+  beforeAll(async () => {
+    gated = await startHarness({ token: E2E_TOKEN });
+  }, 120_000);
+
+  afterAll(async () => {
+    await gated?.stop();
+  });
+
+  it("takes the token from the URL fragment, then remembers it", async () => {
+    const page = await gated.newPage();
+    await page.goto(`${gated.url}/#token=${E2E_TOKEN}`, { waitUntil: "networkidle" });
+
+    // The fragment is gone from the address bar, so the token is not in the
+    // next link anyone copies out of it.
+    expect(await page.evaluate(() => location.hash)).toBe("");
+    expect(await page.evaluate(() => localStorage.getItem("psq.token"))).toBe(E2E_TOKEN);
+
+    // The UI reached its loaded state, which only happens if the mount-time
+    // request carried the header and came back 200.
+    expect(await page.locator("text=Point psq at a project").count()).toBe(1);
+    expect(await page.locator("text=requires a token").count()).toBe(0);
+    await page.close();
+  });
+
+  it("says what to do when the browser has no token", async () => {
+    const page = await gated.newPage();
+    await page.goto(gated.url, { waitUntil: "networkidle" });
+    await expect.poll(() => page.locator("text=This server requires a token").count()).toBe(1);
+    await page.close();
+  });
+});

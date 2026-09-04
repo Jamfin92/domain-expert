@@ -133,10 +133,64 @@ export interface Route {
 
 class ApiError extends Error {}
 
+/**
+ * A hosted psq requires a bearer token on every /api call. It is entered once
+ * by opening the page as `/#token=<t>` and lives in this browser afterwards.
+ *
+ * Storage is wrapped because a browser with site data blocked throws on the
+ * property access itself, and a server with no token needs none of this to
+ * work — no stored token means the exact request this app always sent.
+ */
+const TOKEN_KEY = "psq.token";
+
+function storedToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads `#token=…` out of the URL, remembers it, and strips the fragment.
+ *
+ * A fragment is never sent to the server, so the token cannot land in an
+ * access log on the way in. An empty value (`/#token=`) forgets the stored
+ * one, which is how you sign out of a shared machine.
+ */
+export function adoptTokenFromFragment(): void {
+  try {
+    // The leading "#" must go: URLSearchParams would read it as part of the
+    // first key and "#token" is not "token".
+    const params = new URLSearchParams(location.hash.slice(1));
+    const token = params.get("token");
+    if (token === null) return;
+    try {
+      if (token === "") localStorage.removeItem(TOKEN_KEY);
+      else localStorage.setItem(TOKEN_KEY, token);
+    } catch {
+      // Storage unavailable: the token simply is not remembered.
+    }
+    history.replaceState(null, "", location.pathname + location.search);
+  } catch {
+    // A malformed fragment must never stop the app from rendering.
+  }
+}
+
+/** Shown on a 401, because "Request failed (401)" tells nobody what to do. */
+const NEEDS_TOKEN =
+  "This server requires a token. Open it once as /#token=<your PSQ_TOKEN>; " +
+  "the token is then remembered in this browser.";
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = storedToken();
   const res = await fetch(path, {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   const text = await res.text();
   let body: unknown = null;
@@ -147,9 +201,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const message =
-      body && typeof body === "object" && "error" in body
-        ? String((body as { error: unknown }).error)
-        : `Request failed (${res.status})`;
+      res.status === 401
+        ? NEEDS_TOKEN
+        : body && typeof body === "object" && "error" in body
+          ? String((body as { error: unknown }).error)
+          : `Request failed (${res.status})`;
     throw new ApiError(message);
   }
   return body as T;

@@ -1,4 +1,7 @@
-import express, { type Express, type Request, type Response } from "express";
+import { createHash, timingSafeEqual } from "node:crypto";
+import express, {
+  type Express, type NextFunction, type Request, type Response,
+} from "express";
 import { Workspace } from "./workspace.js";
 import { drift } from "@psq/extract";
 import { Section } from "@psq/schema";
@@ -47,11 +50,57 @@ function handler(fn: (req: Request, res: Response) => void) {
   };
 }
 
-export function createApp(workspace: Workspace = new Workspace()): {
+export interface AppOptions {
+  /**
+   * When set, every `/api` request must carry `Authorization: Bearer <token>`.
+   * When absent no middleware is added at all, so loopback development, the
+   * desktop shell and the test suites see exactly the app they always had.
+   */
+  token?: string;
+}
+
+/**
+ * Constant-time bearer check.
+ *
+ * Both sides are hashed first so `timingSafeEqual` always compares two 32-byte
+ * buffers — otherwise a length mismatch throws and the length itself leaks.
+ */
+function bearerGate(token: string) {
+  const want = createHash("sha256").update(token).digest();
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // Node does NOT join duplicate Authorization headers the way it joins
+    // most others: it keeps the first line and discards the rest, so a second
+    // header cannot append to or override the first. A single comma-joined
+    // value ("Bearer a, Bearer b") reaches here intact and fails the compare,
+    // which is the safe direction.
+    const header = req.get("authorization") ?? "";
+    const space = header.indexOf(" ");
+    const scheme = space === -1 ? "" : header.slice(0, space);
+    const presented = space === -1 ? "" : header.slice(space + 1).trim();
+    const got = createHash("sha256").update(presented).digest();
+    // The scheme is case-insensitive per RFC 7235; the token is not.
+    if (scheme.toLowerCase() !== "bearer" || !timingSafeEqual(want, got)) {
+      res.setHeader("WWW-Authenticate", "Bearer");
+      fail(res, 401, "unauthorized");
+      return;
+    }
+    next();
+  };
+}
+
+export function createApp(
+  workspace: Workspace = new Workspace(),
+  options: AppOptions = {},
+): {
   app: Express;
   workspace: Workspace;
 } {
   const app = express();
+  // Mounted before the body parser on purpose: an unauthorized request is
+  // rejected before the server spends anything reading or parsing its body.
+  if (options.token !== undefined && options.token !== "") {
+    app.use("/api", bearerGate(options.token));
+  }
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/api/health", (_req, res) => {

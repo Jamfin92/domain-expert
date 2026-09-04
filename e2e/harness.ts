@@ -42,11 +42,23 @@ export interface Harness {
   stop(): Promise<void>;
 }
 
-export async function startHarness(): Promise<Harness> {
+export interface HarnessOptions {
+  /**
+   * Start the API behind a bearer token, the way a hosted psq runs. Omitted
+   * by default, so every test written before the gate existed sees the same
+   * open server it always did.
+   */
+  token?: string;
+}
+
+export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
   if (!BROWSER) throw new Error("no browser found");
   if (!webBuilt()) throw new Error("apps/web/dist is missing; run pnpm build:web");
 
-  const { app, workspace } = createApp();
+  const { app, workspace } = createApp(
+    undefined,
+    opts.token === undefined ? {} : { token: opts.token },
+  );
   app.use(express.static(WEB_DIST));
   app.get(/.*/, (_req, res) => res.sendFile(join(WEB_DIST, "index.html")));
 

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import express from "express";
 import { createApp } from "./app.js";
+import { resolveServerConfig, type ServerConfig } from "./config.js";
 
 /**
  * Standalone entry point: `pnpm dev:server`, or booted by the Electron shell.
@@ -12,7 +13,20 @@ import { createApp } from "./app.js";
  * what Electron does so two copies never clash.
  */
 
-const { app, workspace } = createApp();
+// A refused configuration is a startup failure, not a warning: the whole point
+// of the interlock is that an exposed-but-open server never comes up.
+function loadConfig(): ServerConfig {
+  try {
+    return resolveServerConfig(process.env);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+}
+
+const config = loadConfig();
+
+const { app, workspace } = createApp(undefined, { token: config.token });
 
 // In production the built web UI is served from the same origin, so there is
 // no CORS story and no second process to supervise.
@@ -24,8 +38,7 @@ if (existsSync(webDist)) {
   });
 }
 
-const port = Number(process.env["PSQ_PORT"] ?? 8092);
-const host = process.env["PSQ_HOST"] ?? "127.0.0.1";
+const { host, port } = config;
 
 const server = createServer(app);
 server.listen(port, host, () => {
@@ -33,6 +46,8 @@ server.listen(port, host, () => {
   const actual = typeof addr === "object" && addr ? addr.port : port;
   // Electron reads this line to learn which port to open.
   console.log(`psq server listening on http://${host}:${actual}`);
+  // Never the token itself, only whether one is required.
+  console.log(config.token ? "api: token required" : "api: open (loopback only)");
   if (!existsSync(webDist)) {
     console.log("web/dist not built — run `pnpm dev:web` for the UI in development");
   }
