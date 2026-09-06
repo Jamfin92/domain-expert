@@ -11,3 +11,4 @@ export { grade, referenceAnswer, fillTemplate, type GradeContext } from "./grade
 export { selftest, type SelftestFinding } from "./selftest.js";
 export { normalize, entityAliases, plural, singular, matches } from "./normalize.js";
 export { rng, hashSeed, type Rng } from "./rng.js";
+export { shapeLabel } from "./generate/shape-label.js";

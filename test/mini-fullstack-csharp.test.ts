@@ -128,25 +128,28 @@ describe("a full-stack C# + React repo", () => {
     // not collapse the bank either.
     expect(questions.filter((q) => q.generator === "field-optional").length).toBe(2);
 
-    // NOT clean, and deliberately so. `selftest` keys its cross-question answer
-    // table on the RAW prompt (`selftest.ts:123-129`), and `ds-mcq`'s
-    // optionalField prompt names only `shape.name` while keying the id on
-    // `shape.file`. The two ProductDto twins therefore read as one prompt with
-    // two answers — `description` and `Description`.
+    // Clean, and that is the point: this is the hermetic guard for Phase
+    // 1b-ii. `selftest` keys its cross-question answer table on the RAW prompt
+    // (`selftest.ts:123-129`), and the five DS prompt sites used to name only
+    // `shape.name` while keying the id on `shape.file`. The two ProductDto
+    // twins therefore read as one prompt with two answers — `description` and
+    // `Description`. The prompts now carry `shapeLabel()`, which appends the
+    // declaring file whenever a shape name is not unique in the graph, so the
+    // twins ask two distinct questions.
     //
-    // This is a pre-existing defect in the DS bank, not something the merge
-    // invents: two corpus repos hit it today on same-named shapes within one
-    // stack, with no .NET side anywhere. Fixing it is Phase 1b-ii and is out of
-    // scope here. What this fixture adds is the first HERMETIC reproduction.
-    //
-    // Asserted exactly rather than tolerated: a third finding, a different
-    // generator, or a different failure mode reddens this instead of hiding
-    // behind a "known issues" allowance.
-    const findings = selftest(questions);
-    expect(findings.map((f) => `${f.generator}/${f.questionId}`)).toEqual([
-      "field-optional/ds.optional.client/src/types/product-dto.ts.ProductDto",
-      "field-optional/ds.optional.server/Dtos/ProductDto.cs.ProductDto",
+    // The pinned prompts below are what proves the label engaged. Without them
+    // an empty or collapsed bank would also make `selftest` return [].
+    expect(selftest(questions)).toEqual([]);
+
+    const optional = questions.filter((q) => q.generator === "field-optional");
+    expect(optional.map((q) => q.prompt).sort()).toEqual([
+      "Which field of ProductDto (client/src/types/product-dto.ts) is optional?",
+      "Which field of ProductDto (server/Dtos/ProductDto.cs) is optional?",
     ]);
-    expect(findings.every((f) => /2 different reference answers/.test(f.problem))).toBe(true);
+    // Ids are persisted keys and never changed: only the prompt text did.
+    expect(optional.map((q) => q.id).sort()).toEqual([
+      "ds.optional.client/src/types/product-dto.ts.ProductDto",
+      "ds.optional.server/Dtos/ProductDto.cs.ProductDto",
+    ]);
   });
 });

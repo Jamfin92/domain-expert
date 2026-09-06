@@ -1,6 +1,7 @@
 import type { Entity, EntityGraph, Question, Shape } from "@psq/schema";
 import { drift } from "@psq/extract";
 import { hashSeed, rng, type Rng } from "../rng.js";
+import { shapeLabel } from "./shape-label.js";
 
 /**
  * Multiple-choice questions about the shapes beside the tables.
@@ -121,10 +122,11 @@ function optionalField(ctx: Ctx): Question[] {
     const required = shape.fields.filter((f) => !f.optional);
     if (optional.length !== 1 || required.length < MIN_CHOICES) continue;
     const answer = optional[0]!;
+    const label = shapeLabel(ctx.g, shape);
     const q = mcq(ctx, {
       id: `ds.optional.${shape.file}.${shape.name}`,
       generator: "field-optional",
-      prompt: `Which field of ${shape.name} is optional?`,
+      prompt: `Which field of ${label} is optional?`,
       answer: answer.name,
       distractors: required.map((f) => f.name),
       subjects: [shape.name],
@@ -143,10 +145,11 @@ function collectionField(ctx: Ctx): Question[] {
     const one = shape.fields.filter((f) => !f.isCollection);
     if (many.length !== 1 || one.length < MIN_CHOICES) continue;
     const answer = many[0]!;
+    const label = shapeLabel(ctx.g, shape);
     const q = mcq(ctx, {
       id: `ds.collection.${shape.file}.${shape.name}`,
       generator: "field-collection",
-      prompt: `Which field of ${shape.name} holds many values rather than one?`,
+      prompt: `Which field of ${label} holds many values rather than one?`,
       answer: answer.name,
       distractors: one.map((f) => f.name),
       subjects: [shape.name],
@@ -176,10 +179,11 @@ function notAMember(ctx: Ctx): Question[] {
     if (foreign.length === 0) continue;
 
     const answer = ctx.rnd.pick([...new Set(foreign)].sort());
+    const label = shapeLabel(ctx.g, shape);
     const q = mcq(ctx, {
       id: `ds.member.${shape.file}.${shape.name}`,
       generator: "not-a-member",
-      prompt: `Which of these is NOT a member of ${shape.name}?`,
+      prompt: `Which of these is NOT a member of ${label}?`,
       answer,
       distractors: shape.members,
       subjects: [shape.name],

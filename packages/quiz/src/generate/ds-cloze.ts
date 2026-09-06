@@ -1,5 +1,6 @@
 import type { EntityGraph, Question } from "@psq/schema";
 import { hashSeed, rng, type Rng } from "../rng.js";
+import { shapeLabel } from "./shape-label.js";
 
 /**
  * Fill-in-the-blank questions about shapes and columns.
@@ -66,11 +67,12 @@ function fieldType(ctx: Ctx): Question[] {
     );
     if (candidates.length === 0) continue;
     const f = ctx.rnd.pick(candidates);
+    const label = shapeLabel(ctx.g, shape);
     out.push(
       cloze({
         id: `ds.cloze.type.${shape.file}.${shape.name}.${f.name}`,
         generator: "field-type",
-        prompt: `Complete the declaration on ${shape.name}:\n\n    ${f.name}: ____`,
+        prompt: `Complete the declaration on ${label}:\n\n    ${f.name}: ____`,
         answers: [f.baseType],
         aliases: [[f.baseType]],
         subjects: [shape.name, f.baseType],
@@ -86,12 +88,13 @@ function discriminator(ctx: Ctx): Question[] {
   const out: Question[] = [];
   for (const shape of ctx.g.shapes) {
     if (!shape.discriminator) continue;
+    const label = shapeLabel(ctx.g, shape);
     out.push(
       cloze({
         id: `ds.cloze.disc.${shape.file}.${shape.name}`,
         generator: "discriminator",
         prompt:
-          `${shape.name} is a union. Name the property whose value tells its members apart:\n\n    ____`,
+          `${label} is a union. Name the property whose value tells its members apart:\n\n    ____`,
         answers: [shape.discriminator],
         aliases: [[shape.discriminator]],
         subjects: [shape.name],
