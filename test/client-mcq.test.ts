@@ -151,10 +151,10 @@ describe("generateClientMcq", () => {
     expect(generateClientMcq(g, 1337)).toEqual([]);
   });
 
-  it("asks nothing when the ANSWER would be a single character", () => {
-    // `grade.ts:52` reads a one-letter answer as an option letter before the
-    // text branch at `:53`, so such a choice can never be selected by text.
-    // As the answer it has no substitute.
+  it("asks nothing when the ANSWER would be ambiguous with an option letter", () => {
+    // A one-character answer is selectable since `grade.ts:54` matches choice
+    // text first, but it still reads to the person answering as an option
+    // letter. As the answer it has no substitute, so the question is dropped.
     const oneCharTop = [
       component("A", "src/a/A.tsx"),
       component("Bravo", "src/b/Bravo.tsx"),

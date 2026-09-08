@@ -46,11 +46,16 @@ export function grade(q: Question, given: string, ctx: GradeContext = {}): Grade
         return { questionId: q.id, correct: false, detail: "question has no answer index" };
       }
       const trimmed = given.trim();
-      // Accept "2", "b", or the option text itself.
-      let picked = -1;
-      if (/^\d+$/.test(trimmed)) picked = Number(trimmed) - 1;
-      else if (/^[a-z]$/i.test(trimmed)) picked = trimmed.toLowerCase().charCodeAt(0) - 97;
-      else picked = choices.findIndex((c) => normalize(c) === normalize(trimmed));
+      // Precedence: an exact choice text always wins; the "2"/"b" shortcut
+      // applies only to input that matches no choice. Testing the shape of the
+      // input first made a one-character choice unreachable by its own text —
+      // "X" was read as option 24 of a four-option question — so the choice
+      // list has to be consulted before the shortcut, not after it.
+      let picked = choices.findIndex((c) => normalize(c) === normalize(trimmed));
+      if (picked === -1) {
+        if (/^\d+$/.test(trimmed)) picked = Number(trimmed) - 1;
+        else if (/^[a-z]$/i.test(trimmed)) picked = trimmed.toLowerCase().charCodeAt(0) - 97;
+      }
 
       return {
         questionId: q.id,

@@ -5,6 +5,7 @@ import { generateEntitySql } from "./generate/entity-sql.js";
 import { generateDsMcq } from "./generate/ds-mcq.js";
 import { generateDsCloze } from "./generate/ds-cloze.js";
 import { generateClientMcq } from "./generate/client-mcq.js";
+import { DEFAULT_SEED } from "./rng.js";
 import type { SeededDb } from "./sql/seed.js";
 
 /**
@@ -24,13 +25,17 @@ export function buildBank(
   seed?: number,
   sections?: readonly Section[],
 ): Question[] {
+  // The choke point. One resolution of the seed, passed on as a number, so the
+  // six generators cannot each invent their own default and hand the CLI a
+  // different bank from the one the server builds.
+  const s = seed ?? DEFAULT_SEED;
   const all = [
-    ...generateEntityMcq(g, seed),
-    ...generateEntityCloze(g, seed),
-    ...generateEntitySql(g, seeded, seed),
-    ...generateDsMcq(g, seed),
-    ...generateDsCloze(g, seed),
-    ...generateClientMcq(g, seed),
+    ...generateEntityMcq(g, s),
+    ...generateEntityCloze(g, s),
+    ...generateEntitySql(g, seeded, s),
+    ...generateDsMcq(g, s),
+    ...generateDsCloze(g, s),
+    ...generateClientMcq(g, s),
   ];
   if (!sections || sections.length === 0) return all;
   const wanted = new Set(sections);

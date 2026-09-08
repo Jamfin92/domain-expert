@@ -1,5 +1,5 @@
 import type { Component, EntityGraph, Question } from "@psq/schema";
-import { hashSeed, rng, type Rng } from "../rng.js";
+import { DEFAULT_SEED, rng, type Rng } from "../rng.js";
 import { normalize } from "../normalize.js";
 import { componentLabel } from "./component-label.js";
 
@@ -59,12 +59,12 @@ function mcq(
 }
 
 /**
- * A choice that can never be selected by typing it: `grade.ts:52` reads a
- * single letter as an option letter before the text branch at `:53` runs, so
- * a one-character choice is unreachable by text and the question is not
- * fully failable. That is a live bug in the grader — one confirmed casualty
- * elsewhere in the bank — and it is not this generator's to fix; shipping
- * into it would be.
+ * A choice that is ambiguous to the person answering. `grade.ts:54` now
+ * matches choice text before the `"2"`/`"b"` shortcut, so a one-character
+ * choice IS selectable — but a reader looking at four options labelled a-d,
+ * one of which is literally `x`, cannot tell whether typing `x` picks that
+ * option or option 24. The grader resolves it silently in favour of the
+ * choice; the question still reads as a trick.
  *
  * A property of ONE choice, so it is filtered out of the distractor pool
  * rather than used to drop the question: a bad distractor costs one option, a
@@ -173,7 +173,7 @@ const GENERATORS = [busiestComponent];
  * Deterministic: the same graph and seed always produce the same list.
  */
 export function generateClientMcq(g: EntityGraph, seed?: number): Question[] {
-  const ctx: Ctx = { g, rnd: rng(seed ?? hashSeed(g.repo)) };
+  const ctx: Ctx = { g, rnd: rng(seed ?? DEFAULT_SEED) };
   const out: Question[] = [];
   for (const gen of GENERATORS) out.push(...gen(ctx));
   return out.sort((a, b) => a.id.localeCompare(b.id));

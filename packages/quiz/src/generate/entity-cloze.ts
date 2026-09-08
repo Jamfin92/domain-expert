@@ -1,5 +1,5 @@
 import type { EntityGraph, Question } from "@psq/schema";
-import { hashSeed, rng, type Rng } from "../rng.js";
+import { DEFAULT_SEED, rng, type Rng } from "../rng.js";
 import { entityAliases, plural } from "../normalize.js";
 
 /**
@@ -152,7 +152,7 @@ function joinEntity(ctx: Ctx): Question[] {
 const GENERATORS = [navigationShape, foreignKeyName, tableName, compositeKeyParts, joinEntity];
 
 export function generateEntityCloze(g: EntityGraph, seed?: number): Question[] {
-  const ctx: Ctx = { g, rnd: rng(seed ?? hashSeed(g.repo)) };
+  const ctx: Ctx = { g, rnd: rng(seed ?? DEFAULT_SEED) };
   const out: Question[] = [];
   for (const gen of GENERATORS) out.push(...gen(ctx));
   return out.sort((a, b) => a.id.localeCompare(b.id));

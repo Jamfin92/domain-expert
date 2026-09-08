@@ -11,7 +11,7 @@ import type { Component, EntityGraph } from "@psq/schema";
  * `componentLabel`, which keeps it. `normalize.ts:20-24` drops namespace
  * qualification by slicing the head symbol at its LAST `.`; with no `<` in the
  * string the head is the whole string, so `"Card (src/…/Card.tsx)"` normalizes
- * to `"tsx)"` — and so does every other such label. `grade.ts:53` then matches
+ * to `"tsx)"` — and so does every other such label. `grade.ts:54` then matches
  * any typed answer against choice 0, and `selftest` reports both
  * "choices collide after normalization" and "reference answer is graded
  * wrong": the question becomes unfailable, which rule 5 forbids.

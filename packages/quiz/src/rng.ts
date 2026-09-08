@@ -18,6 +18,16 @@ export interface Rng {
   sample<T>(items: readonly T[], n: number): T[];
 }
 
+/**
+ * The one default seed in the system.
+ *
+ * The CLI and the server used to disagree: an absent `--seed` made the CLI
+ * sample at `hashSeed(repoPath)` while the server sampled at 1337, so
+ * `psq selftest` gated a bank the server never served. One constant, resolved
+ * once in `buildBank`, is what makes the gate mean anything.
+ */
+export const DEFAULT_SEED = 1337;
+
 /** mulberry32 — small, fast, and stable across engines. */
 export function rng(seed: number): Rng {
   let a = seed >>> 0;

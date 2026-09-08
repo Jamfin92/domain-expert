@@ -11,6 +11,6 @@ export { selectQuiz } from "./select.js";
 export { grade, referenceAnswer, fillTemplate, type GradeContext } from "./grade.js";
 export { selftest, type SelftestFinding } from "./selftest.js";
 export { normalize, entityAliases, plural, singular, matches } from "./normalize.js";
-export { rng, hashSeed, type Rng } from "./rng.js";
+export { rng, hashSeed, DEFAULT_SEED, type Rng } from "./rng.js";
 export { shapeLabel } from "./generate/shape-label.js";
 export { componentLabel } from "./generate/component-label.js";

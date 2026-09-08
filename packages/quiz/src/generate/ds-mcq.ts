@@ -1,6 +1,6 @@
 import type { Entity, EntityGraph, Question, Shape } from "@psq/schema";
 import { drift } from "@psq/extract";
-import { hashSeed, rng, type Rng } from "../rng.js";
+import { DEFAULT_SEED, rng, type Rng } from "../rng.js";
 import { shapeLabel } from "./shape-label.js";
 
 /**
@@ -199,7 +199,7 @@ const GENERATORS = [fieldDrift, dtoOnlyField, optionalField, collectionField, no
 export function generateDsMcq(g: EntityGraph, seed?: number): Question[] {
   const ctx: Ctx = {
     g,
-    rnd: rng(seed ?? hashSeed(g.repo)),
+    rnd: rng(seed ?? DEFAULT_SEED),
     entities: new Map(g.entities.map((e) => [e.name, e])),
   };
   const out: Question[] = [];

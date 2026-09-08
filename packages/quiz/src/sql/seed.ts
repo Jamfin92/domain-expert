@@ -1,7 +1,7 @@
 import { DatabaseSync } from "./driver.js";
 import type { DatabaseSync as Db } from "node:sqlite";
 import type { Entity, EntityGraph, Property } from "@psq/schema";
-import { rng, type Rng } from "../rng.js";
+import { DEFAULT_SEED, rng, type Rng } from "../rng.js";
 import { sqliteType } from "./types.js";
 
 /**
@@ -229,7 +229,7 @@ export function ddlFor(g: EntityGraph): string {
  */
 export function materialize(g: EntityGraph, opts: SeedOptions = {}): SeededDb {
   const warnings: string[] = [];
-  const rnd = rng(opts.seed ?? 1337);
+  const rnd = rng(opts.seed ?? DEFAULT_SEED);
   const rowTarget = opts.rows ?? 40;
   const db = new DatabaseSync(opts.path ?? ":memory:", { allowExtension: false });
 

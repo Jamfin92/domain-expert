@@ -1,6 +1,6 @@
 import type { EntityGraph, Question } from "@psq/schema";
 import { degrees, shortestPath } from "@psq/graph";
-import { hashSeed, rng, type Rng } from "../rng.js";
+import { DEFAULT_SEED, rng, type Rng } from "../rng.js";
 import { plural } from "../normalize.js";
 
 /**
@@ -359,7 +359,7 @@ const GENERATORS = [
  * Deterministic: the same graph and seed always produce the same list.
  */
 export function generateEntityMcq(g: EntityGraph, seed?: number): Question[] {
-  const ctx: Ctx = { g, rnd: rng(seed ?? hashSeed(g.repo)) };
+  const ctx: Ctx = { g, rnd: rng(seed ?? DEFAULT_SEED) };
   const out: Question[] = [];
   for (const gen of GENERATORS) out.push(...gen(ctx));
   return out.sort((a, b) => a.id.localeCompare(b.id));

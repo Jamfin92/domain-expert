@@ -1,5 +1,5 @@
 import type { EntityGraph, Question } from "@psq/schema";
-import { hashSeed, rng, type Rng } from "../rng.js";
+import { DEFAULT_SEED, rng, type Rng } from "../rng.js";
 import { shapeLabel } from "./shape-label.js";
 
 /**
@@ -155,7 +155,7 @@ function columnType(ctx: Ctx): Question[] {
 const GENERATORS = [fieldType, discriminator, columnType];
 
 export function generateDsCloze(g: EntityGraph, seed?: number): Question[] {
-  const ctx: Ctx = { g, rnd: rng(seed ?? hashSeed(g.repo)) };
+  const ctx: Ctx = { g, rnd: rng(seed ?? DEFAULT_SEED) };
   const out: Question[] = [];
   for (const gen of GENERATORS) out.push(...gen(ctx));
   return out.sort((a, b) => a.id.localeCompare(b.id));

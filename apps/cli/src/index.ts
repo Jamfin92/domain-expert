@@ -7,9 +7,9 @@ import { invariants, mermaid, degrees, orphans } from "@psq/graph";
 import {
   buildBank as composeBank,
   grade, referenceAnswer, selectQuiz, selftest, materialize,
+  DEFAULT_SEED,
   type SeededDb,
 } from "@psq/quiz";
-import { hashSeed } from "@psq/quiz";
 import { Section } from "@psq/schema";
 import type { EntityGraph, Question } from "@psq/schema";
 
@@ -92,7 +92,7 @@ function buildBank(g: EntityGraph, seed: number | undefined): {
   questions: Question[];
   seeded: SeededDb;
 } {
-  const seeded = materialize(g, { seed: seed ?? 1337, rows: Number(flag("rows", "40")) });
+  const seeded = materialize(g, { seed: seed ?? DEFAULT_SEED, rows: Number(flag("rows", "40")) });
   return { questions: composeBank(g, seeded, seed, sectionArg()), seeded };
 }
 
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
       const { questions: all, seeded } = buildBank(g, seed);
       const n = Number(flag("n", "10"));
       try {
-        await runQuiz(selectQuiz(all, n, seed ?? hashSeed(g.repo)), { db: seeded.db });
+        await runQuiz(selectQuiz(all, n, seed ?? DEFAULT_SEED), { db: seeded.db });
       } finally {
         seeded.close();
       }
@@ -207,10 +207,11 @@ async function main(): Promise<void> {
   psq quiz       --repo <path> [--n 10]        take a quiz in the terminal
 
 Options
-  --seed <n>      fix the generator seed (default: derived from the repo path)
+  --seed <n>      fix the generator seed (default: 1337, the same value the
+                  server uses, so selftest gates the bank the server serves)
   --rows <n>      rows to seed per table (default: 40)
   --section <s>   limit the bank to one or more sections, comma separated
-                  (entity, ds)
+                  (entity, client, ds)
 
 psq reads a .NET project with an EF Core DbContext, or a Node backend whose
 schema is written as CREATE TABLE. It works out which by what is on disk.

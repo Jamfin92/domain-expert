@@ -1,5 +1,5 @@
 import type { Entity, EntityGraph, Question } from "@psq/schema";
-import { hashSeed, rng, type Rng } from "../rng.js";
+import { DEFAULT_SEED, rng, type Rng } from "../rng.js";
 import type { SeededDb } from "../sql/seed.js";
 import { runQuery } from "../sql/sandbox.js";
 
@@ -297,7 +297,7 @@ export function generateEntitySql(
   seeded: SeededDb,
   seed?: number,
 ): Question[] {
-  const ctx: Ctx = { g, seeded, rnd: rng(seed ?? hashSeed(g.repo)) };
+  const ctx: Ctx = { g, seeded, rnd: rng(seed ?? DEFAULT_SEED) };
   const out: Question[] = [];
   for (const gen of GENERATORS) out.push(...gen(ctx));
   return out.sort((a, b) => a.id.localeCompare(b.id));

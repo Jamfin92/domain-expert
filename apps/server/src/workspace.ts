@@ -6,6 +6,7 @@ import { invariants, layout, layout3d, mermaid, type Layout, type Layout3D } fro
 import {
   buildBank,
   materialize, selectQuiz, grade, referenceAnswer, selftest,
+  DEFAULT_SEED,
   type SeededDb,
 } from "@psq/quiz";
 import type { EntityGraph, GradeResult, Question, Section } from "@psq/schema";
@@ -134,7 +135,7 @@ export class Workspace {
       );
     }
 
-    const seed = opts.seed ?? 1337;
+    const seed = opts.seed ?? DEFAULT_SEED;
     const seeded = materialize(graph, { seed, rows: opts.rows ?? 40 });
     const questions = buildBank(graph, seeded, seed);
 
