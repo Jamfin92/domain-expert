@@ -278,14 +278,20 @@ describe("a Node repo over the API", () => {
     expect(manifest.drift).toBeNull();
 
     expect(res.body.routes).toHaveLength(3);
+  });
 
-    // The negative control for the two fields added in M5c-i. MINI_NODE is a
+  it("serves the client-call fields on the graph, present and empty", async () => {
+    const id = await openNode();
+    const res = await request(app).get(`/api/repos/${id}/graph`);
+    expect(res.status).toBe(200);
+
+    // The negative control for the two fields the panel reads. MINI_NODE is a
     // server with no client half, so both come back present and empty — which
     // is only meaningful because the fixture case below proves the same two
     // keys carry real content when the graph has any. Drop the fields from the
     // response and this pair fails on `undefined`, not on a length.
-    expect(res.body.clientCalls).toEqual([]);
-    expect(res.body.components).toEqual([]);
+    expect(res.body.graph.clientCalls).toEqual([]);
+    expect(res.body.graph.components).toEqual([]);
   });
 
   it("counts the bank by section", async () => {
@@ -336,15 +342,15 @@ describe("the client-call chain over the API", () => {
     return res.body.repo.id as string;
   }
 
-  it("serves calls and components alongside the shapes, unjoined", async () => {
+  it("serves calls and components on the graph, unjoined", async () => {
     const id = await openFullstackReact();
-    const res = await request(app).get(`/api/repos/${id}/shapes`);
+    const res = await request(app).get(`/api/repos/${id}/graph`);
     expect(res.status).toBe(200);
 
     // The conjunction the panel exists to render: a call attributed to a
     // component AND matched to a route. No other fixture yields one, which is
     // why this one was cut.
-    const both = res.body.clientCalls.filter(
+    const both = res.body.graph.clientCalls.filter(
       (c: { matches: string | null; components: string[] }) =>
         c.matches !== null && c.components.length > 0,
     );
@@ -360,20 +366,20 @@ describe("the client-call chain over the API", () => {
     // Every attributed key resolves against the components served in the same
     // body: the response is self-contained, so the client never has to guess
     // what a key refers to.
-    const keys = new Set(res.body.components.map((c: { key: string }) => c.key));
-    for (const call of res.body.clientCalls) {
+    const keys = new Set(res.body.graph.components.map((c: { key: string }) => c.key));
+    for (const call of res.body.graph.clientCalls) {
       for (const key of call.components) expect(keys).toContain(key);
     }
 
     // Two components share the name Card; only the key separates them, which
     // is what the display-label rule downstream is for.
-    expect(res.body.components).toHaveLength(2);
-    expect(new Set(res.body.components.map((c: { name: string }) => c.name)).size).toBe(1);
+    expect(res.body.graph.components).toHaveLength(2);
+    expect(new Set(res.body.graph.components.map((c: { name: string }) => c.name)).size).toBe(1);
 
-    // Nothing is joined server-side: the calls arrive as a flat list, not
-    // nested under their components.
-    expect(Array.isArray(res.body.clientCalls)).toBe(true);
-    expect(res.body.clientCalls.some((c: { components: string[] }) => c.components.length === 0))
+    // Nothing is joined server-side: the calls arrive as a flat list on the
+    // graph, not nested under their components.
+    expect(Array.isArray(res.body.graph.clientCalls)).toBe(true);
+    expect(res.body.graph.clientCalls.some((c: { components: string[] }) => c.components.length === 0))
       .toBe(true);
   });
 });

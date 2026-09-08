@@ -20,6 +20,8 @@ export const REPO_ROOT = resolve(here, "..");
 /** The self-contained fixture, so this suite needs nothing outside the repo. */
 export const FIXTURE = join(REPO_ROOT, "test/fixtures/mini-efcore");
 export const NODE_FIXTURE = join(REPO_ROOT, "test/fixtures/mini-node");
+/** The component -> call -> matched route chain; no other fixture has it. */
+export const FULLSTACK_REACT_FIXTURE = join(REPO_ROOT, "test/fixtures/mini-fullstack-react");
 export const WEB_DIST = join(REPO_ROOT, "apps/web/dist");
 
 export function webBuilt(): boolean {
@@ -92,9 +94,21 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
         // Stand in for Electron's preload. The UI feature-detects this object,
         // so injecting it exercises the desktop path without running Electron.
         await page.addInitScript(() => {
+          // The arguments are RECORDED as well as answered: a stub that only
+          // resolves true is a gate that passes by finding nothing, so the
+          // path the UI actually hands the editor was never asserted.
+          // `pickFolder` and `platform` are unchanged, and `openInEditor`
+          // still resolves true — the folder-picker spec depends on both.
+          (window as unknown as { __psqEditorCalls: unknown[] }).__psqEditorCalls = [];
           (window as unknown as { psq: unknown }).psq = {
             pickFolder: () => Promise.resolve(null),
-            openInEditor: () => Promise.resolve(true),
+            openInEditor: (file: string, line?: number) => {
+              (window as unknown as { __psqEditorCalls: unknown[] }).__psqEditorCalls.push({
+                file,
+                line,
+              });
+              return Promise.resolve(true);
+            },
             platform: "darwin",
           };
         });

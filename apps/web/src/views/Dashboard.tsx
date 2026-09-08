@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, ArrowLeftRight, CheckCircle2, Database, GitBranch, Play, Route as RouteIcon, Table2,
+  AlertTriangle, ArrowLeftRight, CheckCircle2, Database, GitBranch, Play, Route as RouteIcon,
+  Table2, Waypoints,
 } from "lucide-react";
 import {
   api,
+  type ClientCall,
   type EntityGraph,
   type Layout,
   type Layout3D,
@@ -11,6 +13,7 @@ import {
   type Route,
   type Section,
   type Shape,
+  type UiComponent,
 } from "@/lib/api";
 import { EntityDiagram } from "@/components/EntityDiagram";
 import { EntityCity } from "@/components/EntityCity";
@@ -18,6 +21,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { componentLabel, groupCallsByComponent } from "@/lib/client-calls";
+import { desktop, isDesktop } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
 
 /**
@@ -97,6 +102,83 @@ function RouteList({ routes }: { routes: Route[] }): React.ReactElement {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * component -> call -> matched route.
+ *
+ * The join is already made at extraction (`ClientCall.matches` is the matched
+ * route's raw "METHOD path"), so this renders the grouping and nothing else.
+ * A call with two owners appears under both, which is what the fixture's
+ * shared helper controls for.
+ */
+function ClientCallList({
+  calls,
+  components,
+  repoPath,
+}: {
+  calls: ClientCall[];
+  components: UiComponent[];
+  repoPath: string;
+}): React.ReactElement {
+  const groups = groupCallsByComponent(components, calls);
+  const canOpen = isDesktop();
+
+  return (
+    <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+      {groups.map((group) => (
+        <div key={group.component?.key ?? "\u0000unattributed"} className="space-y-1">
+          <div
+            data-psq="call-component"
+            className="truncate text-xs font-semibold"
+            title={group.component?.key}
+          >
+            {group.component
+              ? componentLabel(group.component, components)
+              : "Not attributed to a component"}
+          </div>
+          <ul className="space-y-1 text-xs">
+            {group.calls.map((call) => (
+              <li
+                key={`${call.file}:${call.line}:${call.method} ${call.path}`}
+                data-psq="client-call"
+                className="space-y-0.5"
+              >
+                <div className="flex items-baseline gap-1.5">
+                  <Badge variant="outline" className="shrink-0 text-[10px]">{call.method}</Badge>
+                  <span className="truncate font-mono">{call.path}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-2 pl-1">
+                  {/* Absolute, because the desktop shell resolves nothing:
+                      `call.file` is repo-relative and the editor is handed a
+                      path it can open on its own. */}
+                  {canOpen ? (
+                    <button
+                      type="button"
+                      data-psq="open-in-editor"
+                      className="truncate font-mono text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={() => {
+                        void desktop()?.openInEditor(`${repoPath}/${call.file}`, call.line);
+                      }}
+                    >
+                      {call.file}:{call.line}
+                    </button>
+                  ) : (
+                    <span className="truncate font-mono text-[10px] text-muted-foreground">
+                      {call.file}:{call.line}
+                    </span>
+                  )}
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                    {call.matches ?? "no matching route"}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -191,6 +273,12 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
   const available = Object.keys(bank?.bySection ?? {}) as Section[];
   const entityRelations =
     graph?.relations.filter((r) => r.principal === selected || r.dependent === selected) ?? [];
+  // `graph` is EntityGraph | null and is null on every first paint, so these
+  // are undefined until the load resolves — that is what the ?? is for. It
+  // also absorbs an older server as a second-order effect, because call<T>()
+  // ends in a bare `return body as T` with no runtime validation.
+  const clientCalls = graph?.clientCalls ?? [];
+  const components = graph?.components ?? [];
 
   if (error) {
     return (
@@ -463,6 +551,24 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
             </CardHeader>
             <CardContent className="px-4">
               <RouteList routes={routes} />
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {clientCalls.length > 0 ? (
+          <Card className="gap-3 py-4">
+            <CardHeader className="px-4">
+              <CardTitle className="flex items-center gap-1.5 text-sm">
+                <Waypoints className="size-4" />
+                Client calls
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4">
+              <ClientCallList
+                calls={clientCalls}
+                components={components}
+                repoPath={repo.path}
+              />
             </CardContent>
           </Card>
         ) : null}

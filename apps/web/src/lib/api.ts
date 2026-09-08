@@ -103,9 +103,30 @@ export interface Relation {
   foreignKeyProperty: string | null; cardinality: string; required: boolean;
   deleteBehavior: string; deleteBehaviorSource: string; source: string;
 }
+export interface ClientCall {
+  method: string; path: string; file: string; line: number;
+  /** Nearest enclosing named function, or null at module scope. */
+  enclosing: string | null;
+  /** The matched route's raw "METHOD path", or null when unmatched. */
+  matches: string | null;
+  /**
+   * Component keys (`UiComponent.key`) this call attributes to, sorted. Empty
+   * when the call is genuinely unowned; two or more when a shared helper is
+   * reached from several components.
+   */
+  components: string[];
+}
+/**
+ * The server calls this `Component`. Renamed here because a bare `Component`
+ * in a React codebase reads as React's own component type at every call site.
+ */
+export interface UiComponent {
+  key: string; name: string; file: string; line: number;
+}
 export interface EntityGraph {
   repo: string; provider: string; contextName: string | null;
   entities: Entity[]; relations: Relation[]; warnings: string[];
+  clientCalls: ClientCall[]; components: UiComponent[];
 }
 
 export interface ShapeField {

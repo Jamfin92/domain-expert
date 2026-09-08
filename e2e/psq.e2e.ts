@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Page } from "playwright-core";
 import { BROWSER } from "./browser.js";
 import {
-  analyzeFixture, startHarness, webBuilt, FIXTURE, NODE_FIXTURE, type Harness,
+  analyzeFixture, startHarness, webBuilt, FIXTURE, FULLSTACK_REACT_FIXTURE, NODE_FIXTURE,
+  type Harness,
 } from "./harness.js";
 
 /**
@@ -437,6 +438,54 @@ describe.skipIf(reason !== "")("a Node backend in the browser", () => {
     // that section alone — which is only possible if the filter reached the API.
     expect(await page.locator("text=/1 \\/ 10/").count()).toBeGreaterThan(0);
     await page.close();
+  });
+
+  it("renders component -> call -> matched route, and opens a call in the editor", async () => {
+    // Desktop, because the editor button only exists behind the bridge.
+    const page = await h.newPage({ desktop: true });
+    await analyzeFixture(page, h.url, FULLSTACK_REACT_FIXTURE);
+
+    // Both components in this fixture are named Card, so a bare name would be
+    // ambiguous and the label rule must fall back to the file.
+    const headers = page.locator('[data-psq="call-component"]');
+    await expect.poll(() => headers.count()).toBe(3);
+    const labels = await headers.allTextContents();
+    expect(labels[0]).toBe("Card (src/components/admin/Card.tsx)");
+    expect(labels[1]).toBe("Card (src/components/shop/Card.tsx)");
+    // The unattributed bucket is last, and says what it is in those words.
+    expect(labels[2]).toBe("Not attributed to a component");
+
+    // Two multi-row groups: each Card owns its own call plus the shared
+    // saveCard() one, which is the grouping-order control.
+    const rows = page.locator('[data-psq="client-call"]');
+    expect(await rows.count()).toBe(5);
+    const adminGroup = (await rows.nth(0).textContent()) ?? "";
+    expect(adminGroup).toContain("/api/admin/cards");
+    expect(adminGroup).toContain("POST /api/admin/cards");
+
+    // A call with no route says exactly that, never "no component".
+    expect(await page.getByText("no matching route").count()).toBe(1);
+
+    await rows.nth(0).locator('[data-psq="open-in-editor"]').click();
+    const recorded = await page.evaluate(
+      () => (window as unknown as { __psqEditorCalls: Array<{ file: string; line: number }> })
+        .__psqEditorCalls,
+    );
+    expect(recorded).toHaveLength(1);
+    // Absolute, because the editor resolves nothing on the UI's behalf.
+    expect(recorded[0]!.file.startsWith("/")).toBe(true);
+    expect(recorded[0]!.file.endsWith("src/components/admin/Card.tsx")).toBe(true);
+    expect(recorded[0]!.line).toBe(13);
+    await page.close();
+
+    // The browser fallback, in the same case so the two readings cannot drift
+    // apart: the same panel, the same rows, and file:line as plain text.
+    const browserPage = await h.newPage();
+    await analyzeFixture(browserPage, h.url, FULLSTACK_REACT_FIXTURE);
+    await expect.poll(() => browserPage.locator('[data-psq="client-call"]').count()).toBe(5);
+    expect(await browserPage.locator('[data-psq="open-in-editor"]').count()).toBe(0);
+    expect(await browserPage.getByText("src/components/admin/Card.tsx:13").count()).toBe(1);
+    await browserPage.close();
   });
 });
 

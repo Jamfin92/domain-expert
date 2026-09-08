@@ -20,9 +20,26 @@ const both = g.clientCalls.filter((c) => c.matches !== null && c.components.leng
 
 describe("a full-stack React fixture", () => {
   it("extracts without a single warning", () => {
-    // No tsconfig (so no dropped-reference warning), a CREATE TABLE literal
-    // in the server (so the shapes-but-no-schema warning cannot fire), and
-    // two unambiguous routes (so linkCalls has nothing to warn about).
+    // Two reasons, each checked against the code that would push, not assumed:
+    //   - no tsconfig, so `programFor` never enters the `existsSync` branch
+    //     that holds all three of its warnings (node.ts:118-165) and takes
+    //     the silent directory-scan fallback instead;
+    //   - the two routes differ in both method and path, so no call can have
+    //     more than one candidate and `linkCalls` (clients.ts:238-244), whose
+    //     only warning is an ambiguous match, has nothing to say.
+    //
+    // Component attribution is NOT a third reason. Its only two warning sites
+    // are a duplicate definition key (refs.ts:158) and a call with no recorded
+    // AST node (refs.ts:454-458, unreachable by construction); neither is a
+    // resolution failure. An intra-fixture import that failed to resolve is
+    // SILENT — refs.ts:16-19, no edge and no warning — so it would leave this
+    // assertion green and merely hand the call `components: []`. The gate for
+    // that is the fourth call's two-key `components` pin in "holds one row of
+    // every kind the panel renders" below, never this case.
+    //
+    // The CREATE TABLE literal in the server is not about warnings at all:
+    // it is what gives the fixture an entity, without which Workspace.open
+    // throws "No entities found" and the API/e2e cases cannot open it.
     expect(g.warnings).toEqual([]);
   });
 
@@ -31,6 +48,8 @@ describe("a full-stack React fixture", () => {
       { method: "POST", path: "/api/admin/cards", file: "server.ts", line: 25 },
       { method: "GET", path: "/api/cards", file: "server.ts", line: 30 },
     ]);
+    // Positive control on the every(): an empty list would satisfy it.
+    expect(g.clientCalls.length).toBeGreaterThan(0);
     expect(g.clientCalls.every((c) => c.file !== "server.ts")).toBe(true);
   });
 
@@ -40,13 +59,13 @@ describe("a full-stack React fixture", () => {
         key: "src/components/admin/Card.tsx#Card",
         name: "Card",
         file: "src/components/admin/Card.tsx",
-        line: 6,
+        line: 11,
       },
       {
         key: "src/components/shop/Card.tsx#Card",
         name: "Card",
         file: "src/components/shop/Card.tsx",
-        line: 6,
+        line: 11,
       },
     ]);
     // The label rule downstream exists because these two are indistinguishable
@@ -61,7 +80,7 @@ describe("a full-stack React fixture", () => {
         method: "POST",
         path: "/api/admin/cards",
         file: "src/components/admin/Card.tsx",
-        line: 8,
+        line: 13,
         enclosing: "save",
         matches: "POST /api/admin/cards",
         components: ["src/components/admin/Card.tsx#Card"],
@@ -71,7 +90,7 @@ describe("a full-stack React fixture", () => {
         method: "GET",
         path: "/api/shop/wishlist",
         file: "src/components/shop/Card.tsx",
-        line: 8,
+        line: 13,
         enclosing: "load",
         matches: null,
         components: ["src/components/shop/Card.tsx#Card"],
@@ -85,6 +104,20 @@ describe("a full-stack React fixture", () => {
         enclosing: null,
         matches: "GET /api/cards",
         components: [],
+      },
+      // attributed to TWO components at once: a shared non-component helper
+      // both Cards import, reached through the owner walk's reverse BFS
+      {
+        method: "GET",
+        path: "/api/cards",
+        file: "src/lib/save-card.ts",
+        line: 7,
+        enclosing: "saveCard",
+        matches: "GET /api/cards",
+        components: [
+          "src/components/admin/Card.tsx#Card",
+          "src/components/shop/Card.tsx#Card",
+        ],
       },
     ]);
   });

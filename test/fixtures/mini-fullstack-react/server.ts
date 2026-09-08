@@ -10,7 +10,7 @@ import express from "express";
  */
 
 /** Executed by the real server on startup; the DDL reader sees the literal.
- *  Present so the "shapes but no schema" warning cannot fire. */
+ *  Mandatory: with 0 entities `Workspace.open` throws "No entities found". */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cards (
   id    TEXT PRIMARY KEY,

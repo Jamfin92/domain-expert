@@ -212,12 +212,6 @@ export function createApp(
         return { ...shape, drift: entity ? drift(entity, shape) : null };
       }),
       routes: repo.graph.routes,
-      // Passed through untouched: `matches` and `components` are precomputed
-      // at extraction, so the join is already made and the endpoint stays a
-      // projection of the graph. Grouping calls under their components is a
-      // UI concern and is not done here.
-      clientCalls: repo.graph.clientCalls,
-      components: repo.graph.components,
     });
   }));
 
