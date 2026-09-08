@@ -83,11 +83,23 @@ export const MINI_REACT = resolve(here, "fixtures/mini-react");
  * attributed row — the one thing the Dashboard panel exists to show — had no
  * positive control anywhere.
  *
- * Built to hold one row of every kind the panel renders: attributed and
- * matched (`src/components/admin/Card.tsx`), attributed and unmatched
+ * Built to hold at least one row of every kind the panel renders: attributed
+ * and matched (`src/components/admin/Card.tsx`), attributed and unmatched
  * (`src/components/shop/Card.tsx`), unattributed and matched
- * (`src/lib/boot.ts`, module scope), plus two components sharing the name
- * `Card` in different directories so the display-label rule has a control.
+ * (`src/lib/boot.ts`, module scope), and one call attributed to TWO components
+ * at once (`src/lib/save-card.ts`, a helper both `Card`s import).
+ *
+ * FOUR components in two same-named pairs — `Card` and `Panel`, one of each
+ * per directory — so every component takes the display-label rule's
+ * disambiguating branch. That is deliberate on both sides: the web panel keeps
+ * the file extension in its label, the quiz drops it (`normalize()` would
+ * otherwise collapse every choice to `tsx)`), and neither branch has any other
+ * hermetic control.
+ *
+ * The per-component call counts are 3 / 2 / 2 / 1 (admin/Panel, admin/Card,
+ * shop/Card, shop/Panel), a strictly unique top: this is also the only
+ * hermetic input on which `@psq/quiz`'s `client.busiest` generator fires, the
+ * corpus repo that exercises it being gitignored.
  *
  * Carries NO tsconfig and uses relative imports only, on purpose: the three
  * fixtures whose client TS uses `@/` aliases are excluded from the root

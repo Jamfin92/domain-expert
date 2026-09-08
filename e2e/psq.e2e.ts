@@ -443,56 +443,77 @@ describe.skipIf(reason !== "")("a Node backend in the browser", () => {
   it("renders component -> call -> matched route, and opens a call in the editor", async () => {
     // Desktop, because the editor button only exists behind the bridge.
     const page = await h.newPage({ desktop: true });
-    await analyzeFixture(page, h.url, FULLSTACK_REACT_FIXTURE);
+    try {
+      await analyzeFixture(page, h.url, FULLSTACK_REACT_FIXTURE);
 
-    // Both components in this fixture are named Card, so a bare name would be
-    // ambiguous and the label rule must fall back to the file.
-    const headers = page.locator('[data-psq="call-component"]');
-    await expect.poll(() => headers.count()).toBe(3);
-    const labels = await headers.allTextContents();
-    expect(labels[0]).toBe("Card (src/components/admin/Card.tsx)");
-    expect(labels[1]).toBe("Card (src/components/shop/Card.tsx)");
-    // The unattributed bucket is last, and says what it is in those words.
-    expect(labels[2]).toBe("Not attributed to a component");
+      // Every component in this fixture shares its name with exactly one
+      // other (two Cards, two Panels), so a bare name would be ambiguous
+      // everywhere and the label rule must fall back to the file throughout.
+      // Groups are ordered by component key, so admin sorts before shop.
+      const headers = page.locator('[data-psq="call-component"]');
+      await expect.poll(() => headers.count()).toBe(5);
+      const labels = await headers.allTextContents();
+      expect(labels[0]).toBe("Card (src/components/admin/Card.tsx)");
+      expect(labels[1]).toBe("Panel (src/components/admin/Panel.tsx)");
+      expect(labels[2]).toBe("Card (src/components/shop/Card.tsx)");
+      expect(labels[3]).toBe("Panel (src/components/shop/Panel.tsx)");
+      // The unattributed bucket is last, and says what it is in those words.
+      expect(labels[4]).toBe("Not attributed to a component");
 
-    // Two multi-row groups: each Card owns its own call plus the shared
-    // saveCard() one, which is the grouping-order control.
-    const rows = page.locator('[data-psq="client-call"]');
-    expect(await rows.count()).toBe(5);
-    const adminGroup = (await rows.nth(0).textContent()) ?? "";
-    expect(adminGroup).toContain("/api/admin/cards");
-    expect(adminGroup).toContain("POST /api/admin/cards");
+      // Nine rows over eight calls: each Card owns its own call plus the
+      // shared saveCard() one, which appears in both groups and is the
+      // grouping-order control.
+      const rows = page.locator('[data-psq="client-call"]');
+      expect(await rows.count()).toBe(9);
+      const adminGroup = (await rows.nth(0).textContent()) ?? "";
+      expect(adminGroup).toContain("/api/admin/cards");
+      expect(adminGroup).toContain("POST /api/admin/cards");
 
-    // A call with no route says exactly that, never "no component".
-    expect(await page.getByText("no matching route").count()).toBe(1);
+      // A call with no route says exactly that, never "no component". Two of
+      // them: shop/Card's wishlist and admin/Panel's stats.
+      expect(await page.getByText("no matching route").count()).toBe(2);
 
-    await rows.nth(0).locator('[data-psq="open-in-editor"]').click();
-    const recorded = await page.evaluate(
-      () => (window as unknown as { __psqEditorCalls: Array<{ file: string; line: number }> })
-        .__psqEditorCalls,
-    );
-    expect(recorded).toHaveLength(1);
-    // Absolute, because the editor resolves nothing on the UI's behalf.
-    expect(recorded[0]!.file.startsWith("/")).toBe(true);
-    expect(recorded[0]!.file.endsWith("src/components/admin/Card.tsx")).toBe(true);
-    expect(recorded[0]!.line).toBe(13);
-    await page.close();
+      await rows.nth(0).locator('[data-psq="open-in-editor"]').click();
+      const recorded = await page.evaluate(
+        () => (window as unknown as { __psqEditorCalls: Array<{ file: string; line: number }> })
+          .__psqEditorCalls,
+      );
+      expect(recorded).toHaveLength(1);
+      // Absolute, because the editor resolves nothing on the UI's behalf.
+      expect(recorded[0]!.file.startsWith("/")).toBe(true);
+      expect(recorded[0]!.file.endsWith("src/components/admin/Card.tsx")).toBe(true);
+      expect(recorded[0]!.line).toBe(13);
+    } finally {
+      // `finally`, so a failed assertion above does not leak the page.
+      await page.close();
+    }
+  });
 
-    // The browser fallback, in the same case so the two readings cannot drift
-    // apart: the same panel, the same rows, and file:line as plain text.
-    const browserPage = await h.newPage();
-    await analyzeFixture(browserPage, h.url, FULLSTACK_REACT_FIXTURE);
-    await expect.poll(() => browserPage.locator('[data-psq="client-call"]').count()).toBe(5);
-    expect(await browserPage.locator('[data-psq="open-in-editor"]').count()).toBe(0);
-    expect(await browserPage.getByText("src/components/admin/Card.tsx:13").count()).toBe(1);
-    await browserPage.close();
+  /**
+   * The browser fallback, split out of the desktop case rather than folded
+   * into its tail: sharing one `it` meant a desktop-half failure left this
+   * half unrun, and the message never said which shell broke.
+   *
+   * The `toBe(9)` poll is a proper positive control ahead of the `toBe(0)`
+   * below, so this cannot pass by finding nothing rendered.
+   */
+  it("renders the same panel without the desktop bridge, as plain text", async () => {
+    const page = await h.newPage();
+    try {
+      await analyzeFixture(page, h.url, FULLSTACK_REACT_FIXTURE);
+      await expect.poll(() => page.locator('[data-psq="client-call"]').count()).toBe(9);
+      expect(await page.locator('[data-psq="open-in-editor"]').count()).toBe(0);
+      expect(await page.getByText("src/components/admin/Card.tsx:13").count()).toBe(1);
+    } finally {
+      await page.close();
+    }
   });
 });
 
 /**
  * The hosted shape: the same bundle, behind a token.
  *
- * This runs its own server and browser rather than reusing `h`, so the 19
+ * This runs its own server and browser rather than reusing `h`, so the 21
  * tests above keep talking to an open API and this one proves the gated path
  * end to end — fragment, storage, header, 200 — through the rendered UI
  * rather than a raw fetch (a raw in-page fetch bypasses `call()` and would

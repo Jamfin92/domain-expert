@@ -371,15 +371,40 @@ describe("the client-call chain over the API", () => {
       for (const key of call.components) expect(keys).toContain(key);
     }
 
-    // Two components share the name Card; only the key separates them, which
-    // is what the display-label rule downstream is for.
-    expect(res.body.graph.components).toHaveLength(2);
-    expect(new Set(res.body.graph.components.map((c: { name: string }) => c.name)).size).toBe(1);
+    // Four components in two same-named PAIRS (Card, Panel); only the key
+    // separates the members of a pair, which is what the display-label rules
+    // downstream — the panel's and the quiz's — are for.
+    //
+    // Pinned as the sorted name list, not as length-4-and-2-distinct: that
+    // weaker pair is also satisfied by three Cards and one Panel, which would
+    // leave a uniquely-named component and quietly falsify the comment above.
+    expect(res.body.graph.components).toHaveLength(4);
+    expect(res.body.graph.components.map((c: { name: string }) => c.name).sort())
+      .toEqual(["Card", "Card", "Panel", "Panel"]);
 
     // Nothing is joined server-side: the calls arrive as a flat list on the
     // graph, not nested under their components.
     expect(Array.isArray(res.body.graph.clientCalls)).toBe(true);
     expect(res.body.graph.clientCalls.some((c: { components: string[] }) => c.components.length === 0))
       .toBe(true);
+  });
+
+  it("keeps the client fields off /shapes, so the panel has one source", async () => {
+    const id = await openFullstackReact();
+    const res = await request(app).get(`/api/repos/${id}/shapes`);
+    expect(res.status).toBe(200);
+
+    // Positive control first: the endpoint answers with real content, so the
+    // two negatives below cannot pass by finding an empty body. `routes`
+    // rather than `shapes` because this fixture declares no shapes.
+    expect(Array.isArray(res.body.routes)).toBe(true);
+    expect(res.body.routes.length).toBeGreaterThan(0);
+
+    // D-D-12: D1 projected these onto /shapes and D2 reverted it, but until
+    // now nothing said so. A future re-projection would pass every other gate
+    // in the suite, then leave the Dashboard reading one field from two
+    // endpoints that can disagree.
+    expect(res.body).not.toHaveProperty("clientCalls");
+    expect(res.body).not.toHaveProperty("components");
   });
 });

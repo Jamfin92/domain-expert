@@ -4,6 +4,7 @@ import { generateEntityCloze } from "./generate/entity-cloze.js";
 import { generateEntitySql } from "./generate/entity-sql.js";
 import { generateDsMcq } from "./generate/ds-mcq.js";
 import { generateDsCloze } from "./generate/ds-cloze.js";
+import { generateClientMcq } from "./generate/client-mcq.js";
 import type { SeededDb } from "./sql/seed.js";
 
 /**
@@ -29,6 +30,7 @@ export function buildBank(
     ...generateEntitySql(g, seeded, seed),
     ...generateDsMcq(g, seed),
     ...generateDsCloze(g, seed),
+    ...generateClientMcq(g, seed),
   ];
   if (!sections || sections.length === 0) return all;
   const wanted = new Set(sections);

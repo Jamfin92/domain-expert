@@ -34,8 +34,9 @@ describe("a full-stack React fixture", () => {
     // resolution failure. An intra-fixture import that failed to resolve is
     // SILENT — refs.ts:16-19, no edge and no warning — so it would leave this
     // assertion green and merely hand the call `components: []`. The gate for
-    // that is the fourth call's two-key `components` pin in "holds one row of
-    // every kind the panel renders" below, never this case.
+    // that is the `src/lib/save-card.ts` call's two-key `components` pin in
+    // "holds at least one row of every kind the panel renders" below, never
+    // this case.
     //
     // The CREATE TABLE literal in the server is not about warnings at all:
     // it is what gives the fixture an entity, without which Workspace.open
@@ -53,7 +54,7 @@ describe("a full-stack React fixture", () => {
     expect(g.clientCalls.every((c) => c.file !== "server.ts")).toBe(true);
   });
 
-  it("keeps two same-named components apart by key", () => {
+  it("keeps same-named components apart by key", () => {
     expect(g.components).toEqual([
       {
         key: "src/components/admin/Card.tsx#Card",
@@ -62,18 +63,33 @@ describe("a full-stack React fixture", () => {
         line: 11,
       },
       {
+        key: "src/components/admin/Panel.tsx#Panel",
+        name: "Panel",
+        file: "src/components/admin/Panel.tsx",
+        line: 11,
+      },
+      {
         key: "src/components/shop/Card.tsx#Card",
         name: "Card",
         file: "src/components/shop/Card.tsx",
         line: 11,
       },
+      {
+        key: "src/components/shop/Panel.tsx#Panel",
+        name: "Panel",
+        file: "src/components/shop/Panel.tsx",
+        line: 6,
+      },
     ]);
-    // The label rule downstream exists because these two are indistinguishable
-    // by name; if that ever stops being true here, the rule loses its control.
-    expect(new Set(g.components.map((c) => c.name)).size).toBe(1);
+    // Four components, two names: EVERY component here shares its name with
+    // exactly one other, so the label rules downstream — the panel's and the
+    // quiz's alike — always take their disambiguating branch. If a name here
+    // ever becomes unique, that branch loses its only hermetic control.
+    expect(new Set(g.components.map((c) => c.name)).size).toBe(2);
+    expect(g.components).toHaveLength(4);
   });
 
-  it("holds one row of every kind the panel renders", () => {
+  it("holds at least one row of every kind the panel renders", () => {
     expect(g.clientCalls).toEqual([
       // attributed AND matched — the conjunction no other fixture has
       {
@@ -85,6 +101,38 @@ describe("a full-stack React fixture", () => {
         matches: "POST /api/admin/cards",
         components: ["src/components/admin/Card.tsx#Card"],
       },
+      // The three calls that make admin/Panel the busiest component, which is
+      // what `client.busiest` is graded on. Sorted by file then line, so they
+      // sit between the two Cards.
+      {
+        method: "POST",
+        path: "/api/admin/cards",
+        file: "src/components/admin/Panel.tsx",
+        line: 13,
+        enclosing: "load",
+        matches: "POST /api/admin/cards",
+        components: ["src/components/admin/Panel.tsx#Panel"],
+      },
+      {
+        method: "GET",
+        path: "/api/cards",
+        file: "src/components/admin/Panel.tsx",
+        line: 14,
+        enclosing: "load",
+        matches: "GET /api/cards",
+        components: ["src/components/admin/Panel.tsx#Panel"],
+      },
+      // The second unmatched row, deliberately a path the server does not
+      // declare rather than a repeat of an existing (method, path) pair.
+      {
+        method: "GET",
+        path: "/api/admin/stats",
+        file: "src/components/admin/Panel.tsx",
+        line: 15,
+        enclosing: "load",
+        matches: null,
+        components: ["src/components/admin/Panel.tsx#Panel"],
+      },
       // attributed, unmatched: the server declares no such path
       {
         method: "GET",
@@ -94,6 +142,16 @@ describe("a full-stack React fixture", () => {
         enclosing: "load",
         matches: null,
         components: ["src/components/shop/Card.tsx#Card"],
+      },
+      // the single-call component, which keeps the busiest one strictly ahead
+      {
+        method: "GET",
+        path: "/api/cards",
+        file: "src/components/shop/Panel.tsx",
+        line: 8,
+        enclosing: "refresh",
+        matches: "GET /api/cards",
+        components: ["src/components/shop/Panel.tsx#Panel"],
       },
       // unattributed, matched: module scope, reached by no component
       {
@@ -119,6 +177,19 @@ describe("a full-stack React fixture", () => {
           "src/components/shop/Card.tsx#Card",
         ],
       },
+    ]);
+    // Per-component call counts, which `client.busiest` reads: admin/Panel 3,
+    // admin/Card 2, shop/Card 2, shop/Panel 1. The margin at the top is what
+    // keeps that generator's tie guard open.
+    const counts = new Map<string, number>();
+    for (const call of g.clientCalls) {
+      for (const key of call.components) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    expect([...counts.entries()].sort()).toEqual([
+      ["src/components/admin/Card.tsx#Card", 2],
+      ["src/components/admin/Panel.tsx#Panel", 3],
+      ["src/components/shop/Card.tsx#Card", 2],
+      ["src/components/shop/Panel.tsx#Panel", 1],
     ]);
   });
 
