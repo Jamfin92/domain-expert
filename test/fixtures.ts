@@ -76,6 +76,27 @@ export const MINI_FULLSTACK_CSHARP = resolve(here, "fixtures/mini-fullstack-csha
 export const MINI_REACT = resolve(here, "fixtures/mini-react");
 
 /**
+ * The only fixture where a client call is BOTH attributed to a component and
+ * matched to a route. Measured during planning, no existing fixture yields
+ * that conjunction: `mini-fullstack` is matched-but-unattributed throughout
+ * and `mini-react` attributed-but-unmatched, so the matched-route cell of an
+ * attributed row — the one thing the Dashboard panel exists to show — had no
+ * positive control anywhere.
+ *
+ * Built to hold one row of every kind the panel renders: attributed and
+ * matched (`src/components/admin/Card.tsx`), attributed and unmatched
+ * (`src/components/shop/Card.tsx`), unattributed and matched
+ * (`src/lib/boot.ts`, module scope), plus two components sharing the name
+ * `Card` in different directories so the display-label rule has a control.
+ *
+ * Carries NO tsconfig and uses relative imports only, on purpose: the three
+ * fixtures whose client TS uses `@/` aliases are excluded from the root
+ * tsconfig one by one, and extraction's fallback `walk()` program reads a
+ * tsconfig-free React tree fine.
+ */
+export const MINI_FULLSTACK_REACT = resolve(here, "fixtures/mini-fullstack-react");
+
+/**
  * Two referenced projects with EQUAL file counts and reversed declaration
  * order, so the winner can only come from the explicit lexicographic
  * tiebreak — never from reference order or sort stability.

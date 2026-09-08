@@ -5,7 +5,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { createApp } from "../src/app.js";
 import { Workspace } from "../src/workspace.js";
-import { MINI_EFCORE, MINI_NODE } from "../../../test/fixtures.js";
+import { MINI_EFCORE, MINI_FULLSTACK_REACT, MINI_NODE } from "../../../test/fixtures.js";
 
 let app: Express;
 let workspace: Workspace;
@@ -278,6 +278,14 @@ describe("a Node repo over the API", () => {
     expect(manifest.drift).toBeNull();
 
     expect(res.body.routes).toHaveLength(3);
+
+    // The negative control for the two fields added in M5c-i. MINI_NODE is a
+    // server with no client half, so both come back present and empty — which
+    // is only meaningful because the fixture case below proves the same two
+    // keys carry real content when the graph has any. Drop the fields from the
+    // response and this pair fails on `undefined`, not on a length.
+    expect(res.body.clientCalls).toEqual([]);
+    expect(res.body.components).toEqual([]);
   });
 
   it("counts the bank by section", async () => {
@@ -318,5 +326,54 @@ describe("a Node repo over the API", () => {
       expect(q).not.toHaveProperty("answerIndex");
       expect(q).not.toHaveProperty("rationale");
     }
+  });
+});
+
+describe("the client-call chain over the API", () => {
+  async function openFullstackReact(): Promise<string> {
+    const res = await request(app).post("/api/repos").send({ path: MINI_FULLSTACK_REACT });
+    expect(res.status).toBe(201);
+    return res.body.repo.id as string;
+  }
+
+  it("serves calls and components alongside the shapes, unjoined", async () => {
+    const id = await openFullstackReact();
+    const res = await request(app).get(`/api/repos/${id}/shapes`);
+    expect(res.status).toBe(200);
+
+    // The conjunction the panel exists to render: a call attributed to a
+    // component AND matched to a route. No other fixture yields one, which is
+    // why this one was cut.
+    const both = res.body.clientCalls.filter(
+      (c: { matches: string | null; components: string[] }) =>
+        c.matches !== null && c.components.length > 0,
+    );
+    expect(both.length).toBeGreaterThanOrEqual(1);
+    expect(both[0]).toMatchObject({
+      method: "POST",
+      path: "/api/admin/cards",
+      file: "src/components/admin/Card.tsx",
+      matches: "POST /api/admin/cards",
+      components: ["src/components/admin/Card.tsx#Card"],
+    });
+
+    // Every attributed key resolves against the components served in the same
+    // body: the response is self-contained, so the client never has to guess
+    // what a key refers to.
+    const keys = new Set(res.body.components.map((c: { key: string }) => c.key));
+    for (const call of res.body.clientCalls) {
+      for (const key of call.components) expect(keys).toContain(key);
+    }
+
+    // Two components share the name Card; only the key separates them, which
+    // is what the display-label rule downstream is for.
+    expect(res.body.components).toHaveLength(2);
+    expect(new Set(res.body.components.map((c: { name: string }) => c.name)).size).toBe(1);
+
+    // Nothing is joined server-side: the calls arrive as a flat list, not
+    // nested under their components.
+    expect(Array.isArray(res.body.clientCalls)).toBe(true);
+    expect(res.body.clientCalls.some((c: { components: string[] }) => c.components.length === 0))
+      .toBe(true);
   });
 });
