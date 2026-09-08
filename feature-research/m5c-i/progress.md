@@ -14,6 +14,15 @@ table, `../green-and-push/progress.md:264`.
 
 ## What shipped
 
+> **SUPERSEDED BY D2 (2026-09-08) — the paragraph below is no longer true of
+> the tree.** D2 settled the `/graph` vs `/shapes` question in favour of
+> `/graph` and **reverted** these two lines from the shapes response
+> (`app.ts:215-220`, 6 deletions, 0 insertions). `GET /api/repos/:id/shapes`
+> returns `{ shapes, routes }` again, as it did before D1. D1's *coverage*
+> was not deleted — it moved to `/graph`, where it never existed before.
+> **Read `progress-d2.md` first**; the rest of this record stands except where
+> it marks itself superseded.
+
 `GET /api/repos/:id/shapes` now returns `clientCalls` and `components`
 alongside `shapes` and `routes`, passed through untouched from `repo.graph`
 (no join, no filter — D-D-2). Plus the fixture that makes the feature
