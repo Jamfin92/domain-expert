@@ -398,6 +398,22 @@ Given D-Gb-4 keeps startup from crashing, this is the only way to see a broken
 store from outside. The `setImmediate` yield is what makes `running` actually
 observable rather than a state that exists only on paper.
 
+### D-Gb-0. G-b's first commit carries two items from G-a
+
+Both were non-blocking findings in G-a's third review, held back rather than
+reopening a shipped phase for a comment word and a type annotation.
+
+- **`packages/extract/test/digest.test.ts:20` — the mock wrapper hard-codes
+  arity 1.** `digestOf: (root: string) => { hooks.onDigest?.(root); return actual.digestOf(root); }`
+  is transparent only while the real signature takes one argument. If G-b widens
+  it, the wrapper silently drops the extra argument and **every test in that file
+  stays green while testing a one-argument call** — the gate-passes-by-finding-
+  nothing shape. Replace with
+  `(...args: Parameters<typeof actual.digestOf>) => { hooks.onDigest?.(args[0]); return actual.digestOf(...args); }`.
+- **`packages/extract/src/files.ts:91-92` says "All eleven of the other entries"
+  and then lists twelve**, including `node_modules`, which is not an "other"
+  entry. Third revision of this same comment.
+
 ### G-b files touched
 
 1. `apps/server/src/store.ts` — **new**: envelope schema, default-dir resolver, atomic read/write/delete/list, permissions
@@ -408,7 +424,9 @@ observable rather than a state that exists only on paper.
 6. `apps/server/test/rehydrate.test.ts` — **new**
 7. `apps/server/test/boot.test.ts` — **new**, the child-process gate
 8. `apps/server/test/api.test.ts` — ctor signature, health shape, the writes-nothing assertion
-9. `feature-research/g-local-persistence/audit-b.md`, `progress.md`
+9. `packages/extract/test/digest.test.ts` — D-Gb-0, the arity fix
+10. `packages/extract/src/files.ts` — D-Gb-0, the comment fix
+11. `feature-research/g-local-persistence/audit-b.md`, `progress-b.md`
 
 ### G-b gates
 
