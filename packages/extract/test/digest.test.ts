@@ -17,9 +17,9 @@ vi.mock("../src/files.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/files.js")>();
   return {
     ...actual,
-    digestOf: (root: string) => {
-      hooks.onDigest?.(root);
-      return actual.digestOf(root);
+    digestOf: (...args: Parameters<typeof actual.digestOf>) => {
+      hooks.onDigest?.(args[0]);
+      return actual.digestOf(...args);
     },
   };
 });
