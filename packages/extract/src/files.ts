@@ -89,8 +89,8 @@ export function isTestFile(repoRelativePath: string): boolean {
  * dependency's types will not move this digest. Repo source changes will.
  *
  * The rest of `SKIP` carries the same risk and the same cost. All eleven of the
- * other entries are skipped: `bin`, `obj`, `.git`, `dist`,
- * `build`, `.next`, `.vs`, `TestResults`, `coverage`, `.venv`, `__pycache__`.
+ * other entries are skipped: `bin`, `obj`, `.git`, `dist`, `build`, `.next`,
+ * `.vs`, `TestResults`, `coverage`, `.venv`, `__pycache__`.
  * A tsconfig whose `include` reaches generated sources under any of them hands
  * the program a file set this digest cannot see,
  * and a change confined to those directories leaves a permanently stale graph.

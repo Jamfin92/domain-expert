@@ -61,10 +61,16 @@ export interface RepoSummary {
 }
 
 /**
- * The row count `materialize` seeds per table when the caller names none.
- * Was an inline literal at the single call site; hoisted because it is now
- * also the value written into the store, and a default that lives in two
- * places is a default the two shells can disagree about.
+ * The row count `materialize` seeds per table when this server names none.
+ *
+ * Hoisted out of the single inline literal only so `open()` has a name to
+ * resolve `rows` from before storing it. It does NOT de-duplicate the default:
+ * `40` still appears in `packages/quiz/src/sql/seed.ts:233`,
+ * `apps/cli/src/index.ts:95` and that file's help text at `:212`. What
+ * actually keeps the two shells from disagreeing is that `open()` resolves
+ * `rows` once and STORES the resolved value, so a rehydrated repo is seeded
+ * with the number it was opened with rather than whatever the default has
+ * since become (D-Gb-3). B5a is the gate on that.
  */
 const DEFAULT_ROWS = 40;
 

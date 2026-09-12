@@ -146,19 +146,22 @@ describe("the envelope round trip", () => {
   });
 
   it("refuses garbage, a wrong version, and a graph that fails its schema", () => {
+    // The ids here are real store ids (twelve lowercase hex) because
+    // `envelopePath` now rejects anything else; which case is which lives in
+    // the assertions rather than in the filenames.
     const dir = stateDir();
     mkdirSync(reposDir(dir), { recursive: true });
-    writeFileSync(envelopePath(dir, "garbage"), "{not json");
-    writeFileSync(envelopePath(dir, "version"), JSON.stringify(envelope({ version: 99 as 1 })));
+    writeFileSync(envelopePath(dir, "0a0a0a0a0a0a"), "{not json");
+    writeFileSync(envelopePath(dir, "0b0b0b0b0b0b"), JSON.stringify(envelope({ version: 99 as 1 })));
     writeFileSync(
-      envelopePath(dir, "badgraph"),
+      envelopePath(dir, "0c0c0c0c0c0c"),
       JSON.stringify({ ...envelope(), graph: { kind: "entity" } }),
     );
 
-    expect(readEnvelope(dir, "garbage")).toMatchObject({ ok: false });
-    expect(readEnvelope(dir, "version")).toMatchObject({ ok: false });
-    expect(readEnvelope(dir, "badgraph")).toMatchObject({ ok: false });
-    expect(readEnvelope(dir, "absent")).toMatchObject({ ok: false });
+    expect(readEnvelope(dir, "0a0a0a0a0a0a")).toMatchObject({ ok: false });
+    expect(readEnvelope(dir, "0b0b0b0b0b0b")).toMatchObject({ ok: false });
+    expect(readEnvelope(dir, "0c0c0c0c0c0c")).toMatchObject({ ok: false });
+    expect(readEnvelope(dir, "0d0d0d0d0d0d")).toMatchObject({ ok: false });
   });
 });
 
@@ -224,7 +227,7 @@ describe("B26: the write is atomic and leaves nothing behind", () => {
     expect(dirname(caught?.path ?? "")).toBe(reposDir(dir));
     expect(caught?.path ?? "").toMatch(/\.tmp$/);
     // And the naming helper agrees, for the same reason.
-    expect(dirname(tempPathFor(envelopePath(dir, "x")))).toBe(reposDir(dir));
+    expect(dirname(tempPathFor(envelopePath(dir, "0e0e0e0e0e0e")))).toBe(reposDir(dir));
   });
 });
 
@@ -391,12 +394,44 @@ describe("the API seam", () => {
     }
   });
 
-  // The control: DELETE did not simply become an unconditional 200.
+  // The id goes straight from the URL into `unlinkSync`, and `join` collapses
+  // `..`. Measured before the guard existed: this exact request returned 200
+  // `{"closed": true}` and deleted the file two directories above the state
+  // directory. Express 5 percent-decodes `req.params`, so `%2F` arrives as a
+  // real separator, and `config.ts:80` only REQUIRES a token off-loopback, so
+  // `pnpm dev:server` on loopback served this with no gate at all.
+  it("B28: DELETE cannot reach a file outside the store", async () => {
+    const dir = stateDir();
+    const victim = join(dirname(dir), `psq-victim-${process.pid}.json`);
+    writeFileSync(victim, "precious");
+    const lines: string[] = [];
+    const { app, workspace } = createApp(undefined, {
+      stateDir: dir,
+      log: (l) => lines.push(String(l)),
+    });
+    try {
+      const hostile = `..%2F..%2Fpsq-victim-${process.pid}`;
+      const res = await request(app).delete(`/api/repos/${hostile}`);
+      expect(existsSync(victim)).toBe(true);
+      expect(res.status).toBe(404);
+      // The refusal is reported rather than silent, and names the id.
+      expect(lines.join("\n")).toContain("Not a repo id");
+    } finally {
+      workspace.closeAll();
+      rmSync(victim, { force: true });
+    }
+  });
+
+  // The control, and the positive half of the gate above: a well-formed id
+  // that names nothing still takes the same 404 path, so B28 is not passing
+  // because DELETE stopped working.
   it("still 404s for an id that is neither open nor on disk", async () => {
     const dir = stateDir();
-    const { app, workspace } = createApp(undefined, { stateDir: dir });
+    const { app, workspace } = createApp(undefined, { stateDir: dir, log: () => {} });
     try {
       expect((await request(app).delete("/api/repos/nosuchid00000")).status).toBe(404);
+      // And a well-formed id that names nothing takes the same path.
+      expect((await request(app).delete("/api/repos/0f0f0f0f0f0f")).status).toBe(404);
     } finally {
       workspace.closeAll();
     }

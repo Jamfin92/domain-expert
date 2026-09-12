@@ -62,8 +62,33 @@ export function reposDir(stateDir: string): string {
   return join(stateDir, "repos");
 }
 
-/** The envelope path for one repo id. `id` is `shortId(resolvedPath)`. */
+/**
+ * Exactly what `shortId` produces: twelve lowercase hex characters.
+ *
+ * Every id reaching the store comes off the wire — `DELETE /api/repos/:id` is
+ * the surface today, and a "reopen by id" surface would be the next one. Ids
+ * are not otherwise sanitised anywhere, and Express percent-decodes
+ * `req.params`, so `..%2F..%2Fvictim` arrives here as real path separators.
+ */
+const STORE_ID = /^[0-9a-f]{12}$/;
+
+/** Whether a string can name an envelope at all. */
+export function isStoreId(id: string): boolean {
+  return STORE_ID.test(id);
+}
+
+/**
+ * The envelope path for one repo id. `id` is `shortId(resolvedPath)`.
+ *
+ * The validation lives HERE rather than at the route because this is the
+ * chokepoint: `join` collapses `..`, so an unchecked id turns `unlinkSync`
+ * into an arbitrary-file delete anywhere the server user can write. Checking
+ * at one route would leave the next caller to rediscover that.
+ */
 export function envelopePath(stateDir: string, id: string): string {
+  if (!isStoreId(id)) {
+    throw new Error(`Not a repo id: ${JSON.stringify(id)}`);
+  }
   return join(reposDir(stateDir), `${id}.json`);
 }
 
@@ -94,7 +119,7 @@ export function tempPathFor(dest: string): string {
 export function writeEnvelope(stateDir: string, envelope: StoredRepo): void {
   const dir = reposDir(stateDir);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const dest = join(dir, `${envelope.id}.json`);
+  const dest = envelopePath(stateDir, envelope.id);
   const tmp = tempPathFor(dest);
   try {
     writeFileSync(tmp, `${JSON.stringify(envelope, null, 2)}\n`, { mode: 0o600 });
