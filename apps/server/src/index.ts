@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import express from "express";
 import { createApp } from "./app.js";
 import { resolveServerConfig, type ServerConfig } from "./config.js";
+import { defaultStateDir } from "./store.js";
 
 /**
  * Standalone entry point: `pnpm dev:server`, or booted by the Electron shell.
@@ -26,7 +27,29 @@ function loadConfig(): ServerConfig {
 
 const config = loadConfig();
 
-const { app, workspace } = createApp(undefined, { token: config.token });
+/**
+ * Resolving the store directory must never throw before the socket binds.
+ * This process runs under `KeepAlive` with `ThrottleInterval 30`, and the
+ * plist supplies only PSQ_HOST/PORT/TOKEN/PATH — `HOME` comes from the launchd
+ * session and is one plist edit from absent. A throw here would become a
+ * silent 30-second restart loop, which is worse than running with no
+ * persistence at all.
+ */
+function loadStateDir(): string | undefined {
+  try {
+    return defaultStateDir();
+  } catch (err) {
+    console.error(
+      `persistence off: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return undefined;
+  }
+}
+
+const { app, workspace } = createApp(undefined, {
+  token: config.token,
+  stateDir: loadStateDir(),
+});
 
 // In production the built web UI is served from the same origin, so there is
 // no CORS story and no second process to supervise.

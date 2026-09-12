@@ -57,6 +57,14 @@ export interface AppOptions {
    * desktop shell and the test suites see exactly the app they always had.
    */
   token?: string;
+  /**
+   * Where the on-disk store lives. Forwarded to the default Workspace only —
+   * a caller that supplies its own Workspace has already made this choice.
+   * Undefined means persistence is off (D-Gb-7).
+   */
+  stateDir?: string;
+  /** Where store failures are reported. Defaults to `console.error`. */
+  log?: (line: unknown) => void;
 }
 
 /**
@@ -89,12 +97,17 @@ function bearerGate(token: string) {
 }
 
 export function createApp(
-  workspace: Workspace = new Workspace(),
+  provided?: Workspace,
   options: AppOptions = {},
 ): {
   app: Express;
   workspace: Workspace;
 } {
+  // Built here rather than as a default parameter value: a default parameter
+  // is evaluated before `options` is in scope, so there would be no seam
+  // through which a stateDir could reach the Workspace.
+  const workspace =
+    provided ?? new Workspace(undefined, { stateDir: options.stateDir, log: options.log });
   const app = express();
   // Mounted before the body parser on purpose: an unauthorized request is
   // rejected before the server spends anything reading or parsing its body.
@@ -125,8 +138,15 @@ export function createApp(
   }));
 
   app.delete("/api/repos/:id", handler((req, res) => {
-    const ok = workspace.close(String(req.params["id"]));
-    if (!ok) {
+    const id = String(req.params["id"]);
+    // `forget` runs unconditionally, and its result counts. Rehydrate
+    // deliberately keeps the files of entries it could not load, so an entry
+    // that is on disk but not in the Map — a corrupt envelope, an unmounted
+    // volume — would otherwise be undeletable through any surface and retried
+    // on every restart forever (D-Gb-5).
+    const closed = workspace.close(id);
+    const forgotten = workspace.forget(id);
+    if (!closed && !forgotten) {
       fail(res, 404, "That repo is not open.");
       return;
     }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { extract } from "@psq/extract";
+import { EXTRACTOR_VERSION, extractWithDigest } from "@psq/extract";
 import { invariants, layout, layout3d, mermaid, type Layout, type Layout3D } from "@psq/graph";
 import {
   buildBank,
@@ -10,6 +10,7 @@ import {
   type SeededDb,
 } from "@psq/quiz";
 import type { EntityGraph, GradeResult, Question, Section } from "@psq/schema";
+import { STORE_VERSION, deleteEnvelope, writeEnvelope } from "./store.js";
 
 /**
  * Holds every repo psq has opened, and the quiz sessions running against them.
@@ -27,6 +28,13 @@ export interface OpenRepo {
   questions: Question[];
   seeded: SeededDb;
   seed: number;
+  /**
+   * Resolved once, here, rather than re-defaulted at every use. The seeded
+   * database is a function of (graph, seed, rows), so a `rows` that is not
+   * stored is a `rows` the two shells can silently disagree about — Phase F
+   * spent itself on exactly that failure with `seed`.
+   */
+  rows: number;
   openedAt: string;
 }
 
@@ -52,6 +60,14 @@ export interface RepoSummary {
   openedAt: string;
 }
 
+/**
+ * The row count `materialize` seeds per table when the caller names none.
+ * Was an inline literal at the single call site; hoisted because it is now
+ * also the value written into the store, and a default that lives in two
+ * places is a default the two shells can disagree about.
+ */
+const DEFAULT_ROWS = 40;
+
 const shortId = (s: string): string =>
   createHash("sha256").update(s).digest("hex").slice(0, 12);
 
@@ -60,8 +76,29 @@ export class Workspace {
   private readonly sessions = new Map<string, QuizSession>();
   private sessionCounter = 0;
 
-  /** Timestamps are injected so a test can assert on stable output. */
-  constructor(private readonly now: () => string = () => new Date().toISOString()) {}
+  private readonly stateDir: string | undefined;
+  private readonly log: (line: unknown) => void;
+
+  /**
+   * Timestamps are injected so a test can assert on stable output; `now` stays
+   * positional and first so every existing caller keeps compiling.
+   *
+   * `stateDir === undefined` means persistence is OFF — not "fall back to the
+   * default". Only `index.ts` supplies the real directory. If undefined fell
+   * back, `pnpm test` would write live store entries for test fixtures and the
+   * production LaunchAgent would rehydrate them (D-Gb-7).
+   *
+   * `log` takes `unknown` rather than `string` so the rehydrate call site can
+   * be `void rehydrate().catch(log)` without laundering an `Error` through
+   * `.catch`'s `any` into a string-typed collector.
+   */
+  constructor(
+    private readonly now: () => string = () => new Date().toISOString(),
+    opts: { stateDir?: string; log?: (line: unknown) => void } = {},
+  ) {
+    this.stateDir = opts.stateDir;
+    this.log = opts.log ?? ((line) => console.error(line));
+  }
 
   list(): RepoSummary[] {
     return [...this.repos.values()]
@@ -105,7 +142,7 @@ export class Workspace {
       this.repos.delete(id);
     }
 
-    const graph = extract(path);
+    const { graph, digest } = extractWithDigest(path);
     const problems = invariants(graph);
     if (problems.length > 0) {
       throw new Error(
@@ -136,14 +173,60 @@ export class Workspace {
     }
 
     const seed = opts.seed ?? DEFAULT_SEED;
-    const seeded = materialize(graph, { seed, rows: opts.rows ?? 40 });
+    const rows = opts.rows ?? DEFAULT_ROWS;
+    const seeded = materialize(graph, { seed, rows });
     const questions = buildBank(graph, seeded, seed);
 
     const repo: OpenRepo = {
-      id, path, graph, questions, seeded, seed, openedAt: this.now(),
+      id, path, graph, questions, seeded, seed, rows, openedAt: this.now(),
     };
     this.repos.set(id, repo);
+    this.persist(repo, digest);
     return repo;
+  }
+
+  /**
+   * Save a repo's envelope. Never throws: a store failure must not turn a
+   * successful open into a failed request (D-Gb-6).
+   */
+  private persist(repo: OpenRepo, fingerprint: string): void {
+    if (this.stateDir === undefined) return;
+    try {
+      writeEnvelope(this.stateDir, {
+        version: STORE_VERSION,
+        extractor: EXTRACTOR_VERSION,
+        id: repo.id,
+        path: repo.path,
+        seed: repo.seed,
+        rows: repo.rows,
+        openedAt: repo.openedAt,
+        fingerprint,
+        graph: repo.graph,
+      });
+    } catch (err) {
+      this.log(
+        `psq store: could not save ${repo.id} (${repo.path}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  }
+
+  /**
+   * Drop a repo's envelope from the store. Deliberately NOT wired into
+   * `close()`: `closeAll()` runs on SIGTERM, so a `close()` that forgot would
+   * make a clean shutdown delete exactly the state this store preserves
+   * (D-Gb-5).
+   */
+  forget(id: string): boolean {
+    if (this.stateDir === undefined) return false;
+    try {
+      return deleteEnvelope(this.stateDir, id);
+    } catch (err) {
+      this.log(
+        `psq store: could not forget ${id}: ` + (err instanceof Error ? err.message : String(err)),
+      );
+      return false;
+    }
   }
 
   close(id: string): boolean {
