@@ -24,6 +24,41 @@ never `@ts-ignore` and never a widening cast. `@ts-expect-error` fails if
 `@types/supertest` ever allows the array, so the suppression invalidates itself
 instead of outliving its reason — the shape this repo has already been bitten by.
 
+**Amendment 2 (2026-09-12, approved by James), G-a follow-ups.** The G-a review
+returned **Ship, no blocking issues**, having re-run every gate and mutation-tested
+the controls. Four non-blocking items are folded back in rather than deferred,
+because two of them weaken the property G-b is built on.
+
+- **The digest must be taken BEFORE extraction.** `detect.ts:71` returns
+  `{ graph: extractGraph(root), digest: digestOf(root) }`, and object-literal
+  properties evaluate in source order — so the graph is built from the bytes at
+  T0 and stamped with a fingerprint of the bytes at T0+1.3s. A file edited during
+  that window yields an old graph carrying a current digest: **permanently stale,
+  the exact class D-Ga-1 exists to prevent.** Digest-first inverts the race into
+  a fingerprint mismatch, i.e. a re-extract, which is the safe direction.
+- **A6's control does not hold the property it claims.** Mutation-tested by the
+  reviewer: a `digestOf` that hashes contents only, dropping the relpath
+  entirely, **passes all 15 tests**. A6's add and delete cases both move the
+  content stream, so neither separates the two designs. The digest as written is
+  correct; the gate is not holding it there. A6 gains a **rename with
+  byte-identical contents**, which is load-bearing because moving `tsconfig.json`
+  one directory down re-roots the whole TS half via `nodeRootFor` (`merge.ts:50,67`).
+- The `DIGEST_EXTENSIONS` comment records only the `node_modules` limit; the rest
+  of `walk`'s `SKIP` list (`files.ts:9-12` — `dist`, `build`, `bin`, `obj`,
+  `.next`, `coverage`) carries the same risk and is undocumented. A tsconfig whose
+  `include` reaches generated sources under `build/` or `.next/` gives a program
+  file set the digest cannot see.
+- `DIGEST_EXTENSIONS` is exported from the package index (`index.ts:12`) with no
+  consumer outside the package. `merge.test.ts:9` carries an explicit note
+  declining to widen public surface for an internal; this does the opposite, and
+  it is one more symbol a later phase can accidentally depend on. Unexport it.
+
+Also corrected for the record: the audit's A1 line overstates the widening's
+reach. `tsconfig.json` already excludes `apps/web`, so `apps/web/test/*` is
+typechecked by **nothing**, before or after. `tsc --listFiles` shows 13 test
+files entered the program, all under `packages/*/test` and `apps/server/test`.
+No regression, and G-b's three new files land in covered territory.
+
 ## Goal
 
 After any restart of `com.psq.server`, `GET /api/repos` returns the repos that
@@ -180,7 +215,7 @@ fixing them inside this phase.
 | A3 | `pnpm test` = 342 + new (state the exact number), 0 failed | — |
 | A4 | **Determinism**: `digestOf(root)` twice on an unchanged fixture is identical | without this, every "it changed" assertion below passes on a nondeterministic hash |
 | A5 | **Sensitivity, per extension**: in a temp copy, mutate one byte of a `.cs`, `.ts`, `.tsx`, `.csproj`, `tsconfig.json` and `package.json` in turn; the digest moves for each | A4 is the control — a hash that always changes passes A5 and fails A4 |
-| A6 | **Add and delete**: adding a new `.ts` and deleting an existing one each move the digest | catches a digest over file *contents* that ignores the file *set* |
+| A6 | **Add, delete, and rename**: adding a new `.ts`, deleting an existing one, and **renaming one to byte-identical contents** each move the digest | **Amendment 2**: the add/delete pair alone does NOT catch a contents-only digest — it passes all 15 tests. The rename is the case that separates them, and the property is load-bearing via `nodeRootFor` |
 | A7 | **Negative**: editing `README.md`, and adding a file under `node_modules/`, do **not** move the digest | without it an over-broad walk passes A5 and thrashes re-extract forever |
 | A8 | **Framing**: assert the **naive** `relpath + contents` concat collides on the pair below, and that `digestOf` does **not** | the naive-collides half is the control; without it A8 passes whether or not the framing does anything. Concrete pair found by the implementer: one file `a.ts` containing `"b.tsZ"`, versus two files `a.ts` (empty) + `b.ts` containing `"Z"` |
 | A9 | `git show --stat` is exactly the code/test paths above **plus the phase records** | wording carried from Phase F, where "exactly 18 paths" left a shipped plan untracked |
@@ -261,6 +296,10 @@ makes every entry tie):
 1. Parse the envelope. Bad JSON, wrong `version`, wrong `extractor`, a failed
    `EntityGraph.parse`, or a failed `invariants()` → stale; **keep the file**.
 2. `path` no longer a directory → skip, mark `missing`, **keep the file**.
+   **This check must stay strictly before the fingerprint comparison.**
+   `digestOf` on a missing root returns the empty-tree sha256 rather than
+   throwing (see Risks), so comparing first would read a vanished repo as "a
+   repo that changed" and trigger a doomed re-extract instead of `missing`.
 3. `id` already in `this.repos` → skip; a `POST /api/repos` beat us.
 4. `digestOf(path)` ≠ stored fingerprint, or stale from step 1 → re-extract and
    rewrite the envelope.
@@ -367,6 +406,16 @@ observable rather than a state that exists only on paper.
 - **Dependency-type changes do not invalidate** (D-Ga-1). Bounded, recorded.
 - **`EXTRACTOR_VERSION` is discipline** (D-Ga-3). Forgetting to bump it serves
   old-extractor graphs after a deploy. No gate can catch a forgotten bump.
+- **`walk`'s 20,000-file cap now binds sooner.** `digestOf` passes a list ~2.5×
+  broader than `detect.ts:32`'s, so the digest truncates before any extraction
+  walk does. Past the cap, changes never move the digest, and because truncation
+  follows `readdirSync` order the "two identical trees digest equal" property A4
+  proves stops being guaranteed. Unreachable on the measured corpus (max 260
+  files); recorded, not fixed.
+- **Unreadable is indistinguishable from absent.** `files.ts:114-117` drops an
+  unreadable entry entirely, so a `chmod 000` file hashes the same as a deleted
+  one, and `walk` swallows a failed `readdirSync` — `digestOf("/gone")` returns
+  the empty-tree sha256 rather than throwing. Safe in G-a; see D-Gb-4 step 2.
 - **Rehydrate is unbounded in repo count.** Six roots cost ~6 × materialize+bank.
   Worth a cap if the store ever grows; out of scope now.
 - **Rehydrate cost per repo is unmeasured.** Extraction dominates the 1.3s

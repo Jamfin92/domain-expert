@@ -68,7 +68,20 @@ export const EXTRACTOR_VERSION = 1;
  * cannot see.
  */
 export function extractWithDigest(repoRoot: string): { graph: EntityGraph; digest: string } {
-  return { graph: extractGraph(repoRoot), digest: digestOf(repoRoot) };
+  // The digest is taken BEFORE extraction, and the order is load-bearing.
+  // Object-literal properties evaluate in source order, so returning
+  // `{ graph: extractGraph(root), digest: digestOf(root) }` would build the
+  // graph from the bytes at T0 and stamp it with a fingerprint of the bytes at
+  // T0+1.3s. A file edited inside that window would then yield an old graph
+  // carrying a current digest — permanently stale, which is the exact failure
+  // class this digest exists to prevent.
+  //
+  // Digest-first inverts the race: the graph may contain bytes newer than the
+  // fingerprint, so a later comparison MISMATCHES and re-extracts. Paying for
+  // an unnecessary re-extract is the safe direction; serving a stale graph is
+  // not.
+  const digest = digestOf(repoRoot);
+  return { graph: extractGraph(repoRoot), digest };
 }
 
 /**

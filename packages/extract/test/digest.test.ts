@@ -99,6 +99,45 @@ describe("digestOf", () => {
     expect(digestOf(root)).not.toBe(before);
   });
 
+  // A rename with byte-IDENTICAL contents is the case that makes A6 mean
+  // something. Mutation-tested by the G-a reviewer: a `digestOf` that hashes
+  // contents only, dropping the relpath entirely, passes the add and delete
+  // cases above — both move the content stream, so neither separates the two
+  // designs. Only a rename holds the path in the hash.
+  it("A6: renaming a .ts to byte-identical contents moves the digest", () => {
+    const root = repo(fullFixture());
+    const before = digestOf(root);
+    const body = readFileSync(join(root, "src", "schema.ts"));
+    rmSync(join(root, "src", "schema.ts"));
+    writeFileSync(join(root, "src", "schema2.ts"), body);
+    expect(digestOf(root)).not.toBe(before);
+  });
+
+  it("A6: moving tsconfig.json one directory down moves the digest", () => {
+    // The load-bearing instance of the same property: `nodeRootFor`
+    // (`merge.ts:50,67`) scans one level down for a nested `tsconfig.json` and
+    // re-roots the whole TS half of a fullstack graph on finding one. The
+    // bytes are unchanged and only the path moves, so a contents-only digest
+    // would call this repo unchanged while extraction produces a different
+    // graph — permanently stale.
+    const root = repo(fullFixture());
+    const before = digestOf(root);
+    const body = readFileSync(join(root, "tsconfig.json"));
+    rmSync(join(root, "tsconfig.json"));
+    writeFileSync(join(root, "src", "tsconfig.json"), body);
+    expect(digestOf(root)).not.toBe(before);
+  });
+
+  it("A6 control: the rename cases really are byte-identical", () => {
+    // If a rename helper silently changed the bytes, the rename tests above
+    // would pass for the wrong reason and stop separating the two designs.
+    const root = repo(fullFixture());
+    const body = readFileSync(join(root, "src", "schema.ts"));
+    rmSync(join(root, "src", "schema.ts"));
+    writeFileSync(join(root, "src", "schema2.ts"), body);
+    expect(readFileSync(join(root, "src", "schema2.ts")).equals(body)).toBe(true);
+  });
+
   // ---- A7. Negative. Without these an over-broad walk passes A5 and then
   // thrashes re-extract on every unrelated edit forever.
   it("A7: editing README.md does not move the digest", () => {

@@ -87,6 +87,14 @@ export function isTestFile(repoRelativePath: string): boolean {
  * Stated limit, deliberately not closed: `ts.createProgram` resolves `.d.ts`
  * and lib files inside `node_modules`, which `walk` skips. A change to a
  * dependency's types will not move this digest. Repo source changes will.
+ *
+ * The rest of `SKIP` carries the same risk and the same cost. A tsconfig whose
+ * `include` reaches generated sources under `dist`, `build`, `bin`, `obj`,
+ * `.next` or `coverage` hands the program a file set this digest cannot see,
+ * and a change confined to those directories leaves a permanently stale graph.
+ * Not closed because hashing build output would re-invalidate on every build,
+ * and `SKIP` is shared with the extraction walks — narrowing it here alone
+ * would make the digest and the readers disagree about what the repo is.
  */
 export const DIGEST_EXTENSIONS = [
   ".cs", ".csproj", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx",

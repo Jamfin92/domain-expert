@@ -8,7 +8,11 @@ export {
 export { extractDotnet, type DotnetExtractOptions } from "./dotnet.js";
 export { extractNode } from "./node.js";
 export { parseCSharp } from "./csharp/structure.js";
-export { walk, repoRelative, digestOf, DIGEST_EXTENSIONS } from "./files.js";
+// `DIGEST_EXTENSIONS` is deliberately NOT re-exported: it is an internal of
+// `digestOf`, nothing outside the package consumes it, and `digest.test.ts`
+// imports it from `../src/files.js` directly. Same reasoning as the note in
+// `merge.test.ts` — a test is not a reason to widen public surface.
+export { walk, repoRelative, digestOf } from "./files.js";
 export { plural, singular, fieldKey, conceptKey } from "./names.js";
 export { pairShapes, drift, type Drift } from "./pair.js";
 export { DatabaseSync, type Database } from "./sqlite/driver.js";

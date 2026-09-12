@@ -204,3 +204,177 @@ was pushed. No corpus path, tailnet host or token appears in any changed file,
 in this audit, or in the commit message. The new tests build their own fixtures
 in `mkdtempSync` temp directories and clean up in `afterEach`; they read no
 corpus and write nothing outside `tmpdir()`.
+
+---
+
+# Amendment 2 — review follow-ups
+
+Appended, not merged into the record above: the original audit stands as written,
+including the parts Amendment 2 corrects. G-a review returned **Ship, no blocking
+issues**; these are the four non-blocking items, folded in as a follow-up commit
+on `master` rather than an amend.
+
+Two of them were found by **mutation-testing the controls**, not by reading the
+diff — including one real ordering bug that every one of my 15 tests passed over.
+That is the headline of this round and the lesson worth carrying into G-b: my own
+gates were green on code that could serve a permanently stale graph.
+
+## Files changed in this round
+
+| File | Why |
+|---|---|
+| `packages/extract/src/detect.ts` | item 1: hoist `digestOf` **before** `extractGraph` |
+| `packages/extract/src/files.ts` | item 3: document the rest of `walk`'s `SKIP` list as the same staleness class |
+| `packages/extract/src/index.ts` | item 4: unexport `DIGEST_EXTENSIONS` |
+| `packages/extract/test/digest.test.ts` | item 2: three new A6 tests — two renames and a byte-identity control |
+| `feature-research/g-local-persistence/plan.md` | Amendment 2, rewritten A6, two new Risks, D-Gb-4 step 2 ordering |
+| `feature-research/g-local-persistence/audit-a.md` | this section |
+
+## 1. The digest is now taken before extraction
+
+`extractWithDigest` was:
+
+```ts
+return { graph: extractGraph(repoRoot), digest: digestOf(repoRoot) };
+```
+
+Object-literal properties evaluate in source order, so the graph was built from
+the bytes at T0 and stamped with a fingerprint of the bytes at T0+1.3s. A file
+edited inside that window produced an old graph carrying a current digest, which
+a later comparison would call fresh — **permanently stale, the exact class
+D-Ga-1 exists to prevent**. Now:
+
+```ts
+const digest = digestOf(repoRoot);
+return { graph: extractGraph(repoRoot), digest };
+```
+
+Digest-first inverts the race: the graph may contain bytes newer than the
+fingerprint, so a later comparison mismatches and re-extracts. An unnecessary
+re-extract costs ~1.3s; a stale graph costs the premise of the tool. The
+reasoning is in the code, not only here, because the correctness of this function
+is entirely in the order of two statements and nothing about reading it makes
+that obvious.
+
+**No gate in G-a catches this, and none was added.** The window is a real-time
+race against a 1.3s extraction; a test would need to write into the tree from
+another thread mid-extract. G-b's B5 (cross-time parity) and B8 (stale detection
+with an observable graph change) are where this becomes testable. Recording the
+gap rather than claiming coverage.
+
+## 2. A6 now holds the property it claims — verified by mutation
+
+The reviewer's finding, reproduced: **a `digestOf` that hashes contents only,
+dropping the relpath entirely, passed all 15 of the original tests.** The add and
+delete cases both move the content stream, so neither separates a path-aware
+digest from a contents-only one.
+
+Three tests added:
+
+- rename `src/schema.ts` → `src/schema2.ts` with byte-identical contents;
+- move `tsconfig.json` one directory down, bytes unchanged — the load-bearing
+  instance, because `nodeRootFor` (`merge.ts:50,67`) scans one level down for a
+  nested `tsconfig.json` and re-roots the whole TS half of a fullstack graph on
+  finding one. A contents-only digest calls that repo unchanged while extraction
+  produces a different graph;
+- a control asserting the renamed file really is byte-identical, so the two
+  above cannot pass for the wrong reason.
+
+### The mutation measurement
+
+I dropped the relpath, length and NUL framing from `digestOf` (leaving
+`h.update(contents)`), ran the suite, then restored. Measured:
+
+| gate | under the contents-only mutant |
+|---|---|
+| A4 | 2 passed — still green |
+| A5 | 6 passed — still green |
+| **A6** | **2 failed \| 3 passed** — both new renames fail; the original add/delete pair still passes |
+| A7 | 3 passed — still green |
+| A8 | 2 passed — still green |
+| whole file | **2 failed \| 16 passed (18)** |
+
+Exactly the two new tests fail and nothing else does. That is the measurement
+the instruction asked for: a rename test that passed with and without the relpath
+would be worth nothing, and this one is not.
+
+Two things fall out of it worth recording. The reviewer's claim that all 15
+original tests pass the mutant is **confirmed** — 16 of 18 pass, and the 2 that
+fail are both new. And **A8 passes the mutant too**: its collision pair separates
+under a contents-only hash (`"b.tsZ"` vs `"Z"`), so A8 tests the framing of the
+length field but never held the relpath property either. A6 is now the only gate
+holding it.
+
+Restoration verified by re-reading the five `h.update` lines at
+`files.ts:127-131`, not by assuming the copy-back worked.
+
+## 3 and 4. The two small ones
+
+**Item 3.** The `DIGEST_EXTENSIONS` comment recorded only the `node_modules`
+limit. It now covers the rest of `SKIP` (`dist`, `build`, `bin`, `obj`, `.next`,
+`coverage`): a tsconfig whose `include` reaches generated sources there hands the
+program a file set the digest cannot see, and a change confined to those
+directories leaves a permanently stale graph. I also recorded **why it stays
+open**, which the amendment did not ask for but which the next reader will:
+hashing build output would re-invalidate on every build, and `SKIP` is shared
+with the extraction walks, so narrowing it in `digestOf` alone would make the
+digest and the readers disagree about what the repo is.
+
+**Item 4.** `DIGEST_EXTENSIONS` unexported from the package index, with a comment
+pointing at the `merge.test.ts` precedent. `digest.test.ts:6` already imported it
+from `../src/files.js`, so nothing changed at the call site. It was the one symbol
+in the G-a diff the plan had not named — worth noting as a process point: the
+file list named the files, and a symbol slipped through inside one of them.
+
+## Gates — re-measured after all four items
+
+Full suite, not just the digest tests, since item 1 touches `extractWithDigest`.
+Baseline to beat: 357 (`299 | 58` under `PSQ_NO_CORPUS=1`). G-a now adds **18**
+tests rather than 15.
+
+| # | Result |
+|---|---|
+| A1 | `pnpm typecheck` **exit 0, 0 errors**, all four projects |
+| A2 | `PSQ_NO_CORPUS=1 pnpm test` → **302 passed \| 58 skipped (360)**, 26 files passed \| 3 skipped, 0 failed. 299 + 3 = 302 ✓ |
+| A3 | `pnpm test` → **360 passed (360)**, 29 files, 0 skipped, 0 failed. 357 + 3 = 360 ✓ |
+| A4 | **2 passed \| 16 skipped** — run first again |
+| A5 | **6 passed \| 12 skipped** |
+| A6 | **5 passed \| 13 skipped** (was 2; +2 renames, +1 byte-identity control) |
+| A7 | **3 passed \| 15 skipped** |
+| A8 | **2 passed \| 16 skipped**, one the naive-collides control |
+| A9 | **6 paths**, recorded below |
+
+**The skipped count is 58**, the number observed, unchanged from baseline.
+
+## The A1 correction, accepted
+
+Amendment 2 is right and my original audit overstated the widening's reach. I
+wrote that `apps/*/test` was now covered; `tsconfig.json` already excludes
+`apps/web`, so `apps/web/test/*` is typechecked by nothing, before or after. The
+13 files that entered the program are all under `packages/*/test` and
+`apps/server/test`. No regression either way, and G-b's three new files land in
+covered territory — but the claim as I wrote it was broader than what I measured,
+which is the same failure shape the plan's own "rev 1 got wrong" list opens with.
+
+## Still open after this round
+
+- The **digest-before-extract race has no G-a gate** (item 1 above). It becomes
+  testable at B5/B8.
+- **`walk`'s 20,000-file cap binds the digest sooner than any extraction walk**,
+  and past it A4's cross-tree determinism stops being guaranteed because
+  truncation follows `readdirSync` order. Now in the plan's Risks; unreachable on
+  the measured corpus (max 260 files).
+- **Unreadable is indistinguishable from absent**: `digestOf("/gone")` returns
+  the empty-tree sha256 rather than throwing. Harmless in G-a, and it is why
+  D-Gb-4 step 2 now requires the `missing` check strictly before the fingerprint
+  comparison — otherwise a vanished repo reads as "a repo that changed" and
+  triggers a doomed re-extract instead of being marked missing.
+- `EXTRACTOR_VERSION` remains untested by construction until G-b.
+
+## Constraints observed
+
+`pnpm test:e2e` and `pnpm build:web` were not run in this round either; the
+service was not restarted, deployed or touched; nothing pushed. The diff was
+swept again for corpus paths, `*.ts.net` hosts and tokens, with a positive
+control — result below. The mutation experiment touched only the working tree
+and was reverted before commit; the committed `files.ts` is the framed digest.
