@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import request from "supertest";
 import type { Express } from "express";
 import { createApp } from "../src/app.js";
@@ -406,5 +408,46 @@ describe("the client-call chain over the API", () => {
     // endpoints that can disagree.
     expect(res.body).not.toHaveProperty("clientCalls");
     expect(res.body).not.toHaveProperty("components");
+  });
+});
+
+describe("B17: persistence is off unless a state directory is handed in", () => {
+  // `pnpm test` constructs Workspaces exactly like this one, and the corpus
+  // paths those tests open are private. If `stateDir === undefined` fell back
+  // to the default, every test run would deposit live store entries that the
+  // production LaunchAgent would then rehydrate (D-Gb-7).
+  //
+  // XDG_DATA_HOME is redirected into a temp directory rather than asserting on
+  // the real `~/.local/share/psq`: that directory does not exist on this
+  // machine today, so an assertion about it is failable now and stops being
+  // failable the first time the real server runs.
+  it("writes nothing anywhere, and the assertion is not vacuous", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "psq-xdg-"));
+    const before = process.env["XDG_DATA_HOME"];
+    process.env["XDG_DATA_HOME"] = tmp;
+    const plain = new Workspace(() => "2026-01-01T00:00:00.000Z");
+    const wired = new Workspace(() => "2026-01-01T00:00:00.000Z", {
+      stateDir: join(tmp, "psq"),
+    });
+    try {
+      const { app: plainApp } = createApp(plain);
+      expect((await request(plainApp).post("/api/repos").send({ path: MINI_EFCORE })).status)
+        .toBe(201);
+      expect(existsSync(join(tmp, "psq"))).toBe(false);
+
+      // The positive control: the same open, through a Workspace that WAS
+      // given the directory, does create it. Without this the assertion above
+      // would pass on a store that never writes under any configuration.
+      const { app: wiredApp } = createApp(wired);
+      expect((await request(wiredApp).post("/api/repos").send({ path: MINI_EFCORE })).status)
+        .toBe(201);
+      expect(existsSync(join(tmp, "psq", "repos"))).toBe(true);
+    } finally {
+      plain.closeAll();
+      wired.closeAll();
+      if (before === undefined) delete process.env["XDG_DATA_HOME"];
+      else process.env["XDG_DATA_HOME"] = before;
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
