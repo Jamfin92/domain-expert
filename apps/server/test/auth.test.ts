@@ -58,11 +58,21 @@ describe("with a token configured", () => {
     const app = build(TOKEN);
     const first = await request(app)
       .get("/api/health")
+      // @ts-expect-error @types/supertest permits a string[] header value only
+      // for "Cookie". The array is deliberate: supertest sends it as two
+      // Authorization header lines, which is what this test is proving Node
+      // handles by keeping the first and discarding the second. Only the
+      // declaration disallows it; the runtime behaviour is intended.
       .set("Authorization", [`Bearer ${TOKEN}`, `Bearer ${"f".repeat(32)}`]);
     expect(first.status).toBe(200);
 
     const second = await request(app)
       .get("/api/health")
+      // @ts-expect-error @types/supertest permits a string[] header value only
+      // for "Cookie". The array is deliberate: supertest sends it as two
+      // Authorization header lines, which is what this test is proving Node
+      // handles by keeping the first and discarding the second. Only the
+      // declaration disallows it; the runtime behaviour is intended.
       .set("Authorization", [`Bearer ${"f".repeat(32)}`, `Bearer ${TOKEN}`]);
     expect(second.status).toBe(401);
   });

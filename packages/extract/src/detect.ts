@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { EntityGraph } from "@psq/schema";
 import { extractDotnet } from "./dotnet.js";
 import { extractNode } from "./node.js";
-import { repoRelative, walk } from "./files.js";
+import { digestOf, repoRelative, walk } from "./files.js";
 import { mergeGraphs, nodeRootFor } from "./merge.js";
 
 export type Provider = "efcore" | "sqlite-ddl" | "fullstack" | "none";
@@ -45,10 +45,41 @@ export function detectProvider(repoRoot: string): Provider {
 }
 
 /**
+ * Extraction semantics version, bumped by hand when what the readers produce
+ * from the same bytes changes.
+ *
+ * A stored fingerprint stays valid across a rebuild of psq itself, so without
+ * this a deploy would leave every cached graph "fresh" while the extractor that
+ * produced it is gone, and old-extractor graphs would be served indefinitely.
+ * An envelope's own `version` guards the envelope's shape, not its producer.
+ *
+ * This is a discipline control: nothing enforces the bump, and forgetting it
+ * serves one class of stale graph. An auto-derived digest of the extractor's
+ * own sources was considered and rejected as too clever for the gain.
+ */
+export const EXTRACTOR_VERSION = 1;
+
+/**
+ * Extract whatever this repo is, alongside a fingerprint of the files that
+ * decided the result.
+ *
+ * The digest comes from `digestOf` and is never a second, inlined hash: a
+ * duplicate that is correct today is the drift a cross-time staleness check
+ * cannot see.
+ */
+export function extractWithDigest(repoRoot: string): { graph: EntityGraph; digest: string } {
+  return { graph: extractGraph(repoRoot), digest: digestOf(repoRoot) };
+}
+
+/**
  * Extract whatever this repo is. An unrecognized repo is an empty graph with a
  * warning that names what was looked for — never a throw, and never a guess.
  */
 export function extract(repoRoot: string): EntityGraph {
+  return extractGraph(repoRoot);
+}
+
+function extractGraph(repoRoot: string): EntityGraph {
   switch (detectProvider(repoRoot)) {
     case "efcore":
       return extractDotnet(repoRoot);

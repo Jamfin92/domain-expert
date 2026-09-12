@@ -4,6 +4,8 @@
     "packages/*/src/**/*.ts",
     "apps/cli/src/**/*.ts",
     "apps/server/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "apps/*/test/**/*.ts",
     "test/**/*.ts"
   ],
   "exclude": [
