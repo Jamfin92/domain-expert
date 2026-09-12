@@ -378,3 +378,193 @@ service was not restarted, deployed or touched; nothing pushed. The diff was
 swept again for corpus paths, `*.ts.net` hosts and tokens, with a positive
 control — result below. The mutation experiment touched only the working tree
 and was reverted before commit; the committed `files.ts` is the framed digest.
+
+---
+
+# Amendment 3 — closing round
+
+Appended; the Amendment 1 and 2 records above stand unchanged, including the two
+claims this section retracts.
+
+Both substantive items this round are **corrections to assertions I made in the
+Amendment 2 audit and did not test**. Recording that plainly, because it is the
+same shape twice: I explained why a gate held a property, and why another
+property could not be gated, from reading rather than from measurement. Both
+explanations were wrong, and both were falsifiable in minutes with the mutation
+technique I had already used elsewhere in the same round.
+
+All mutation testing this round ran in a throwaway `git worktree` at
+`HEAD` (`28736d8`), never in this checkout, which is the live production deploy.
+The worktree was removed and `git worktree list` confirmed clean.
+
+## Files changed in this round
+
+| File | Why |
+|---|---|
+| `packages/extract/src/files.ts` | item 3: name all twelve `SKIP` entries |
+| `packages/extract/test/digest.test.ts` | A8b (3 tests), A10 (2 tests), item 4 relabel |
+| `feature-research/g-local-persistence/plan.md` | Amendment 3, gates A8b and A10 |
+| `feature-research/g-local-persistence/audit-a.md` | this section |
+
+No change to `detect.ts` or `index.ts`: Amendment 2 left both correct, and A10
+now proves the `detect.ts` ordering rather than asserting it.
+
+## 1. A8b — retraction and fix
+
+**What I wrote in Amendment 2:** "A8 tests the framing of the length field but
+never held the relpath property." The first half is **wrong**. A8's pair
+(`a.ts`=`"b.tsZ"` versus `a.ts`=`""` + `b.ts`=`"Z"`) separates on the **NUL
+alone**: with the separator present and no length at all, `"b.tsZ"` and `"Z"`
+still differ. A8 held the separator and nothing else, and the length field was
+gated by nothing.
+
+A8b uses the reviewer's pair: one file `a.ts` containing `b.ts\0Z`, versus
+`a.ts` (empty) + `b.ts` containing `Z`. The payload supplies its own NUL, so
+both render as `a.ts\0b.ts\0Z` once the length is gone. Only the byte count
+separates them. Three tests: the collision control on a length-free digest, the
+real assertion on `digestOf`, and a third asserting **A8's own pair does not
+hold the length** — the finding turned into an executable claim rather than a
+sentence in an audit that the next round has to re-derive.
+
+### Mutation measurement — drop only the length
+
+`h.update(relpath); h.update(NUL); h.update(contents)`, length removed, framing
+otherwise intact:
+
+| scope | result |
+|---|---|
+| `digest.test.ts` | **1 failed \| 22 passed (23)** |
+| whole suite | **1 failed \| 306 passed \| 58 skipped (365)** |
+
+The single failure is `A8b: digestOf does not collide on the NUL-bearing pair`.
+Nothing else in the repository moves — which is the measurement that proves A8b
+is load-bearing and confirms the reviewer's claim that the length-dropped mutant
+passed all 18 previous tests.
+
+## 2. A10 — retraction and fix
+
+**What I wrote in Amendment 2:** "No gate in G-a catches this, and none was
+added. The window is a real-time race against a 1.3s extraction; a test would
+need to write into the tree from another thread mid-extract." **Wrong, and the
+reasoning was lazy.** `extractGraph` is module-private and cannot be spied, but
+`digestOf` is an *imported binding* in `detect.ts` and is therefore mockable. A
+partial `vi.mock` whose `digestOf` writes into the fixture before delegating
+reproduces the race exactly, deterministically, with no threads and no sleeps.
+The deferral to B5/B8 was a choice I presented as a constraint.
+
+A10 installs a hook that writes a new `CREATE TABLE` into the fixture at the
+instant the digest is taken, then asserts the new entity appears in the returned
+graph. Digest-first means extraction runs after the write and must see it;
+graph-first means it cannot. Two tests: the ordering assertion (which also
+asserts the hook fired exactly once, so a mock that silently failed to apply
+reads as a broken premise rather than an ordering bug), and a control asserting
+the untouched fixture yields exactly `["voyages"]` — without it, an extractor
+that invented the entity, or a fixture that already declared it, would pass
+whatever the ordering.
+
+The mock wrapper delegates to the real `digestOf` and does nothing unless a test
+installs a hook, so the other 21 tests in the file still exercise the genuine
+implementation.
+
+### Mutation measurement — revert to graph-first
+
+Restoring `return { graph: extractGraph(repoRoot), digest: digestOf(repoRoot) }`:
+
+| scope | result |
+|---|---|
+| `digest.test.ts` | **1 failed \| 22 passed (23)** |
+| whole suite | **1 failed \| 306 passed \| 58 skipped (365)** |
+
+The single failure is A10 itself. Both directions verified as instructed: green
+against the shipped digest-first order, red against the reverted one.
+
+This also closes the gap the amendment named — **`extractWithDigest` was
+executed by nothing in the 360-test suite**, the one function whose entire
+correctness is the order of two statements. It now has two tests.
+
+## 3. The `SKIP` comment now names all twelve
+
+It listed six. It now names all twelve entries — `node_modules`, `bin`, `obj`,
+`.git`, `dist`, `build`, `.next`, `.vs`, `TestResults`, `coverage`, `.venv`,
+`__pycache__` — checked against the live `SKIP` set at `files.ts:9-12` rather
+than copied from the amendment text, since copying the amendment faithfully is
+what produced the error the first time.
+
+## 4. A6's byte-identity test relabelled
+
+Renamed from "A6 control: …" to "A6: … (insurance, not a control)", with a
+comment saying why: the renames write bytes read straight back from the same
+file with no helper in between, so nothing short of the filesystem corrupting
+data can redden it. Kept as cheap insurance against a future refactor
+introducing such a helper, and named so it is not mistaken for the equal of the
+genuinely load-bearing A7 and A8b non-vacuity tests.
+
+## Where the relpath property stands now
+
+Re-measured, because the suite grew by 5 tests since the reviewer's count. The
+contents-only mutant against the whole suite:
+
+**2 failed | 305 passed | 58 skipped (365)** — the two failures are still
+exactly Amendment 2's two renames. A8b and A10 do not hold the relpath property,
+so the reviewer's warning is unchanged and should carry into G-b: **two tests in
+the entire repository hold it, and weakening either silently makes the digest
+path-blind.**
+
+Summarised, each mutant now kills exactly its own gate and nothing else:
+
+| mutant | fails | whole-suite result |
+|---|---|---|
+| contents only (no relpath, no framing) | A6 ×2 renames | 2 failed \| 305 passed \| 58 skipped |
+| `relpath + NUL + contents` (no length) | A8b | 1 failed \| 306 passed \| 58 skipped |
+| graph-first ordering | A10 | 1 failed \| 306 passed \| 58 skipped |
+
+After each mutant the file was restored from the real checkout and re-verified —
+`files.ts:129-133` re-read for the five `h.update` lines, `detect.ts:83` for the
+hoisted `const digest`, and the 23-test file re-run green — rather than assuming
+the copy-back worked.
+
+## Gates — final measured results
+
+Baseline to beat: 360 (`302 | 58` under `PSQ_NO_CORPUS=1`). G-a now adds **23**
+tests.
+
+| # | Result |
+|---|---|
+| A1 | `pnpm typecheck` **exit 0, 0 errors**, all four projects |
+| A2 | `PSQ_NO_CORPUS=1 pnpm test` → **307 passed \| 58 skipped (365)**, 26 files passed \| 3 skipped, 0 failed. 302 + 5 = 307 ✓ |
+| A3 | `pnpm test` → **365 passed (365)**, 29 files, 0 skipped, 0 failed. 360 + 5 = 365 ✓ |
+| A4 | **2 passed \| 21 skipped** — run first again |
+| A5 | **6 passed \| 17 skipped** |
+| A6 | **5 passed \| 18 skipped** |
+| A7 | **3 passed \| 20 skipped** |
+| A8 | **2 passed** (assertion + naive-collides control) |
+| A8b | **3 passed \| 20 skipped** (assertion + 2 controls) |
+| A10 | **2 passed \| 21 skipped** (assertion + fixture control) |
+| A9 | **4 paths**, recorded below |
+
+**The skipped count is 58** — observed, unchanged across all three amendments.
+2 + 6 + 5 + 3 + 2 + 3 + 2 = 23 accounts for every test in the file.
+
+## Still open going into G-b
+
+Unchanged from Amendment 2 except where noted:
+
+- **Only two tests hold the relpath property** (measured again above). New, and
+  the most important thing to carry forward.
+- `walk`'s 20,000-file cap binds the digest before any extraction walk; past it
+  A4's cross-tree determinism stops being guaranteed.
+- `digestOf("/gone")` returns the empty-tree sha256 rather than throwing — why
+  D-Gb-4 step 2 needs the `missing` check strictly before the fingerprint
+  comparison.
+- `EXTRACTOR_VERSION` remains untested by construction until G-b.
+- The `SKIP` staleness class stays open by choice; the reasoning is in the code.
+- **Closed this round:** the ordering race (A10) and the length framing (A8b)
+  are no longer un-gated, and `extractWithDigest` is no longer unexecuted.
+
+## Constraints observed
+
+No `pnpm test:e2e`, no `pnpm build:web`, service not restarted or touched,
+nothing pushed. Mutation testing ran only in a detached worktree under the
+session scratchpad, removed afterwards with `git worktree list` verified clean.
+Diff swept for corpus paths, `*.ts.net` hosts and tokens with a positive
+control. The A10 fixture is built in a temp directory and reads no corpus.

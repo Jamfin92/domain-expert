@@ -88,9 +88,11 @@ export function isTestFile(repoRelativePath: string): boolean {
  * and lib files inside `node_modules`, which `walk` skips. A change to a
  * dependency's types will not move this digest. Repo source changes will.
  *
- * The rest of `SKIP` carries the same risk and the same cost. A tsconfig whose
- * `include` reaches generated sources under `dist`, `build`, `bin`, `obj`,
- * `.next` or `coverage` hands the program a file set this digest cannot see,
+ * The rest of `SKIP` carries the same risk and the same cost. All eleven of the
+ * other entries are skipped: `node_modules`, `bin`, `obj`, `.git`, `dist`,
+ * `build`, `.next`, `.vs`, `TestResults`, `coverage`, `.venv`, `__pycache__`.
+ * A tsconfig whose `include` reaches generated sources under any of them hands
+ * the program a file set this digest cannot see,
  * and a change confined to those directories leaves a permanently stale graph.
  * Not closed because hashing build output would re-invalidate on every build,
  * and `SKIP` is shared with the extraction walks — narrowing it here alone

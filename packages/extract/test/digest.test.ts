@@ -1,9 +1,28 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { digestOf, walk, repoRelative, DIGEST_EXTENSIONS } from "../src/files.js";
+import { extractWithDigest } from "../src/detect.js";
+
+// A10 needs to observe the MOMENT `extractWithDigest` takes its digest, and
+// `extractGraph` is module-private so it cannot be spied. `digestOf` is an
+// imported binding in `detect.ts`, so it can be. The wrapper delegates to the
+// real implementation and does nothing at all unless a test installs a hook,
+// so every other test in this file exercises the genuine `digestOf`.
+const hooks = vi.hoisted(() => ({ onDigest: null as ((root: string) => void) | null }));
+
+vi.mock("../src/files.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/files.js")>();
+  return {
+    ...actual,
+    digestOf: (root: string) => {
+      hooks.onDigest?.(root);
+      return actual.digestOf(root);
+    },
+  };
+});
 
 // `digestOf` is public package surface (it is what G-b's rehydrate calls to
 // learn a repo is stale without paying for an extraction), but it is imported
@@ -128,9 +147,13 @@ describe("digestOf", () => {
     expect(digestOf(root)).not.toBe(before);
   });
 
-  it("A6 control: the rename cases really are byte-identical", () => {
-    // If a rename helper silently changed the bytes, the rename tests above
-    // would pass for the wrong reason and stop separating the two designs.
+  it("A6: the rename cases really are byte-identical (insurance, not a control)", () => {
+    // Deliberately labelled. This is NOT a control in the sense the A7 and A8
+    // non-vacuity tests are: the renames above write bytes read straight back
+    // from the same file, with no helper in between that could transform them,
+    // so nothing short of the filesystem corrupting data can redden it. It is
+    // kept as cheap insurance against a future refactor introducing such a
+    // helper, and named so it is not mistaken for load-bearing.
     const root = repo(fullFixture());
     const body = readFileSync(join(root, "src", "schema.ts"));
     rmSync(join(root, "src", "schema.ts"));
@@ -193,5 +216,109 @@ describe("digestOf", () => {
 
   it("A8: digestOf does not collide on that pair", () => {
     expect(digestOf(repo(oneFile))).not.toBe(digestOf(repo(twoFiles)));
+  });
+
+  // ---- A8b. The LENGTH field, which A8 does not hold.
+  //
+  // A8's pair separates on the NUL alone: a digest of
+  // `relpath + NUL + contents`, with no length, still tells "b.tsZ" from "Z".
+  // So A8 gates the separator and nothing else, and a mutant that drops only
+  // the length passes all 18 tests.
+  //
+  // This pair defeats the separator too. One file `a.ts` containing
+  // `b.ts\0Z`, versus `a.ts` (empty) + `b.ts` containing `Z`: both render as
+  // `a.ts\0b.ts\0Z` once the length is gone, because the payload supplies its
+  // own NUL. Only the byte count separates them.
+  const nulOneFile = { "a.ts": "b.ts\u0000Z" };
+  const nulTwoFiles = { "a.ts": "", "b.ts": "Z" };
+
+  /** `relpath + NUL + contents`: the separator, but no length. */
+  function unlengthedDigest(root: string): string {
+    const h = createHash("sha256");
+    for (const file of walk(root, DIGEST_EXTENSIONS)) {
+      h.update(repoRelative(root, file));
+      h.update(Buffer.from([0]));
+      h.update(readFileSync(file));
+    }
+    return h.digest("hex");
+  }
+
+  it("A8b control: dropping only the length collides on the NUL-bearing pair", () => {
+    expect(unlengthedDigest(repo(nulOneFile))).toBe(unlengthedDigest(repo(nulTwoFiles)));
+  });
+
+  it("A8b: digestOf does not collide on the NUL-bearing pair", () => {
+    expect(digestOf(repo(nulOneFile))).not.toBe(digestOf(repo(nulTwoFiles)));
+  });
+
+  it("A8b control: A8's own pair does NOT hold the length", () => {
+    // The finding that produced A8b, asserted rather than described: the
+    // length-free digest still separates A8's pair, so A8 could never have
+    // caught a missing length field.
+    expect(unlengthedDigest(repo(oneFile))).not.toBe(unlengthedDigest(repo(twoFiles)));
+  });
+});
+
+describe("extractWithDigest", () => {
+  afterEach(() => {
+    hooks.onDigest = null;
+  });
+
+  /** A minimal Node repo the sqlite-ddl reader can read. */
+  function extractableRepo(): string {
+    return repo({
+      "package.json": JSON.stringify({ name: "a10-fixture", type: "module" }),
+      "tsconfig.json": JSON.stringify({
+        compilerOptions: { target: "ES2022", module: "ESNext", strict: true },
+        include: ["**/*.ts"],
+      }),
+      "schema.ts": [
+        "export const SCHEMA = `",
+        "CREATE TABLE voyages (",
+        "  id INTEGER PRIMARY KEY,",
+        "  destination TEXT NOT NULL",
+        ");",
+        "`;",
+        "",
+      ].join("\n"),
+    });
+  }
+
+  // ---- A10. The digest must be taken BEFORE the graph is built.
+  //
+  // Object-literal properties evaluate in source order, so
+  // `{ graph: extractGraph(root), digest: digestOf(root) }` builds the graph
+  // from the bytes at T0 and stamps it with a fingerprint of the bytes at
+  // T0+1.3s. A file edited inside that window yields an old graph carrying a
+  // current digest, which a later comparison calls fresh: permanently stale.
+  //
+  // The hook writes a new table into the repo at the instant the digest is
+  // taken, which is exactly the edit that race describes. If the digest comes
+  // first, extraction runs afterwards and must SEE the new table. If the graph
+  // came first, the table cannot appear. Deterministic: no threads, no sleeps.
+  it("A10: takes the digest before extracting, so a write at digest time is in the graph", () => {
+    const root = extractableRepo();
+    let fired = 0;
+    hooks.onDigest = (r) => {
+      fired += 1;
+      writeFileSync(
+        join(r, "injected.ts"),
+        "export const EXTRA = `\nCREATE TABLE injected_during_digest (\n  id INTEGER PRIMARY KEY\n);\n`;\n",
+      );
+    };
+
+    const { graph } = extractWithDigest(root);
+
+    // The hook firing is the premise; without it the assertion below would
+    // fail for the wrong reason and read as an ordering bug.
+    expect(fired).toBe(1);
+    expect(graph.entities.map((e) => e.name)).toContain("injected_during_digest");
+  });
+
+  it("A10 control: the fixture does NOT contain the injected table on its own", () => {
+    // Without this, an extractor that invented the entity, or a fixture that
+    // already declared it, would pass A10 whatever the ordering.
+    const { graph } = extractWithDigest(extractableRepo());
+    expect(graph.entities.map((e) => e.name)).toEqual(["voyages"]);
   });
 });

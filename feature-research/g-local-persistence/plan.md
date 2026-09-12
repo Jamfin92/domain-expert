@@ -59,6 +59,41 @@ typechecked by **nothing**, before or after. `tsc --listFiles` shows 13 test
 files entered the program, all under `packages/*/test` and `apps/server/test`.
 No regression, and G-b's three new files land in covered territory.
 
+**Amendment 3 (2026-09-12, approved by James), G-a final round.** The re-review
+returned **Ship** again, and confirmed `digestOf` survived mutation testing
+byte-for-byte unmarked. It also established one fact G-b depends on: running the
+contents-only mutant against the **whole** suite gives `2 failed | 300 passed |
+58 skipped` — **the only two tests in the repository holding the relpath
+property are Amendment 2's two renames.** Weaken either and the digest silently
+stops being path-aware.
+
+Four items close before G-b starts:
+
+- **The length framing is un-gated, and A8's stated reason is wrong.** A8's pair
+  (`a.ts`=`"b.tsZ"` vs `a.ts`=`""` + `b.ts`=`"Z"`) separates on the **NUL alone**,
+  so A8 holds the separator and nothing else. A mutant keeping
+  `relpath + NUL + contents` and dropping only the length **passes all 18 tests**.
+  New gate **A8b** with the collision the reviewer built: one file `a.ts`
+  containing `b.ts\0Z`, versus `a.ts` (empty) + `b.ts` containing `Z` — both hash
+  to `a.ts\0b.ts\0Z` without the length.
+- **"No cheap deterministic test exists" for the ordering race was wrong.**
+  `extractGraph` is module-private (`detect.ts:95`) and cannot be spied, but
+  `digestOf` is an **imported binding** (`detect.ts:6`) and is therefore mockable.
+  A partial `vi.mock` whose `digestOf` writes a file into the fixture before
+  delegating to the real one, then asserting the new entity appears in the graph,
+  is deterministic with no threads and no sleeps. New gate **A10**. The deferral
+  to B5/B8 was a choice, not a constraint, and it left `extractWithDigest`
+  executed by **nothing** in the 360-test suite.
+- **The `SKIP` comment reads as exhaustive and is not.** It names 6 of the 12
+  entries in `files.ts:9-12`, omitting `.vs`, `TestResults`, `.venv`,
+  `__pycache__` and `.git`. This traces to Amendment 2's own wording, which named
+  the same six — a plan error the implementer copied faithfully, not an edit
+  error.
+- **A6's byte-identity assertion is insurance, not a control.** It can only fail
+  if the filesystem corrupts data; there is no rename helper for it to guard.
+  Relabel it honestly rather than leaving it sitting next to the genuinely
+  load-bearing A7 non-vacuity test looking like its equal.
+
 ## Goal
 
 After any restart of `com.psq.server`, `GET /api/repos` returns the repos that
@@ -218,6 +253,8 @@ fixing them inside this phase.
 | A6 | **Add, delete, and rename**: adding a new `.ts`, deleting an existing one, and **renaming one to byte-identical contents** each move the digest | **Amendment 2**: the add/delete pair alone does NOT catch a contents-only digest — it passes all 15 tests. The rename is the case that separates them, and the property is load-bearing via `nodeRootFor` |
 | A7 | **Negative**: editing `README.md`, and adding a file under `node_modules/`, do **not** move the digest | without it an over-broad walk passes A5 and thrashes re-extract forever |
 | A8 | **Framing**: assert the **naive** `relpath + contents` concat collides on the pair below, and that `digestOf` does **not** | the naive-collides half is the control; without it A8 passes whether or not the framing does anything. Concrete pair found by the implementer: one file `a.ts` containing `"b.tsZ"`, versus two files `a.ts` (empty) + `b.ts` containing `"Z"` |
+| A8b | **Length framing**: assert a digest keeping `relpath + NUL + contents` but dropping the length collides on `a.ts` containing `b.ts\0Z` versus `a.ts` (empty) + `b.ts` containing `Z`, and that `digestOf` does **not** | **Amendment 3**: A8 holds the NUL only. Verify by mutation — the length-dropped variant must fail this and pass everything else |
+| A10 | **Ordering**: `vi.mock` the imported `digestOf` binding so it writes a new source file into the fixture before delegating; assert the resulting graph **contains** the injected entity | **Amendment 3**: run it against the reverted `{ graph: extractGraph(root), digest: digestOf(root) }` and confirm it goes red. This is also the only test that executes `extractWithDigest` at all |
 | A9 | `git show --stat` is exactly the code/test paths above **plus the phase records** | wording carried from Phase F, where "exactly 18 paths" left a shipped plan untracked |
 
 Note there is deliberately **no** `digestOf(root) === extractWithDigest(root).digest`
