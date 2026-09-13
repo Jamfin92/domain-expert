@@ -105,9 +105,18 @@ describe("B18: the default state directory resolver", () => {
     expect(defaultStateDir({ XDG_DATA_HOME: "", HOME: "/home/j" })).toBe("/home/j/.local/share/psq");
   });
 
+  // OUT-OF-CHARTER FIX (G-b2, review round 2). This is a G-b1 gate and not in
+  // G-b2's charter, but it was measured inert and left in place would be a
+  // gate that cannot fail: `/HOME/` is already satisfied by the line above it,
+  // because "XDG_DATA_HOME" contains "HOME" — the exact sibling of the
+  // vacuous `toContain("HOME")` this phase fixed in `boot.test.ts`. Measured
+  // before the fix: dropping "nor HOME" from `defaultStateDir`'s message
+  // reddened B25 and left this test GREEN. `\bHOME\b` does not match inside
+  // XDG_DATA_HOME, so the title's "naming both variables" is now true.
+  // James: revert this hunk if you would rather it rode with a G-b1 fix.
   it("throws actionably when neither is set, naming both variables", () => {
     expect(() => defaultStateDir({})).toThrow(/XDG_DATA_HOME/);
-    expect(() => defaultStateDir({})).toThrow(/HOME/);
+    expect(() => defaultStateDir({})).toThrow(/\bHOME\b/);
   });
 
   // The control for F2: the boot gate overrides XDG_DATA_HOME in a CHILD

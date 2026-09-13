@@ -385,7 +385,11 @@ describe("B32: an id that does not agree with its path or filename", () => {
   // damage the guard actually prevents is the re-extract branch calling
   // `open()`, which derives its own id from the path and writes a SECOND
   // envelope — leaving the wrong-named one behind to re-orphan on every boot
-  // forever, with no id any DELETE can name.
+  // forever, reported by no API surface and so undiscoverable without listing
+  // the directory. (It is not undeletable: a DELETE by the id it is filed
+  // under does remove it, which is what B15 gates and what the assertion at
+  // the end of this test says. An earlier version of this comment claimed
+  // otherwise and was measured false.)
   it("books failed and writes no second envelope", async () => {
     const state = tmp("state");
     const repo = copyOf(MINI_EFCORE);

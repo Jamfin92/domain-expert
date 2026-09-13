@@ -232,14 +232,30 @@ export class Workspace {
       //   AFTER envelopes: 0e792f3d158a.json, 222222222222.json
       //
       // Two envelopes for one repo, and the wrong one re-loads and re-orphans
-      // on every boot forever. Nothing cleans it up: `forget()` is keyed by
-      // the repo's real id, so no DELETE the user can issue names it.
+      // on every boot forever. Nothing cleans it up automatically, and no API
+      // surface reports its id — `GET /api/repos` and `/api/health` both see
+      // only the Map — so a user cannot discover it without listing the
+      // directory. It is hard to DISCOVER, not undeletable.
       //
-      // It is NOT about `repo.id` disagreeing with its Map key. Measured:
-      // that cannot happen — both branches construct the entry as
-      // `set(id, { id, … })` — and with this guard disabled DELETE finds the
-      // entry perfectly well. An earlier version of this comment said
-      // otherwise and was wrong.
+      // Two earlier versions of this comment claimed more than that, and both
+      // were measured false. They are named here rather than swapped out,
+      // because this is the third pass over one comment whose conclusion was
+      // right every time:
+      //
+      //   1. "a Map entry whose `repo.id` differs from its key, so DELETE
+      //      cannot remove it" — `repo.id` can never differ from its key;
+      //      both branches construct the entry as `set(id, { id, … })`.
+      //   2. "`forget()` is keyed by the repo's real id, so no DELETE the user
+      //      can issue names it" — `forget(id)` is keyed by whatever id it is
+      //      passed (see `forget` below), and `app.ts` calls it
+      //      unconditionally for exactly this reason. Measured through the
+      //      real route:
+      //
+      //        DELETE /api/repos/222222222222 -> 200 {"closed":true}
+      //        AFTER DELETE envelopes: 0db5f25b816d
+      //
+      //      B15 already gates that an on-disk-but-never-loaded envelope is
+      //      deletable.
       if (env.id !== id || shortId(resolve(env.path)) !== id) {
         this.status.failed += 1;
         this.log(`psq rehydrate: ${id} failed — id does not match its path or its filename`);
