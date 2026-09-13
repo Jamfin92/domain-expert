@@ -1,16 +1,23 @@
 # Phase G-b2 — the store, read side (rehydrate) — PROGRESS
 
-**Status: implemented, gated, awaiting review and James's acceptance.**
+**Status: implemented, gated, review round 1 addressed. Awaiting re-review and
+James's acceptance.**
 
-Five commits on `master`, `43d16da` → this record:
+Seven commits on `master`, `43d16da` → this record:
 
 ```
 ee7ffd5  G-b2: store fixes — listEnvelopeIds filters, writeEnvelope validates first
 cccc1f6  G-b2: the store, read side — rehydrate()
 a4dc4bc  G-b2: gate rehydrate — B5b, B6–B11, B16, B24, B29
 042af00  G-b2: the boot gates — B4, B13, B14, B25
-         docs: audit and phase record for G-b2
+025e42b  docs: audit and phase record for G-b2
+42a7039  G-b2 review fix: gate the two shipped guards, and correct D-Gb2-8's comment
+         docs: review round 1 corrections to the audit
 ```
+
+**Review round 1 came back "Fix first"** with two blocking items, both inside
+the plan's file list, both now fixed and gated — see "The finding this phase
+turns on" below and the audit's Finding 6.
 
 **Not pushed** — `master` is **19 ahead** of `origin/master`. James's call, as
 in E, F, G-a and G-b1.
@@ -33,9 +40,10 @@ there, not here.
 | Gates | `apps/server/test/rehydrate.test.ts` | **new**, 11 tests |
 | Gates | `apps/server/test/boot.test.ts` | **new**, 4 tests, the child-process idiom |
 
-**Final gates:** `pnpm test` **404 passed (404)**, 32 files, exit 0, three runs
-in a row. `PSQ_NO_CORPUS=1 pnpm test` **346 passed | 58 skipped (404)**.
-`pnpm typecheck` exit 0 across all four projects. Baseline was 387/329+58.
+**Final gates:** `pnpm test` **406 passed (406)**, 32 files, exit 0.
+`PSQ_NO_CORPUS=1 pnpm test` **348 passed | 58 skipped (406)**. `pnpm typecheck`
+exit 0 across all four projects. Baseline was 387/329+58. (Before review round
+1's two added gates: 404/346+58.)
 
 **Skipped held at 58** at every step.
 
@@ -72,9 +80,19 @@ phase later. `expect.stringMatching` fixes it and all four mutants now redden.
   the directory check also produces `missing: 1`, because the doomed re-extract
   lands in the catch and is re-classified. Only the `digestOf` call count
   separates them, which is why B24 counts calls.
+- **And review round 1 found the version with no gate at all.** Two shipped
+  guards — D-Gb2-8's id agreement and D-Gb2-6's `stopping` flag — could each be
+  replaced with `if (false)` or deleted outright while `apps/server/test/`
+  stayed at 88 passed (88). Worse, D-Gb2-8's *comment* asserted a failure mode
+  that does not exist (a `repo.id` that differs from its Map key, breaking
+  DELETE — measured impossible, both branches do `set(id, { id, … })`). The
+  real damage is an **orphan envelope**: the re-extract branch calls `open()`,
+  which writes a second envelope under the correct filename and leaves the
+  wrong-named one to re-load forever under an id no DELETE can name. A correct
+  guard, carried by a false reason, with nothing testing either.
 
 **The generalisable form, sharper than G-b1's:** *a verified because-clause is
-not a verified gate.* The plan verified the true thing (the regexes match) and
+not a verified gate — and a gate list is not a coverage claim.* The plan verified the true thing (the regexes match) and
 inferred the thing that mattered (the assertion therefore discriminates). Every
 one of the three failures above is a correct fact standing in for an unmeasured
 consequence. The mutant list is the only thing that caught them, which is why
@@ -115,6 +133,19 @@ corpus repo, about **100×**. A five-repo restart is ~40 ms against ~1.4 s.
 **Each entry is fully synchronous.** `extract`, `materialize` and `buildBank`
 never yield, so one stale corpus-D entry blocks the event loop for over a
 second at boot, and `"running"` is observable only *between* entries.
+
+## Known gaps, recorded deliberately — do not treat these as covered
+
+- **`rehydrate()` never resets its counters.** `loaded`/`failed`/`missing` are
+  initialised in the constructor and only ever incremented, so a **second**
+  `rehydrate()` call on the same Workspace doubles them. Not reachable today —
+  `index.ts` is the single call site and calls it once — but anything that adds
+  a "re-scan the store" surface must reset them first.
+- **The `SeededDb` close-on-throw in `rehydrateOne`'s catch is UNTESTED.** It
+  needs `materialize` to succeed and `buildBank` to then throw, and neither the
+  implementer nor the reviewer found a way to force that. The code is there and
+  is the right thing; it is **not** gated, and this record says so rather than
+  letting the surrounding green suite imply otherwise.
 
 ## What the next phase needs to know
 

@@ -22,9 +22,14 @@ Every file created or modified by this phase, complete:
 | 8 | `apps/server/test/api.test.ts` | | health shape at the two `toEqual` sites |
 | 9 | `feature-research/g-local-persistence/audit-b2.md` | **new** | this file |
 | 10 | `feature-research/g-local-persistence/progress-b2.md` | **new** | phase record |
+| 11 | `feature-research/g-local-persistence/plan-b2.md` | **new to git** | the approved plan itself — it was UNTRACKED at `43d16da` and landed in `025e42b`. Content unmodified |
 
-Exactly the plan's §3 list, nothing else. `git diff --stat 43d16da HEAD`
-confirms 8 source/test files. **`packages/extract/test/digest.test.ts` is
+The plan's §3 list is items 1–10; item 11 is the eleventh file in the diff and
+was missing from the first version of this table, which called itself
+"complete" and said "exactly the plan's §3 list, nothing else". It was neither.
+No source or test file outside the plan's list was touched: `git diff --stat
+43d16da HEAD` shows **8** source/test files plus **3** under
+`feature-research/`. **`packages/extract/test/digest.test.ts` is
 byte-untouched** (`git diff … -- digest.test.ts` is empty), so B27 did not need
 re-running; its four cited lines were re-read and are intact.
 
@@ -45,13 +50,15 @@ All three inherited numbers matched exactly. Nothing was adapted to.
 
 | | Result |
 |---|---|
-| `pnpm test` | **404 passed (404)**, 32 files, exit 0 — run 3× consecutively, 404/404 each time |
-| `PSQ_NO_CORPUS=1 pnpm test` | **346 passed / 58 skipped (404)**, 29 passed / 3 skipped files |
+| `pnpm test` | **406 passed (406)**, 32 files, exit 0 |
+| `PSQ_NO_CORPUS=1 pnpm test` | **348 passed / 58 skipped (406)** |
 | `pnpm typecheck` | exit 0 across all four projects |
 
-**Skipped held at 58** at every checkpoint (after commit 1, after commit 2,
-after commit 3, after commit 4, final). Net +17 tests: +2 store, +11 rehydrate,
-+4 boot.
+Before review round 1's two added gates: 404 passed (404), run 3×
+consecutively with no flake, and 346 / 58 skipped.
+
+**Skipped held at 58** at every checkpoint (after each of the five commits, and
+after the review fix). Net +19 tests: +2 store, +13 rehydrate, +4 boot.
 
 ---
 
@@ -156,6 +163,46 @@ Better than predicted, and B25 still reddens for exactly the stated reason
 holds: under that mutant the health state genuinely *is* `"off"`, so an
 assertion on `"off"` alone passes green over the bug.
 
+### 6. Review round 1: two shipped guards had no gate, and one comment was false
+
+Found by the reviewer, re-measured here before acting.
+
+**D-Gb2-8's comment stated a failure mode that does not exist.** It claimed
+that without the guard, a hand-edited envelope yields a Map entry whose
+`repo.id` differs from its key, so `DELETE /api/repos/<reported id>` cannot
+remove it. Measured with the guard disabled:
+
+```
+MAP keys/ids: 0e792f3d158a=>0e792f3d158a
+close(0e792f3d158a) = true   forget = true
+```
+
+`repo.id` can never differ from its key — both branches construct the entry as
+`set(id, { id, … })` — and DELETE reaches it fine. **The real consequence is an
+orphan envelope**, measured on the same run with a stale-extractor envelope
+moved to `222222222222.json`:
+
+```
+BEFORE envelopes: 222222222222.json
+AFTER  envelopes: 0e792f3d158a.json, 222222222222.json
+```
+
+The re-extract branch calls `open()`, which derives its own id from the path
+and writes a second, correct envelope while the wrong-named one survives — and
+re-loads and re-orphans on every boot forever, filed under an id no DELETE the
+user can issue will name. The comment now says that, and says the earlier
+version was wrong rather than quietly replacing it.
+
+**The plan's "B10 silently collapses" claim is false too.** B10 is green with
+the guard removed; its three distinct fixture directories protect it. Not
+repeated anywhere in the source or these records.
+
+**Both guards were ungated.** `if (false)` on the id agreement, or deleting
+`this.stopping = true` from `closeAll()`, each left `apps/server/test/` at
+**88 passed (88)**. This is the same failure as Findings 1 and 2 with the gate
+removed entirely rather than made inert — and it is the reason the coverage
+sentence at the end of the mutant table has been narrowed.
+
 ---
 
 ## Every mutant, and its result
@@ -177,8 +224,24 @@ The plan's seven, plus three controls I added.
 | C1 | **Added.** `/not JSON/` → `/THIS_CANNOT_MATCH/` | — | bare regex: **green** (proves the form is inert). `stringMatching`: **reddens** | control |
 | C2 | **Added.** Restore `mkdirSync` *before* `envelopePath` in `writeEnvelope` | — | **B31 only**, 1 failed / 22 passed | control |
 | C3 | **Added.** B25's own in-test control: a boot *with* the environment must not print `persistence off:` | — | **green** — the line is genuinely conditional | control |
+| 8 | **Review round 1.** D-Gb2-8's id-agreement condition → `if (false)` | *(no gate existed)* | before the fix: **88 passed (88)**. After B32: **B32 only**, 1 failed / 89 passed | ⚠️ ungated, now gated |
+| 9 | **Review round 1.** Delete `this.stopping = true` from `closeAll()` | *(no gate existed)* | before the fix: **88 passed (88)**. After the new test: **that test only**, 1 failed / 89 passed | ⚠️ ungated, now gated |
+| C4 | **Added.** Drop "nor HOME" from the resolver message | — | **B25 reddens** — the `HOME` assertion discriminates now that it is `/\bHOME\b/` and not `toContain("HOME")`, which the XDG_DATA_HOME line already satisfied | control |
 
-Every gate the phase added has now been shown to fail for the reason it names.
+Every gate in the plan's §4 has been shown to fail for the reason it names.
+
+**That sentence is narrower than the one this table first carried.** It said
+"every gate the phase added", which was true of the gates and silently excluded
+what had no gate at all. Review round 1 found **two shipped guards with no gate
+whatsoever** — D-Gb2-8's id agreement and D-Gb2-6's `stopping` flag — each of
+which could be replaced with `if (false)` or deleted outright while
+`apps/server/test/` stayed at 88 passed (88). Both are now gated (B32 and the
+`closeAll` test, mutants 8 and 9 below), taking it to 90.
+
+Given what this phase is about, the loose claim is worth naming rather than
+just correcting: a coverage statement scoped to "the gates I wrote" cannot
+see the code I wrote no gate for, and that is exactly where the two holes
+were.
 
 ---
 
@@ -319,6 +382,21 @@ runtime validation, so the extra field is ignored), `apps/desktop/src/main.ts`
 which empties the `apps/web/dist` the live server serves from disk),
 `apps/server/package.json` (the undeclared `zod` is still owed as repo
 hygiene), and `packages/extract/test/digest.test.ts`.
+
+## Known gaps — recorded, not fixed
+
+Both raised by review round 1 and deliberately left alone.
+
+- **`rehydrate()` never resets its counters.** They are initialised in the
+  constructor and only incremented, so a second `rehydrate()` on the same
+  Workspace doubles `loaded`/`failed`/`missing`. Unreachable today: `index.ts`
+  is the single call site and calls it once. Any future "re-scan the store"
+  surface must reset first.
+- **The `SeededDb` close-on-throw in `rehydrateOne`'s catch is untested.** It
+  requires `materialize` to succeed and `buildBank` to then throw; neither I
+  nor the reviewer found a way to force that. The code is right and is not
+  gated. Saying so is the point — the green suite around it would otherwise
+  imply coverage that does not exist.
 
 ## Open risks
 
