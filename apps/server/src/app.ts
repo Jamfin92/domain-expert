@@ -117,7 +117,10 @@ export function createApp(
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, repos: workspace.list().length });
+    // `rehydrate` and not just a count: for a LaunchAgent this endpoint is the
+    // only surface, and `repos: 0` cannot tell "persistence is off" from
+    // "rehydrate ran and the store was empty" from "rehydrate is still going".
+    res.json({ ok: true, repos: workspace.list().length, rehydrate: workspace.rehydrateStatus() });
   });
 
   app.get("/api/repos", (_req, res) => {

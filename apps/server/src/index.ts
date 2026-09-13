@@ -10,8 +10,13 @@ import { defaultStateDir } from "./store.js";
  * Standalone entry point: `pnpm dev:server`, or booted by the Electron shell.
  *
  * Port 8092 is the default because the development machine already has other
- * local services parked on 8080–8091. Pass 0 to take any free port, which is
- * what Electron does so two copies never clash.
+ * local services parked on 8080–8091. Port 0 is NOT accepted — `config.ts`
+ * refuses anything outside 1..65535, and `config.test.ts` pins that refusal —
+ * so a test that wants an unused port has to pick one itself and pass it.
+ *
+ * The Electron shell does not run this file at all. It embeds `createApp()`
+ * in-process (`apps/desktop/src/main.ts:29`) and calls `listen(0, …)` on its
+ * own server, reading the port back off `server.address()`.
  */
 
 // A refused configuration is a startup failure, not a warning: the whole point
@@ -67,13 +72,24 @@ const server = createServer(app);
 server.listen(port, host, () => {
   const addr = server.address();
   const actual = typeof addr === "object" && addr ? addr.port : port;
-  // Electron reads this line to learn which port to open.
+  // Nothing parses this line: the Electron shell never spawns this process,
+  // and there is no out-of-process port handshake anywhere in the repo. It is
+  // for a human reading `launchctl` output — and for the boot gates, which
+  // wait on it before they poll.
   console.log(`psq server listening on http://${host}:${actual}`);
   // Never the token itself, only whether one is required.
   console.log(config.token ? "api: token required" : "api: open (loopback only)");
   if (!existsSync(webDist)) {
     console.log("web/dist not built — run `pnpm dev:web` for the UI in development");
   }
+  // Bind first, print first, THEN read the store. This process runs under
+  // `KeepAlive` with `ThrottleInterval 30`, so anything that can throw before
+  // the socket is listening turns into a silent 30-second restart loop.
+  // Rehydrate re-extracts repos and is the most expensive thing here.
+  //
+  // The only call site. `createApp()` deliberately does not do this, so the
+  // desktop shell and `e2e/harness.ts` never read the store (D-Gb-7).
+  void workspace.rehydrate().catch((err) => console.error(`psq rehydrate: ${err}`));
 });
 
 const shutdown = (): void => {

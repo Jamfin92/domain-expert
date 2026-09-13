@@ -237,10 +237,23 @@ describe("taking a quiz", () => {
 });
 
 describe("health", () => {
+  // Kept as `toEqual`, deliberately. The exact match is the only thing
+  // standing between this endpoint and silent shape drift, and this phase
+  // just added a field to it. Relaxing to `toMatchObject` here would make the
+  // next added field invisible.
+  //
+  // The Workspace at the top of this file is constructed with no `stateDir`,
+  // so persistence is off and the state is "off" rather than "pending" — a
+  // "pending" that nothing will ever advance would be the wrong thing to
+  // report forever.
+  const OFF = { state: "off", loaded: 0, failed: 0, missing: 0 };
+
   it("reports how many repos are open", async () => {
-    expect((await request(app).get("/api/health")).body).toEqual({ ok: true, repos: 0 });
+    expect((await request(app).get("/api/health")).body)
+      .toEqual({ ok: true, repos: 0, rehydrate: OFF });
     await openMini();
-    expect((await request(app).get("/api/health")).body).toEqual({ ok: true, repos: 1 });
+    expect((await request(app).get("/api/health")).body)
+      .toEqual({ ok: true, repos: 1, rehydrate: OFF });
   });
 });
 

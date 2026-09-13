@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { EXTRACTOR_VERSION, extractWithDigest } from "@psq/extract";
+import { EXTRACTOR_VERSION, digestOf, extractWithDigest } from "@psq/extract";
 import { invariants, layout, layout3d, mermaid, type Layout, type Layout3D } from "@psq/graph";
 import {
   buildBank,
@@ -10,7 +10,13 @@ import {
   type SeededDb,
 } from "@psq/quiz";
 import type { EntityGraph, GradeResult, Question, Section } from "@psq/schema";
-import { STORE_VERSION, deleteEnvelope, writeEnvelope } from "./store.js";
+import {
+  STORE_VERSION,
+  deleteEnvelope,
+  listEnvelopeIds,
+  readEnvelope,
+  writeEnvelope,
+} from "./store.js";
 
 /**
  * Holds every repo psq has opened, and the quiz sessions running against them.
@@ -36,6 +42,27 @@ export interface OpenRepo {
    */
   rows: number;
   openedAt: string;
+}
+
+/**
+ * `"off"` is a fourth state D-Gb-8 did not name, and it earns its place at the
+ * health endpoint: it separates *persistence is off* from *persistence is on
+ * and rehydrate finished with an empty store*. For a LaunchAgent observable
+ * only over HTTP that is a real operational distinction, and `repos: 0` alone
+ * cannot make it.
+ *
+ * It is NOT a control for anything. Under the mutant worth fearing — a
+ * `loadStateDir()` that returns `undefined` unconditionally — `stateDir` is
+ * undefined, so the state is `"off"` and any test asserting `"off"` passes
+ * green. That mutant is killed by B25's stderr assertion, not from here.
+ */
+export type RehydrateState = "off" | "pending" | "running" | "done";
+
+export interface RehydrateStatus {
+  state: RehydrateState;
+  loaded: number;
+  failed: number;
+  missing: number;
 }
 
 export interface QuizSession {
@@ -85,6 +112,10 @@ export class Workspace {
   private readonly stateDir: string | undefined;
   private readonly log: (line: unknown) => void;
 
+  private readonly status: RehydrateStatus;
+  /** Set by `closeAll()` so a rehydrate still yielding stops at its next yield. */
+  private stopping = false;
+
   /**
    * Timestamps are injected so a test can assert on stable output; `now` stays
    * positional and first so every existing caller keeps compiling.
@@ -104,6 +135,173 @@ export class Workspace {
   ) {
     this.stateDir = opts.stateDir;
     this.log = opts.log ?? ((line) => console.error(line));
+    // Initialised HERE and not inside `rehydrate()`. `rehydrate()` is called
+    // from `index.ts` only, so a status initialised to "pending"
+    // unconditionally would leave the desktop shell and `e2e/harness.ts`
+    // reporting `rehydrate: pending` forever — a worse shape than the one the
+    // fourth state exists to improve.
+    this.status = {
+      state: this.stateDir === undefined ? "off" : "pending",
+      loaded: 0,
+      failed: 0,
+      missing: 0,
+    };
+  }
+
+  /**
+   * A COPY. A live reference would let the health route's caller mutate the
+   * counters through a field nobody expects to be writable.
+   */
+  rehydrateStatus(): RehydrateStatus {
+    return { ...this.status };
+  }
+
+  /**
+   * Rebuild the in-memory Map from the store, one entry per envelope.
+   *
+   * Called from `index.ts` only — never from `createApp()` — so the desktop
+   * shell and every test that does not ask for it never read the store
+   * (D-Gb-7).
+   *
+   * The step ordering below is the contract, not a style. Two steps in
+   * particular:
+   *
+   * - The directory check runs STRICTLY BEFORE any `digestOf`. `digestOf` on a
+   *   vanished root returns the empty-input sha256 rather than throwing (its
+   *   `walk` swallows the `readdirSync` failure and yields `[]`), so comparing
+   *   first would read a deleted repo as "a repo that changed" and fire a
+   *   doomed re-extract. B24 is the control, and it counts the `digestOf`
+   *   calls rather than trusting the outcome.
+   * - `invariants` is checked by LENGTH, never wrapped in a try/catch. It
+   *   returns `string[]` and cannot throw on a graph that has already parsed,
+   *   because `keys`/`properties`/`indexes` are required `z.array` in the
+   *   schema, so no loop inside it can reach `undefined`. A try/catch there
+   *   would be a gate that passes by finding nothing.
+   */
+  async rehydrate(): Promise<void> {
+    const stateDir = this.stateDir;
+    if (stateDir === undefined) return; // stays "off"; do not touch disk
+
+    // Synchronously, before the first await: this is what makes B16 an
+    // assertion on the next line rather than a poll against a race.
+    this.status.state = "running";
+    this.stopping = false;
+
+    try {
+      for (const id of listEnvelopeIds(stateDir)) {
+        // Yield FIRST, then check: the flag can only have been set from
+        // outside, which requires us to have given the loop back.
+        await new Promise((r) => setImmediate(r));
+        if (this.stopping) break;
+        this.rehydrateOne(stateDir, id);
+      }
+    } finally {
+      this.status.state = "done";
+    }
+  }
+
+  /**
+   * One entry. Never throws: a single bad envelope must not stop the rest.
+   * Split out of the loop so the try/catch wraps every branch of it and
+   * cannot be narrowed later by accident (F11).
+   */
+  private rehydrateOne(stateDir: string, id: string): void {
+    let opened: SeededDb | undefined;
+    try {
+      const read = readEnvelope(stateDir, id);
+      if (!read.ok) {
+        // The file is KEPT. Three of these cases are unrepairable from here —
+        // `readEnvelope` validates the whole envelope and discards the payload,
+        // so `path` is gone and there is nothing to re-extract. They are
+        // repaired by the user re-opening the repo, or removed with DELETE.
+        this.status.failed += 1;
+        this.log(`psq rehydrate: ${id} failed — ${read.reason}`);
+        return;
+      }
+      const env = read.envelope;
+
+      // The filename id, the envelope's own id, and the id the path hashes to
+      // must all agree. Without this a hand-edited envelope yields a Map entry
+      // whose `repo.id` differs from its key, so `DELETE /api/repos/<reported
+      // id>` cannot remove it — and the re-extract branch below, which calls
+      // `open()` and therefore keys by `shortId(resolve(path))`, would write
+      // its result under a different key than the one it was asked for.
+      if (env.id !== id || shortId(resolve(env.path)) !== id) {
+        this.status.failed += 1;
+        this.log(`psq rehydrate: ${id} failed — id does not match its path or its filename`);
+        return;
+      }
+
+      let reExtract = env.extractor !== EXTRACTOR_VERSION || invariants(env.graph).length > 0;
+
+      // Before any digest. See the ordering note on `rehydrate`.
+      if (!existsSync(env.path) || !statSync(env.path).isDirectory()) {
+        this.status.missing += 1;
+        this.log(`psq rehydrate: ${id} missing — ${env.path} is no longer a directory`);
+        return;
+      }
+
+      // A POST beat us to it. Not counted either way: nothing was rehydrated,
+      // and nothing failed.
+      if (this.repos.has(id)) return;
+
+      if (!reExtract && digestOf(env.path) !== env.fingerprint) reExtract = true;
+
+      if (reExtract) {
+        // `open()` re-extracts, rebuilds, inserts and rewrites the envelope.
+        this.open(env.path, { seed: env.seed, rows: env.rows });
+        this.status.loaded += 1;
+        return;
+      }
+
+      // The same refusal `open()` makes: a graph with no entities must not be
+      // materialized into a repo that can ask nothing.
+      if (env.graph.entities.length === 0) {
+        this.status.failed += 1;
+        this.log(`psq rehydrate: ${id} failed — the stored graph has no entities`);
+        return;
+      }
+
+      const seeded = materialize(env.graph, { seed: env.seed, rows: env.rows });
+      opened = seeded;
+      const questions = buildBank(env.graph, seeded, env.seed);
+      this.repos.set(id, {
+        id,
+        path: env.path,
+        graph: env.graph,
+        questions,
+        seeded,
+        seed: env.seed,
+        rows: env.rows,
+        // The STORED timestamp. A repo the user opened on Tuesday did not
+        // become a repo they opened at this boot.
+        openedAt: env.openedAt,
+      });
+      opened = undefined; // handed off; the Map owns it now
+      this.status.loaded += 1;
+      // Deliberately no re-persist: nothing changed.
+    } catch (err) {
+      // `materialize` succeeding and `buildBank` then throwing leaks a handle
+      // that nothing else will ever close.
+      if (opened) {
+        try {
+          opened.close();
+        } catch {
+          // Already closed, or never usable. Nothing to do.
+        }
+      }
+      // The TOCTOU window between the directory check and the work: a repo
+      // deleted in between is missing, not broken.
+      const read = readEnvelope(stateDir, id);
+      const gone =
+        read.ok && (!existsSync(read.envelope.path) || !statSync(read.envelope.path).isDirectory());
+      if (gone) this.status.missing += 1;
+      else this.status.failed += 1;
+      this.log(
+        `psq rehydrate: ${id} ${gone ? "missing" : "failed"} — ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
   }
 
   list(): RepoSummary[] {
@@ -214,6 +412,29 @@ export class Workspace {
         `psq store: could not save ${repo.id} (${repo.path}): ` +
           (err instanceof Error ? err.message : String(err)),
       );
+      // On a RE-open, the envelope already on disk is the SUPERSEDED one — old
+      // seed, old rows, old fingerprint. Leaving it there means the next
+      // rehydrate resurrects a configuration the user has already replaced.
+      // Current or absent; never stale.
+      //
+      // Deleting here rather than before re-extraction is deliberate: a
+      // delete-first would destroy a working cache entry on any re-open whose
+      // extraction then fails, and `open()` has already dropped the in-memory
+      // repo by that point, so the user would lose both copies.
+      //
+      // This does NOT cover a directory-permission failure. At 0500 the
+      // staging write and this unlink both fail EACCES, and no permission
+      // state separates them, so the superseded envelope survives. The
+      // invariant holds for a write that fails for a reason not also blocking
+      // unlink — ENOSPC, a read-only file. B29 gates that case.
+      try {
+        deleteEnvelope(this.stateDir, repo.id);
+      } catch (delErr) {
+        this.log(
+          `psq store: could not drop the superseded envelope for ${repo.id}: ` +
+            (delErr instanceof Error ? delErr.message : String(delErr)),
+        );
+      }
     }
   }
 
@@ -365,6 +586,10 @@ export class Workspace {
   }
 
   closeAll(): void {
+    // `index.ts` runs this on SIGTERM. A rehydrate still yielding would keep
+    // materializing repos into a Map that has just been cleared, leaking
+    // `SeededDb` handles past shutdown.
+    this.stopping = true;
     for (const id of [...this.repos.keys()]) this.close(id);
   }
 }
