@@ -221,11 +221,25 @@ export class Workspace {
       const env = read.envelope;
 
       // The filename id, the envelope's own id, and the id the path hashes to
-      // must all agree. Without this a hand-edited envelope yields a Map entry
-      // whose `repo.id` differs from its key, so `DELETE /api/repos/<reported
-      // id>` cannot remove it — and the re-extract branch below, which calls
-      // `open()` and therefore keys by `shortId(resolve(path))`, would write
-      // its result under a different key than the one it was asked for.
+      // must all agree, or the store grows a permanent orphan.
+      //
+      // The re-extract branch calls `open()`, which derives its own id from
+      // the path and writes an envelope under THAT filename. Given an envelope
+      // at the wrong filename, `open()` therefore writes a second, correct one
+      // and leaves the first in place. Measured, with this guard disabled and
+      // a stale-extractor envelope moved to `222222222222.json`:
+      //
+      //   AFTER envelopes: 0e792f3d158a.json, 222222222222.json
+      //
+      // Two envelopes for one repo, and the wrong one re-loads and re-orphans
+      // on every boot forever. Nothing cleans it up: `forget()` is keyed by
+      // the repo's real id, so no DELETE the user can issue names it.
+      //
+      // It is NOT about `repo.id` disagreeing with its Map key. Measured:
+      // that cannot happen — both branches construct the entry as
+      // `set(id, { id, … })` — and with this guard disabled DELETE finds the
+      // entry perfectly well. An earlier version of this comment said
+      // otherwise and was wrong.
       if (env.id !== id || shortId(resolve(env.path)) !== id) {
         this.status.failed += 1;
         this.log(`psq rehydrate: ${id} failed — id does not match its path or its filename`);

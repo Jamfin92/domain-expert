@@ -235,8 +235,12 @@ describe("B25: an unresolvable state directory", () => {
     expect(err).toContain("persistence off:");
     expect(err).toContain("Cannot resolve the psq state directory");
     // Named so the operator can fix it, rather than only told it is broken.
+    // BOTH variables, which is why the second is a word-boundary regex and not
+    // `toContain("HOME")` — that is satisfied by the line above, because
+    // "XDG_DATA_HOME".includes("HOME"). It read like a second assertion and
+    // was not one.
     expect(err).toContain("XDG_DATA_HOME");
-    expect(err).toContain("HOME");
+    expect(err).toMatch(/\bHOME\b/);
   }, 120_000);
 
   // The control for the control: with the environment present, that line is

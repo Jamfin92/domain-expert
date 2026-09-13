@@ -376,6 +376,75 @@ describe("B16: the status is observable while it runs", () => {
   });
 });
 
+describe("B32: an id that does not agree with its path or filename", () => {
+  // D-Gb2-8, and it needed a gate: with the condition replaced by `if (false)`
+  // the whole of `apps/server/test/` stayed at 88 passed (88).
+  //
+  // The envelope-count assertion is the half that matters. `failed: 1` alone
+  // is also what a guard that merely refused to load would produce; the
+  // damage the guard actually prevents is the re-extract branch calling
+  // `open()`, which derives its own id from the path and writes a SECOND
+  // envelope — leaving the wrong-named one behind to re-orphan on every boot
+  // forever, with no id any DELETE can name.
+  it("books failed and writes no second envelope", async () => {
+    const state = tmp("state");
+    const repo = copyOf(MINI_EFCORE);
+    const seeder = ws(state);
+    const realId = seeder.open(repo).id;
+    seeder.closeAll();
+
+    // The envelope moved to a filename that is a valid store id but the wrong
+    // one, and made stale so the re-extract branch is the one that runs.
+    const env = JSON.parse(readFileSync(envelopePath(state, realId), "utf8")) as StoredRepo;
+    rmSync(envelopePath(state, realId));
+    writeFileSync(
+      envelopePath(state, "222222222222"),
+      JSON.stringify({ ...env, id: "222222222222", extractor: 0 }),
+    );
+
+    const log: string[] = [];
+    const w = ws(state, log);
+    await w.rehydrate();
+
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 1, missing: 0 });
+    expect(w.get(realId)).toBeUndefined();
+    // Exactly the one envelope it started with. No orphan, and the bad one is
+    // kept so a DELETE can still reach it by the id it is filed under.
+    expect(listEnvelopeIds(state)).toEqual(["222222222222"]);
+    expect(log.join("\n")).toContain("222222222222");
+  }, 60_000);
+});
+
+describe("D-Gb2-6: closeAll stops an in-flight rehydrate", () => {
+  // Also ungated until now: deleting `this.stopping = true` from `closeAll()`
+  // left `apps/server/test/` at 88 passed (88).
+  //
+  // A rehydrate still yielding after shutdown keeps materializing repos into
+  // a Map that has just been cleared, so every `SeededDb` it opens from that
+  // point on leaks past the process's own shutdown path.
+  it("stops short of the entry count instead of running to the end", async () => {
+    const state = tmp("state");
+    const seeder = ws(state);
+    for (let i = 0; i < 6; i++) seeder.open(copyOf(MINI_EFCORE));
+    seeder.closeAll();
+    expect(listEnvelopeIds(state).length).toBe(6);
+
+    const w = ws(state);
+    const running = w.rehydrate();
+    // The loop yields before each entry, so this lands between entries.
+    await new Promise((r) => setImmediate(r));
+    w.closeAll();
+    await running;
+
+    const status = w.rehydrateStatus();
+    expect(status.state).toBe("done");
+    // The control on both sides: it stopped early, and it is not vacuously
+    // zero-work either — without the flag this reaches 6.
+    expect(status.loaded).toBeLessThan(6);
+    expect(w.list().length).toBe(0);
+  }, 60_000);
+});
+
 describe("B24: a vanished path is missing, and is never digested", () => {
   it("counts missing and never calls digestOf for it", async () => {
     const state = tmp("state");
