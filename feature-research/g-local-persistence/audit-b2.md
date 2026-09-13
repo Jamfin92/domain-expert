@@ -1,8 +1,9 @@
 # Phase G-b2 — the store, read side (rehydrate) — AUDIT
 
 Plan: `plan-b2.md` (rev 2), approved as written including D-Gb2-1's four-state
-`"off"`. Branch `master`, base `43d16da`, four commits `ee7ffd5` → `042af00`
-plus this record. **Not pushed** — `master` is now 19 ahead of `origin/master` (the five above, plus the previously-untracked `plan-b2.md` landed with the last).
+`"off"`. Branch `master`, base `43d16da`. Seven commits through review round 1
+(`ee7ffd5` → `ab7f9e5`), plus round 2's two. **Not pushed** — `master` is
+**23 ahead** of `origin/master`.
 
 ---
 
@@ -16,13 +17,13 @@ Every file created or modified by this phase, complete:
 | 2 | `apps/server/src/workspace.ts` | | `RehydrateState`/`RehydrateStatus`, `rehydrateStatus()`, `rehydrate()`, `rehydrateOne()`; `persist()` catch deletes the superseded envelope; `closeAll()` sets `stopping` |
 | 3 | `apps/server/src/app.ts` | | `GET /api/health` reports `rehydrate` |
 | 4 | `apps/server/src/index.ts` | | `void workspace.rehydrate().catch(…)` in the `listen` callback; F9's two false comments corrected |
-| 5 | `apps/server/test/rehydrate.test.ts` | **new** | B5b, B6–B11, B16, B24, B29 — 11 tests |
+| 5 | `apps/server/test/rehydrate.test.ts` | **new** | B5b, B6–B11, B16, B24, B29, B32, `closeAll` — **13 tests** |
 | 6 | `apps/server/test/boot.test.ts` | **new** | B4, B13, B14, B25 — 4 tests, the child-process idiom |
-| 7 | `apps/server/test/store.test.ts` | | four `reason` assertions; B30, B31 |
+| 7 | `apps/server/test/store.test.ts` | | four `reason` assertions; B30, B31; **B18's `/HOME/` → `/\bHOME\b/` (out of charter — see below)** |
 | 8 | `apps/server/test/api.test.ts` | | health shape at the two `toEqual` sites |
 | 9 | `feature-research/g-local-persistence/audit-b2.md` | **new** | this file |
 | 10 | `feature-research/g-local-persistence/progress-b2.md` | **new** | phase record |
-| 11 | `feature-research/g-local-persistence/plan-b2.md` | **new to git** | the approved plan itself — it was UNTRACKED at `43d16da` and landed in `025e42b`. Content unmodified |
+| 11 | `feature-research/g-local-persistence/plan-b2.md` | **new to git** | the approved plan itself — it was UNTRACKED at `43d16da` and landed in `025e42b`. Whether its content is byte-identical to what was handed over is **unverifiable**: there is no pre-image in git to diff against. I did not edit it |
 
 The plan's §3 list is items 1–10; item 11 is the eleventh file in the diff and
 was missing from the first version of this table, which called itself
@@ -203,6 +204,58 @@ repeated anywhere in the source or these records.
 removed entirely rather than made inert — and it is the reason the coverage
 sentence at the end of the mutant table has been narrowed.
 
+### 7. Review round 2: the replacement comment carried a NEW false clause
+
+Round 1's rewrite fixed the mechanism and attached a fresh wrong because-clause
+to it: *"Nothing cleans it up: `forget()` is keyed by the repo's real id, so no
+DELETE the user can issue names it."*
+
+Measured false, driving the real route through `createApp` over a real socket:
+
+```
+AFTER REHYDRATE envelopes: 222222222222, 63215a4fc033
+DELETE /api/repos/222222222222 -> 200 {"closed":true}
+AFTER DELETE  envelopes: 63215a4fc033
+GET /api/repos ids: 63215a4fc033
+GET /api/health: {"ok":true,"repos":1,…}
+```
+
+`forget(id)` is keyed by **whatever id it is passed**, and `app.ts` calls it
+unconditionally with a comment saying that is precisely so an
+on-disk-but-not-in-Map entry is not undeletable. **B15 already gates it.**
+
+The defensible statement is narrower and is what all four sites now say:
+nothing cleans the orphan up *automatically*, and **no API surface reports its
+id** — `GET /api/repos` and `/api/health` both see only the Map — so a user
+cannot discover it without listing the directory. **Hard to discover, not
+undeletable.**
+
+My own test file already contained the true version twenty lines below the
+false one (`rehydrate.test.ts`'s closing assertion: kept "so a DELETE can still
+reach it by the id it is filed under"). The two disagreed and I did not notice.
+
+**This is the third pass over one comment. The conclusion — the guard is
+needed — has been right every time; the because-clause has been wrong twice.**
+Both wrong versions are now named in the source comment rather than swapped
+out, so the next reader sees the shape of the error and not just the answer.
+
+### 8. An out-of-charter fix: B18 was the same inert gate, one file over
+
+Found by the reviewer. `store.test.ts`'s B18 is titled "throws actionably when
+neither is set, **naming both variables**" and asserted `toThrow(/XDG_DATA_HOME/)`
+then `toThrow(/HOME/)` — the second satisfied by the first, because
+`"XDG_DATA_HOME"` contains `"HOME"`. Exactly the sibling of the vacuous
+`toContain("HOME")` this phase fixed in `boot.test.ts`.
+
+Reproduced before touching it: dropping "nor HOME" from `defaultStateDir`'s
+message reddened **B25 only**; **B18 stayed green**. After changing it to
+`/\bHOME\b/`, the same mutant reddens **both**.
+
+**This is a G-b1 gate and outside G-b2's charter.** It is flagged here and in
+`progress-b2.md`, and the test carries a comment saying so, because a gate
+measured inert and knowingly left in place is not defensible. **James: revert
+that one hunk if you would rather it rode with a G-b1 fix.**
+
 ---
 
 ## Every mutant, and its result
@@ -226,11 +279,15 @@ The plan's seven, plus three controls I added.
 | C3 | **Added.** B25's own in-test control: a boot *with* the environment must not print `persistence off:` | — | **green** — the line is genuinely conditional | control |
 | 8 | **Review round 1.** D-Gb2-8's id-agreement condition → `if (false)` | *(no gate existed)* | before the fix: **88 passed (88)**. After B32: **B32 only**, 1 failed / 89 passed | ⚠️ ungated, now gated |
 | 9 | **Review round 1.** Delete `this.stopping = true` from `closeAll()` | *(no gate existed)* | before the fix: **88 passed (88)**. After the new test: **that test only**, 1 failed / 89 passed | ⚠️ ungated, now gated |
-| C4 | **Added.** Drop "nor HOME" from the resolver message | — | **B25 reddens** — the `HOME` assertion discriminates now that it is `/\bHOME\b/` and not `toContain("HOME")`, which the XDG_DATA_HOME line already satisfied | control |
+| C4 | **Added.** Drop "nor HOME" from the resolver message | — | **round 1: B25 only** (B18 stayed green — see Finding 7). **Round 2, after B18's fix: B18 and B25 both redden** | control |
+| 10 | **Review round 2.** Delete `deleteEnvelope(…)` from `persist()`'s catch | — | **B29 only**, 1 failed / 89 passed | ✅ B29 is falsifiable; it simply had no row until now |
 
-Every gate in the plan's §4 has been shown to fail for the reason it names.
+Every gate **with a row in this table** has been shown to fail for the reason
+it names. Seven of §4's sixteen gates have **no mutant here and are therefore
+not shown to be falsifiable**: **B5b, B6, B7, B8, B9, B11** — six after round 2
+added a row for B29, which does redden (mutant 10).
 
-**That sentence is narrower than the one this table first carried.** It said
+**This sentence has now been wrong in two directions.** It said
 "every gate the phase added", which was true of the gates and silently excluded
 what had no gate at all. Review round 1 found **two shipped guards with no gate
 whatsoever** — D-Gb2-8's id agreement and D-Gb2-6's `stopping` flag — each of
@@ -238,10 +295,16 @@ which could be replaced with `if (false)` or deleted outright while
 `apps/server/test/` stayed at 88 passed (88). Both are now gated (B32 and the
 `closeAll` test, mutants 8 and 9 below), taking it to 90.
 
-Given what this phase is about, the loose claim is worth naming rather than
-just correcting: a coverage statement scoped to "the gates I wrote" cannot
-see the code I wrote no gate for, and that is exactly where the two holes
-were.
+Round 2 then found the correction itself was **wider** than the original:
+"every gate in the plan's §4" claims sixteen gates when the table demonstrates
+ten. Narrowing the wording made the claim bigger.
+
+Given what this phase is about, both are worth naming rather than just
+correcting. A coverage statement scoped to "the gates I wrote" cannot see the
+code I wrote no gate for — that is where round 1's two holes were. And a
+coverage statement scoped to a *plan section* silently claims every gate the
+section names, whether or not anything demonstrated it. The only honest scope
+is the evidence actually in the table.
 
 ---
 
@@ -404,6 +467,14 @@ Both raised by review round 1 and deliberately left alone.
   and the child binding, something else could take it. Unavoidable while
   `PSQ_PORT=0` is refused, documented in the file, and not observed in ~30
   boots across development and the three repeat suite runs.
+- **A second instance of the pre-existing `api.test.ts` flake was observed
+  once.** During round 2's mutant restoration, `graph endpoints > returns the
+  graph, a layout and mermaid` failed on a tree whose only diff from green was
+  a **comment**. Not reproduced in 3 serial or 6 concurrent re-runs of the same
+  command. Same file and same supertest-`listen(0)`-per-request shape as the
+  documented flake, on a different test. Recorded rather than explained away —
+  it is one more data point that the fix, when it is wanted, is a shared
+  server per file.
 - **The known `api.test.ts:119` flake is untouched and still latent.** Not
   reproduced here (404/404 three times, plus every targeted run). This phase
   adds four child processes rather than four more supertest servers, so it
@@ -415,5 +486,5 @@ Both raised by review round 1 and deliberately left alone.
 - **D-Gb2-5 does not cover a permission failure**, by measurement, not by
   oversight. At `0500` the write and the unlink both fail EACCES and the
   superseded envelope survives. Stated in the source comment and in B29's.
-- **`master` is 19 ahead of `origin/master` and unpushed**, as in E, F, G-a and
+- **`master` is 23 ahead of `origin/master` and unpushed**, as in E, F, G-a and
   G-b1. James's call.

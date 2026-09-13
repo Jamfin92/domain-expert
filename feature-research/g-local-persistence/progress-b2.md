@@ -1,9 +1,9 @@
 # Phase G-b2 — the store, read side (rehydrate) — PROGRESS
 
-**Status: implemented, gated, review round 1 addressed. Awaiting re-review and
-James's acceptance.**
+**Status: implemented, gated, review rounds 1 and 2 addressed. Awaiting
+re-review and James's acceptance.**
 
-Seven commits on `master`, `43d16da` → this record:
+Nine commits on `master`, `43d16da` → this record:
 
 ```
 ee7ffd5  G-b2: store fixes — listEnvelopeIds filters, writeEnvelope validates first
@@ -12,14 +12,17 @@ a4dc4bc  G-b2: gate rehydrate — B5b, B6–B11, B16, B24, B29
 042af00  G-b2: the boot gates — B4, B13, B14, B25
 025e42b  docs: audit and phase record for G-b2
 42a7039  G-b2 review fix: gate the two shipped guards, and correct D-Gb2-8's comment
-         docs: review round 1 corrections to the audit
+ab7f9e5  docs: review round 1 corrections to the audit and phase record
+         G-b2 review fix: the orphan is hard to discover, not undeletable
+         docs: review round 2 corrections
 ```
 
-**Review round 1 came back "Fix first"** with two blocking items, both inside
-the plan's file list, both now fixed and gated — see "The finding this phase
-turns on" below and the audit's Finding 6.
+**Review round 1 came back "Fix first"** — two ungated guards and a false
+comment. **Round 2 also came back "Fix first"** — the replacement comment had
+a *new* false clause, and the corrected coverage sentence was wider than the
+one it replaced. Both addressed; see the audit's Findings 6, 7 and 8.
 
-**Not pushed** — `master` is **19 ahead** of `origin/master`. James's call, as
+**Not pushed** — `master` is **23 ahead** of `origin/master`. James's call, as
 in E, F, G-a and G-b1.
 
 Plan: `plan-b2.md` (rev 2), approved as written including D-Gb2-1's four-state
@@ -37,7 +40,7 @@ there, not here.
 | Store fixes | `apps/server/src/store.ts` | `.filter(isStoreId)`; `envelopePath` before `mkdirSync` |
 | Health | `apps/server/src/app.ts` | `GET /api/health` carries `rehydrate` |
 | The call site | `apps/server/src/index.ts` | one `void workspace.rehydrate().catch(…)` in the `listen` callback; F9's two false comments corrected |
-| Gates | `apps/server/test/rehydrate.test.ts` | **new**, 11 tests |
+| Gates | `apps/server/test/rehydrate.test.ts` | **new**, 13 tests |
 | Gates | `apps/server/test/boot.test.ts` | **new**, 4 tests, the child-process idiom |
 
 **Final gates:** `pnpm test` **406 passed (406)**, 32 files, exit 0.
@@ -88,8 +91,22 @@ phase later. `expect.stringMatching` fixes it and all four mutants now redden.
   DELETE — measured impossible, both branches do `set(id, { id, … })`). The
   real damage is an **orphan envelope**: the re-extract branch calls `open()`,
   which writes a second envelope under the correct filename and leaves the
-  wrong-named one to re-load forever under an id no DELETE can name. A correct
+  wrong-named one to re-load forever, reported by no API surface. A correct
   guard, carried by a false reason, with nothing testing either.
+- **Then round 2 found the REPLACEMENT because-clause was also false.** The
+  rewrite said "no DELETE the user can issue names it". Measured through the
+  real route: `DELETE /api/repos/222222222222 -> 200`, and the orphan is gone.
+  `forget(id)` is keyed by whatever id it is passed, and `app.ts` calls it
+  unconditionally for exactly that reason — **B15 already gated it**. The true
+  statement is narrower: hard to *discover* (no API surface reports the id),
+  not undeletable. **Three passes over one comment: the conclusion right every
+  time, the because-clause wrong twice.** Both wrong versions are named in the
+  source rather than swapped out.
+- **And the fix to the coverage claim was itself an overclaim.** Round 1's
+  "every gate the phase added" was narrowed to "every gate in the plan's §4" —
+  which is *wider*, because §4 names sixteen gates and the mutant table
+  demonstrates ten. The honest scope is the evidence in the table, with the
+  six undemonstrated gates named: B5b, B6, B7, B8, B9, B11.
 
 **The generalisable form, sharper than G-b1's:** *a verified because-clause is
 not a verified gate — and a gate list is not a coverage claim.* The plan verified the true thing (the regexes match) and
@@ -134,6 +151,20 @@ corpus repo, about **100×**. A five-repo restart is ~40 ms against ~1.4 s.
 never yield, so one stale corpus-D entry blocks the event loop for over a
 second at boot, and `"running"` is observable only *between* entries.
 
+## One out-of-charter fix — James, revert if you disagree
+
+**`store.test.ts`'s B18 was the same inert gate as `boot.test.ts`'s, one file
+over.** Titled "naming both variables", it asserted `toThrow(/XDG_DATA_HOME/)`
+then `toThrow(/HOME/)` — the second satisfied by the first. Measured before
+touching it: dropping "nor HOME" from `defaultStateDir`'s message reddened
+**B25 only, B18 stayed green**. Now `/\bHOME\b/`, and the same mutant reddens
+both.
+
+**B18 is a G-b1 gate and outside this phase's charter.** It is here because
+`store.test.ts` was already in the plan's file list, the fix is one regex, and
+knowingly leaving a gate measured inert is not defensible. It is one hunk and
+carries a comment saying all of this.
+
 ## Known gaps, recorded deliberately — do not treat these as covered
 
 - **`rehydrate()` never resets its counters.** `loaded`/`failed`/`missing` are
@@ -141,6 +172,10 @@ second at boot, and `"running"` is observable only *between* entries.
   `rehydrate()` call on the same Workspace doubles them. Not reachable today —
   `index.ts` is the single call site and calls it once — but anything that adds
   a "re-scan the store" surface must reset them first.
+- **Six §4 gates have no mutant and are not shown to be falsifiable:** B5b,
+  B6, B7, B8, B9, B11. They pass and they assert real things; nothing has
+  demonstrated they can fail. B29 was a seventh until round 2 added a mutant
+  (delete `deleteEnvelope` from `persist()`'s catch — it reddens B29 alone).
 - **The `SeededDb` close-on-throw in `rehydrateOne`'s catch is UNTESTED.** It
   needs `materialize` to succeed and `buildBank` to then throw, and neither the
   implementer nor the reviewer found a way to force that. The code is there and
