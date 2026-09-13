@@ -147,8 +147,12 @@ describe("the envelope round trip", () => {
 
   it("refuses garbage, a wrong version, and a graph that fails its schema", () => {
     // The ids here are real store ids (twelve lowercase hex) because
-    // `envelopePath` now rejects anything else; which case is which lives in
-    // the assertions rather than in the filenames.
+    // `envelopePath` now rejects anything else, so which case is which cannot
+    // live in the filenames. It lives in the `reason` assertions below, and it
+    // has to: `{ ok: false }` alone was satisfied by all four cases equally,
+    // and three of the four fixtures could be deleted with the suite still
+    // green. B10 in G-b2 names these six cases individually and would
+    // otherwise be free to test one of them four times.
     const dir = stateDir();
     mkdirSync(reposDir(dir), { recursive: true });
     writeFileSync(envelopePath(dir, "0a0a0a0a0a0a"), "{not json");
@@ -158,10 +162,44 @@ describe("the envelope round trip", () => {
       JSON.stringify({ ...envelope(), graph: { kind: "entity" } }),
     );
 
-    expect(readEnvelope(dir, "0a0a0a0a0a0a")).toMatchObject({ ok: false });
-    expect(readEnvelope(dir, "0b0b0b0b0b0b")).toMatchObject({ ok: false });
-    expect(readEnvelope(dir, "0c0c0c0c0c0c")).toMatchObject({ ok: false });
-    expect(readEnvelope(dir, "0d0d0d0d0d0d")).toMatchObject({ ok: false });
+    // Four mutually distinct reasons, so deleting any one fixture reddens
+    // exactly its own line. The fourth has no fixture — its absence IS the
+    // case, which is why no mutant can be built for it.
+    //
+    // `expect.stringMatching`, not a bare regex. Measured in this phase:
+    // `toMatchObject({ reason: /not JSON/ })` passes against EVERY one of
+    // these strings and against a `/THIS_CANNOT_MATCH/` that matches none of
+    // them — a bare RegExp under `toMatchObject` asserts nothing at all in
+    // vitest 2.1.9. The form that reads like an assertion was not one.
+    expect(readEnvelope(dir, "0a0a0a0a0a0a"))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/not JSON/) });
+    expect(readEnvelope(dir, "0b0b0b0b0b0b"))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/version/) });
+    expect(readEnvelope(dir, "0c0c0c0c0c0c"))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/graph/) });
+    expect(readEnvelope(dir, "0d0d0d0d0d0d"))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/ENOENT|no such file/) });
+  });
+
+  // B30. A stray file in `repos/` must be invisible rather than a permanent
+  // `failed` entry in the rehydrate counter. The valid id is the positive
+  // control: without it this passes just as well on a filter that lists
+  // nothing at all.
+  it("B30: hides junk from listEnvelopeIds without hiding real envelopes", () => {
+    const dir = stateDir();
+    writeEnvelope(dir, envelope());
+    writeFileSync(join(reposDir(dir), "notes.json"), "shopping list");
+    writeFileSync(join(reposDir(dir), ".hidden.json"), "{}");
+    expect(listEnvelopeIds(dir)).toEqual(["abcdef012345"]);
+  });
+
+  // B31. The ordering guarantee from `writeEnvelope`: a refused id must not
+  // have created the store directory on its way to being refused.
+  it("B31: a hostile id throws before writeEnvelope creates anything", () => {
+    const dir = stateDir();
+    expect(() => writeEnvelope(dir, envelope({ id: "../../escape" })))
+      .toThrow(/Not a repo id/);
+    expect(existsSync(reposDir(dir))).toBe(false);
   });
 });
 

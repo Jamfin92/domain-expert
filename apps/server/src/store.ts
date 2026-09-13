@@ -117,9 +117,12 @@ export function tempPathFor(dest: string): string {
  * would leave every envelope at the umask default from the very first write.
  */
 export function writeEnvelope(stateDir: string, envelope: StoredRepo): void {
-  const dir = reposDir(stateDir);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Validated BEFORE anything is created on disk. Write-side ids are always
+  // `shortId`, so nothing reaches this with a hostile id today; the ordering is
+  // here so the guard reads as what it is — the first thing that happens —
+  // rather than as a check a refused id has already had a side effect past.
   const dest = envelopePath(stateDir, envelope.id);
+  mkdirSync(reposDir(stateDir), { recursive: true, mode: 0o700 });
   const tmp = tempPathFor(dest);
   try {
     writeFileSync(tmp, `${JSON.stringify(envelope, null, 2)}\n`, { mode: 0o600 });
@@ -165,7 +168,15 @@ export function readEnvelope(stateDir: string, id: string): ReadResult {
   return { ok: true, envelope: result.data };
 }
 
-/** Every envelope id in the store, sorted. A missing store is an empty store. */
+/**
+ * Every envelope id in the store, sorted. A missing store is an empty store.
+ *
+ * `isStoreId` filters for legibility, NOT for safety: `readEnvelope` returns
+ * `{ ok: false }` for an id `envelopePath` refuses, so an unfiltered stray
+ * `notes.json` could never crash or abort a caller's loop. What it would do is
+ * become a permanent `failed` entry in the rehydrate counter that nothing ever
+ * cleans up — an alarm a user cannot clear. Junk is better invisible.
+ */
 export function listEnvelopeIds(stateDir: string): string[] {
   let names: string[];
   try {
@@ -176,6 +187,7 @@ export function listEnvelopeIds(stateDir: string): string[] {
   return names
     .filter((n) => n.endsWith(".json") && !n.startsWith("."))
     .map((n) => n.slice(0, -".json".length))
+    .filter(isStoreId)
     .sort();
 }
 
