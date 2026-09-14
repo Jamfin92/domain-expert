@@ -87,6 +87,11 @@ describe("searchEntities — matching", () => {
     expect(g.entities.length).toBeGreaterThan(0);
     expect(searchEntities(g, "")).toEqual([]);
     expect(searchEntities(g, "   ")).toEqual([]);
+    // H7b — positive control for `query.trim()`. The two assertions above are
+    // negative gates: they pass by finding nothing, and pass identically with
+    // the trim deleted, because no declared string in MINI_EFCORE contains
+    // three consecutive spaces. This one fails without the trim.
+    expect(searchEntities(g, "  email  ").map((h) => h.name)).toEqual(["Student"]);
   });
 
   it("reports the fields it searched, and shapes are not among them", () => {
@@ -110,6 +115,18 @@ describe("searchEntities — determinism", () => {
     // input order through.
     expect(forward.length).toBeGreaterThan(2);
     expect(JSON.stringify(backward)).toBe(JSON.stringify(forward));
+    // H9d — pin the ORDER, not just forward/backward stability. `compareHits`
+    // ranks a hit by its MINIMUM rank (`reasons[0]`, valid because reasons are
+    // sorted first). Ranking by the maximum instead keeps forward === backward
+    // and would slip past the assertion above, while visibly reordering output
+    // to [Department, Advisor, Course, Enrollment, Student].
+    expect(forward.map((h) => h.name)).toEqual([
+      "Department",
+      "Enrollment",
+      "Student",
+      "Advisor",
+      "Course",
+    ]);
   });
 
   // H9b

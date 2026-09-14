@@ -122,7 +122,7 @@ describe("graph endpoints", () => {
     // lookup runs BEFORE `q` validation: an unknown repo is unknown whatever
     // the query says, so 404 beats 400.
     for (const path of ["graph", "layout", "layout3d", "mermaid", "questions", "selftest", "search"]) {
-      expect((await request(app).get(`/api/repos/deadbeef/${path}`)).status).toBe(404);
+      expect((await request(app).get(`/api/repos/deadbeef/${path}`)).status, path).toBe(404);
     }
   });
 

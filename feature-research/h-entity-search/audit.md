@@ -16,6 +16,10 @@ Baseline commit: `d45907a`.
 | `feature-research/h-entity-search/plan.md` | **new** (the approved plan, committed with the phase) |
 | `feature-research/h-entity-search/audit.md` | **new** (this file) |
 
+Review round 1 (see §7) modified three of these again:
+`packages/graph/test/search.test.ts`, `apps/server/test/api.test.ts`, and this
+file. No source file changed in that round.
+
 Nothing else. No `apps/cli`, no `apps/web`, no `packages/extract`, no
 `workspace.ts`, no `store.ts`, no `EXTRACTOR_VERSION`, no `package.json`.
 `git status` after the work lists exactly these paths.
@@ -49,7 +53,9 @@ MATCH_FIELDS } from "./search.js";`.
 that carried debt is restated, not fixed.
 
 **`packages/graph/test/search.test.ts`** (new) — 11 tests covering H1, H2, H3,
-H4, H6, H7, H9a, H9b, H9c, H11, plus one asserting `MATCH_FIELDS` itself. Every
+H4, H6, H7 (+H7b), H9a (+H9d), H9b, H9c, H11, plus one asserting `MATCH_FIELDS`
+itself. H7b and H9d are assertions added to the existing H7 and H9a tests in
+review round 1, so the file's test COUNT is unchanged at 11. Every
 graph is **extracted** (`extractDotnet(MINI_EFCORE)`,
 `extractDotnet(MINI_EFCORE_EMPTY_CONTEXT)`); there is no hand-written
 `EntityGraph` literal anywhere in the file. The H9c twins are built by
@@ -60,7 +66,10 @@ graph is **extracted** (`extractDotnet(MINI_EFCORE)`,
 **`apps/server/test/api.test.ts`** — `search` added to the existing
 parameterised 404 loop (now at `:118-123`), with a comment saying why it sends
 no query string; plus a new `describe("entity search")` holding four tests
-(H14, H12, H12b, H12c).
+(H14, H12, H12b, H12c). Review round 1 added the `path` label as vitest's
+message argument on that loop's `expect`, so a failure names which path 404'd
+wrongly — without it the G-b2 `graph endpoints` flake would be uncapturable
+again when it next fires from this loop.
 
 ## 1. Mutant table — every mutant was applied, run, and reverted
 
@@ -86,8 +95,11 @@ restore the file byte-for-byte from the pre-run snapshot. All 15 ran.
 | H12c | guard → `if (typeof q !== "string" \|\| q === "")` | **reddened** | "200s with no hits when q is present but empty" (only) |
 | H13 | repo-lookup guard deleted (`workspace.get(...)!`) | **reddened** | "404s for a repo that is not open" (only) |
 | H14 | response key `searched:` → `fields:` | **reddened** | "returns a parseable result that names the fields it searched" (+1) |
+| H9d | `compareHits` ranks by the LAST reason (maximum rank) instead of `reasons[0]` (minimum) | **reddened** | "orders hits independently of the order entities are listed in" (only) |
+| H7b | `const q = query.trim();` → `const q = query;` | **reddened** | "returns nothing for an empty or whitespace query" (only) |
 
-**15 of 15 reddened. None stayed green.**
+**17 of 17 reddened. None stayed green.** (H9d and H7b were added in review
+round 1 — see §7; the first 15 are the original sweep.)
 
 Notes on the ones the plan flagged as easy to get wrong:
 
@@ -104,7 +116,18 @@ Notes on the ones the plan flagged as easy to get wrong:
   `hits.sort(compareHits)`, not into a comparator body. It throws on the
   0-entity extraction. Confirmed red.
 - **H7** — the test asserts `g.entities.length > 0` before the two empty-query
-  assertions, so the gate cannot pass by being handed an empty graph.
+  assertions, so the gate cannot pass by being handed an empty graph. That
+  precondition does **not** make the whitespace half failable; see H7b.
+- **H9d** — asserts the actual min-rank ORDER of `searchEntities(g, "ent")`,
+  `[Department, Enrollment, Student, Advisor, Course]`, not merely that forward
+  and backward agree. Under the max-rank mutant the output becomes
+  `[Department, Advisor, Course, Enrollment, Student]` and the assertion fails
+  with `expected [ 'Department', 'Advisor', …(3) ] to deeply equal
+  [ 'Department', 'Enrollment', …(3) ]`. Confirmed red, then restored.
+- **H7b** — a positive control beside the `"   "` assertion:
+  `searchEntities(g, "  email  ")` must still return `["Student"]`. Under the
+  `query.trim()` → `query` mutant it fails with `expected [] to deeply equal
+  [ 'Student' ]`. Confirmed red, then restored.
 - **H13** — one new entry (`"search"`) in the existing loop at
   `api.test.ts:118-123`, no query string. Its mutant reddens only that test.
 
@@ -166,8 +189,12 @@ an iteration, not a test). `pnpm test:e2e` was **not** run.
    name also matches the table. Brute-forcing every ≥3-char substring of every
    name in the fixture returns exactly one query, `"ent"`, that matches an
    entity on both its name and one of its properties — and it necessarily
-   matches the table name too. The gate therefore asserts one hit with three
-   reasons (`entityName`, `tableName`, `propertyName`). The substance — one
+   matches the table name too. **Correction (review round 1):** `"ent"` matches
+   **two** such entities, not one — `Student` (name/table/`Enrollments`) and
+   `Enrollment` (name/table/`EnrollmentId`) — each with three reasons. Earlier
+   wording in this audit said "an entity", singular, which was wrong. The gate
+   asserts on `Student` only, plus a whole-result uniqueness check; the second
+   three-reason entity is simply not named by it. The substance — one
    hit per entity, not one per reason — is unchanged, and its mutant reddens.
    This was a fixture choice the plan left open, resolved against the fixture
    rather than by hand-writing a graph.
@@ -223,3 +250,61 @@ No other deviation. The plan's decisions were not re-litigated.
   "No entities found" first, so the route was never exercised on a 0-entity
   graph and this audit does not claim it was.
 - Carried debt, restated: `apps/server/package.json` does not declare `zod`.
+- **`compareHits`'s `namespace` and `file` tiebreaks are individually ungated**
+  (`search.ts:84-86`). Collapsing the comparator to rank + name leaves the whole
+  suite green. Recorded, **not fixed**: by D-Ha-5.5's own reasoning the `file`
+  key at `:86` is unreachable — two entities sharing name AND namespace are the
+  same entity in any graph psq emits today — which is the same category of
+  unreachable code the plan explicitly refused to write gates for (the null
+  guards on `tableName`/`property.name`). A gate here would have to hand-build
+  an `EntityGraph` the extractor cannot produce, which the test file forbids.
+  The inconsistency between "no gate for unreachable null guards" and "a gate
+  for an unreachable tiebreak" is the plan's to resolve, not something to close
+  blind; H9c already gates the `name` key, and H9a gates "some tiebreak beyond
+  rank exists".
+
+## 7. Review round 1 — two ungated plan behaviours
+
+A fresh reviewer independently re-ran all 15 mutants above and confirmed the
+table is accurate. The finding was **not** a correctness defect: the shipped
+behaviour was right in both cases. The defect was that two plan-specified
+behaviours shipped with **no gate that could fail**, found by mutating things
+the plan never named a mutant for.
+
+1. **D-Ha-5.1's minimum-rank rule** (`search.ts:80`). Reading rank off the LAST
+   reason instead of `reasons[0]` left the suite green while visibly reordering
+   output. H9a only asserted `forward === backward`, which both rules satisfy,
+   and H4's hits carry one reason each so min == max there. Fixed by pinning the
+   actual order in H9a → gate **H9d**.
+2. **`query.trim()`** (`search.ts:136`). Deleting the trim left the suite green,
+   because `searchEntities(g, "   ")` returns `[]` either way — no declared
+   string in `MINI_EFCORE` contains three consecutive spaces. H7's whitespace
+   assertion was therefore a negative gate with no positive control: it passed
+   by finding nothing, exactly the failure mode the standing rule names. Fixed
+   with `searchEntities(g, "  email  ")` → `["Student"]` beside it → gate
+   **H7b**.
+
+Both new mutants were applied, observed red (§1), and the source restored
+byte-for-byte; `git diff` over `packages/graph/src/search.ts` is empty.
+
+**The lesson, stated plainly:** the plan's gate list was a list of gates to
+write, never a coverage claim. Every mutant it named reddened, and the mutant
+table said "15 of 15" — which is true and was never evidence that the
+implementation was fully gated. Two behaviours the plan itself specified had no
+mutant named against them, so nothing in the sweep could have caught it. A
+mutant sweep measures the mutants you thought of.
+
+Round 1 also corrected two audit statements (§4 item 2's `"ent"` wording) and
+recorded one gap without fixing it (§6, the `namespace`/`file` tiebreaks).
+
+### Gate numbers after round 1
+
+| Gate | Baseline | After round 1 |
+|---|---|---|
+| `pnpm test` | 421 passed (421) | **421 passed (421)**, 33 files |
+| `PSQ_NO_CORPUS=1 pnpm test` | 363 passed \| 58 skipped (421) | **363 passed \| 58 skipped (421)** |
+| `pnpm typecheck` | exit 0 | **exit 0** |
+
+Counts are unchanged on purpose: H9d, H7b and the `path` label are assertions
+added to existing tests, not new `it` blocks. Skipped held at **58**, so the
+private corpus config is intact. `pnpm test:e2e` was **not** run.
