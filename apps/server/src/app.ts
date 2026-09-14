@@ -4,6 +4,7 @@ import express, {
 } from "express";
 import { Workspace } from "./workspace.js";
 import { drift } from "@psq/extract";
+import { searchEntities, MATCH_FIELDS } from "@psq/graph";
 import { Section } from "@psq/schema";
 
 /**
@@ -163,6 +164,33 @@ export function createApp(
       return;
     }
     res.json({ graph: repo.graph });
+  }));
+
+  /**
+   * Partial entity search. `searchEntities` returns the hits; the route wraps
+   * them in an EntitySearchResult, so the body is never a bare array.
+   *
+   * Guard order is deliberate: the repo lookup runs FIRST, then `q` validation
+   * (404 beats 400). An unknown repo is unknown whatever the query says.
+   *
+   * `q` must be a string and is not coerced. With express's "simple" query
+   * parser `?q=a&q=b` arrives as `["a","b"]`, which `String(...)` would
+   * silently search as `"a,b"` and `.trim()` would throw on. Missing `q` is a
+   * 400; present-but-empty (`?q=`) is a 200 with no hits — a deliberate
+   * asymmetry between "you asked nothing" and "you asked wrong".
+   */
+  app.get("/api/repos/:id/search", handler((req, res) => {
+    const repo = workspace.get(String(req.params["id"]));
+    if (!repo) {
+      fail(res, 404, "That repo is not open.");
+      return;
+    }
+    const q = req.query["q"];
+    if (typeof q !== "string") {
+      fail(res, 400, "Give a single ?q= search term.");
+      return;
+    }
+    res.json({ query: q, searched: [...MATCH_FIELDS], hits: searchEntities(repo.graph, q) });
   }));
 
   app.get("/api/repos/:id/layout", handler((req, res) => {

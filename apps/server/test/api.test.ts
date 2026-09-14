@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import request from "supertest";
 import type { Express } from "express";
+import { EntitySearchResult } from "@psq/schema";
 import { createApp } from "../src/app.js";
 import { Workspace } from "../src/workspace.js";
 import { MINI_EFCORE, MINI_FULLSTACK_REACT, MINI_NODE } from "../../../test/fixtures.js";
@@ -117,7 +118,10 @@ describe("graph endpoints", () => {
   });
 
   it("404s for a repo that is not open", async () => {
-    for (const path of ["graph", "layout", "layout3d", "mermaid", "questions", "selftest"]) {
+    // `search` belongs in this loop, with no query string, because the repo
+    // lookup runs BEFORE `q` validation: an unknown repo is unknown whatever
+    // the query says, so 404 beats 400.
+    for (const path of ["graph", "layout", "layout3d", "mermaid", "questions", "selftest", "search"]) {
       expect((await request(app).get(`/api/repos/deadbeef/${path}`)).status).toBe(404);
     }
   });
@@ -130,6 +134,57 @@ describe("graph endpoints", () => {
 
     const st = await request(app).get(`/api/repos/${id}/selftest`);
     expect(st.body).toEqual({ ok: true, findings: [] });
+  });
+});
+
+describe("entity search", () => {
+  it("returns a parseable result that names the fields it searched", async () => {
+    const id = await openMini();
+    const res = await request(app).get(`/api/repos/${id}/search`).query({ q: "email" });
+    expect(res.status).toBe(200);
+
+    // The body is the wire type, not a bare array, and `searched` is derived
+    // from MATCH_FIELDS rather than written out here — a fourth match field
+    // reaches the API surface without anyone remembering to add it.
+    const parsed = EntitySearchResult.safeParse(res.body);
+    expect(parsed.success).toBe(true);
+    const result = parsed.data!;
+    expect(result.query).toBe("email");
+    expect(result.searched).toEqual(["entityName", "tableName", "propertyName"]);
+    expect(result.hits.map((h) => h.name)).toEqual(["Student"]);
+    expect(result.hits[0]!.reasons).toEqual([
+      { field: "propertyName", matched: "Email", property: "Email" },
+    ]);
+  });
+
+  it("400s when q is missing", async () => {
+    const id = await openMini();
+    const missing = await request(app).get(`/api/repos/${id}/search`);
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toContain("?q=");
+  });
+
+  it("400s when q is repeated", async () => {
+    // Its own test, not a second assertion in the one above: sharing an `it`
+    // means the first failing expectation hides the second, so a mutant could
+    // never be shown to redden this case specifically.
+    //
+    // express's "simple" query parser turns `?q=a&q=b` into ["a", "b"].
+    // `String(...)` would quietly search "a,b" and `.trim()` would throw.
+    const id = await openMini();
+    const repeated = await request(app).get(`/api/repos/${id}/search?q=a&q=b`);
+    expect(repeated.status).toBe(400);
+  });
+
+  it("200s with no hits when q is present but empty", async () => {
+    const id = await openMini();
+    const res = await request(app).get(`/api/repos/${id}/search?q=`);
+    // Deliberate asymmetry with the case above: asking nothing is a valid
+    // request that matches nothing; not asking at all is a malformed one.
+    expect(res.status).toBe(200);
+    expect(res.body.query).toBe("");
+    expect(res.body.hits).toEqual([]);
+    expect(res.body.searched).toEqual(["entityName", "tableName", "propertyName"]);
   });
 });
 
