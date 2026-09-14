@@ -318,6 +318,57 @@ export const EntityGraph = z.object({
 export type EntityGraph = z.infer<typeof EntityGraph>;
 
 // ---------------------------------------------------------------------------
+// Entity search — the wire types for `searchEntities` and GET .../search
+// ---------------------------------------------------------------------------
+
+/**
+ * Which declared string a hit matched on.
+ *
+ * Three fields, not four: `column` is always `property.name` at both and only
+ * construction sites (`dotnet.ts:398`, `node/ddl.ts:182` — no `[Column]` or
+ * `HasColumnName` handling exists), so a `columnName` reason could never be
+ * distinct from a `propertyName` one. Shapes are deliberately excluded: a
+ * shape is not an entity. `EntitySearchResult.searched` reports the cut at the
+ * API surface rather than leaving it silent.
+ */
+export const EntityMatchField = z.enum(["entityName", "tableName", "propertyName"]);
+export type EntityMatchField = z.infer<typeof EntityMatchField>;
+
+export const EntityMatchReason = z.object({
+  field: EntityMatchField,
+  /** The RAW declared string that matched — never lowercased; a UI renders it. */
+  matched: z.string(),
+  /** The property that matched, set iff `field` is "propertyName". */
+  property: z.string().nullable(),
+});
+export type EntityMatchReason = z.infer<typeof EntityMatchReason>;
+
+/**
+ * One entity, with every reason it matched. An entity appears at most once.
+ *
+ * Node-side entities carry `tableName === name` (`node/ddl.ts:186-191`), so a
+ * Node entity matching on its name also carries a `tableName` reason. That is
+ * real output, not a bug: both strings genuinely contain the needle.
+ */
+export const EntitySearchHit = z.object({
+  name: z.string(),
+  tableName: z.string(),
+  namespace: z.string().nullable(),
+  file: z.string(),
+  reasons: z.array(EntityMatchReason),
+});
+export type EntitySearchHit = z.infer<typeof EntitySearchHit>;
+
+export const EntitySearchResult = z.object({
+  /** The query as received, before trimming. */
+  query: z.string(),
+  /** Derived from `MATCH_FIELDS` in `@psq/graph`, never hardcoded. */
+  searched: z.array(EntityMatchField),
+  hits: z.array(EntitySearchHit),
+});
+export type EntitySearchResult = z.infer<typeof EntitySearchResult>;
+
+// ---------------------------------------------------------------------------
 // Questions
 // ---------------------------------------------------------------------------
 

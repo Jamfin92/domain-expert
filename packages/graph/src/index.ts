@@ -7,6 +7,7 @@ export {
   type Layout3DDistrict,
   type DistrictBasis,
 } from "./layout3d.js";
+export { searchEntities, MATCH_FIELDS } from "./search.js";
 import type { EntityGraph, Relation } from "@psq/schema";
 
 /**
