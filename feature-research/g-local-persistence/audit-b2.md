@@ -194,6 +194,17 @@ re-loads and re-orphans on every boot forever, filed under an id no DELETE the
 user can issue will name. The comment now says that, and says the earlier
 version was wrong rather than quietly replacing it.
 
+> **Corrected in Finding 7 — read on before quoting this paragraph.** The
+> clause "filed under an id no DELETE the user can issue will name" is itself
+> **false**, and "the comment now says that" is no longer true. Measured
+> through the real route, the orphan *is* deletable by the id it is filed
+> under (`DELETE /api/repos/222222222222 -> 200`), because `forget(id)` is
+> keyed by whatever id it is passed and `app.ts` calls it unconditionally —
+> which **B15** already gates. The true statement is narrower: the orphan is
+> hard to *discover*, because no API surface reports its id. This paragraph is
+> left as written, annotated rather than edited, because it is the round-1
+> narrative and the record of what was believed at the time.
+
 **The plan's "B10 silently collapses" claim is false too.** B10 is green with
 the guard removed; its three distinct fixture directories protect it. Not
 repeated anywhere in the source or these records.

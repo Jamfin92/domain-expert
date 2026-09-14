@@ -1,9 +1,13 @@
 # Phase G-b2 — the store, read side (rehydrate) — PROGRESS
 
-**Status: implemented, gated, review rounds 1 and 2 addressed. Awaiting
-re-review and James's acceptance.**
+**Status: SHIPPED. Three review rounds — rounds 1 and 2 both "Fix first",
+round 3 "Ship" with zero blocking. James accepted 2026-09-14.**
 
-Nine commits on `master`, `43d16da` → this record:
+**This completes Phase G.** `plan.md` has two phases, G-a (the digest) and G-b
+(the store and rehydrate); G-b1 was the write side and this is the read side.
+There is no G-c in the plan — the next phase is a new plan, not a continuation.
+
+Nine commits on `master`, `43d16da` → `8e119ef`, plus this record:
 
 ```
 ee7ffd5  G-b2: store fixes — listEnvelopeIds filters, writeEnvelope validates first
@@ -13,14 +17,16 @@ a4dc4bc  G-b2: gate rehydrate — B5b, B6–B11, B16, B24, B29
 025e42b  docs: audit and phase record for G-b2
 42a7039  G-b2 review fix: gate the two shipped guards, and correct D-Gb2-8's comment
 ab7f9e5  docs: review round 1 corrections to the audit and phase record
-         G-b2 review fix: the orphan is hard to discover, not undeletable
-         docs: review round 2 corrections
+fc9361d  G-b2 review fix: the orphan is hard to discover, not undeletable
+8e119ef  docs: review round 2 corrections
 ```
 
-**Review round 1 came back "Fix first"** — two ungated guards and a false
-comment. **Round 2 also came back "Fix first"** — the replacement comment had
-a *new* false clause, and the corrected coverage sentence was wider than the
-one it replaced. Both addressed; see the audit's Findings 6, 7 and 8.
+**Round 1 came back "Fix first"** — two ungated guards and a false comment.
+**Round 2 also came back "Fix first"** — the replacement comment had a *new*
+false clause, and the corrected coverage sentence was wider than the one it
+replaced. **Round 3 was "Ship"**, with the reviewer verifying the discoverability
+clause against all 14 routes in `app.ts` rather than accepting the summary, and
+reproducing every mutant itself. See the audit's Findings 6, 7 and 8.
 
 **Not pushed** — `master` is **23 ahead** of `origin/master`. James's call, as
 in E, F, G-a and G-b1.
@@ -210,6 +216,29 @@ carries a comment saying all of this.
 - **`apps/desktop/src/main.ts` is still unpersisted** (F7, James). It now
   reports `rehydrate: { state: "off", … }` rather than a permanent `"pending"`,
   which is the whole practical case for D-Gb2-1.
+- **A NEW flake, seen once, cause NOT established — do not tidy this into the
+  known one.** `api.test.ts`'s `graph endpoints > returns the graph, a layout
+  and mermaid` failed once, on a tree whose only diff from green was a comment.
+  Not reproduced in 4 full suite runs, 6 concurrent contended runs, or the
+  implementer's 3 serial + 6 concurrent. The shape *fits* the cross-connect
+  below — four requests, each a fresh `listen(0)`, asserting on
+  `body.graph.entities`, `body.layout.nodes` and `text.startsWith("erDiagram")`,
+  all of which a response from another app would break. **But the assertion
+  text was not captured**, so the worse hypothesis is NOT excluded: genuine
+  nondeterminism somewhere in extract → layout → mermaid, which would be a
+  rule-7 violation and not a harness problem at all. G-b1's 401 flake came with
+  a *proof* the app under test could not emit the observed output; there is no
+  equivalent here. **If you see it: capture the assertion text and the response
+  body before anything else.** `.graph` undefined or a body from another
+  endpoint ⇒ cross-connect, and the fix is a shared server per file. Right
+  shape but a wrong count or ordering ⇒ a determinism bug in psq.
+- **The pre-existing 401 flake, carried forward from G-b1.** `api.test.ts:119`
+  `404s for a repo that is not open` failed once in 68 *contended* runs with
+  `expected 401 to be 404`; never in 30 serial, 20 shuffled, or 10 full-suite.
+  No token is passed at any of that file's three `createApp` sites, so the app
+  under test **cannot** emit 401 — it is ephemeral-port cross-connect between
+  concurrent supertest servers. Pre-existing. This phase added four real child
+  servers and marginally increases the churn that exposes it.
 - **Two corpus entries (`repoC`, `repoAClient`) refuse to open** with "No
   entities found … no CREATE TABLE". Pre-existing and expected — they are
   client-only repos. Not a regression; noted so the next person measuring
@@ -219,3 +248,26 @@ carries a comment saying all of this.
   disk. It was not run in this phase. `node`/`pnpm` are not on the default
   PATH; use `zsh -lc`. The private corpus config is the only copy of the ground
   truth, and a skipped count below 58 means it vanished.
+
+## Starting the next phase
+
+Phase G is done. There is no G-c to resume — read this file for the state of
+the store, then write a **new** plan for whatever comes next.
+
+Two items are owed and deliberately not done here: `apps/server/package.json`
+does not declare `zod` (examined and accepted twice now), and `master` is
+**23 ahead of `origin/master` and unpushed**, which has been James's standing
+call since phase E. Neither is a loose end to tidy without asking.
+
+If the next phase touches the store: the six §4 gates with no mutant (B5b, B6,
+B7, B8, B9, B11) and the untested `SeededDb` close-on-throw are the places
+where "green" currently means less than it looks, and both are listed above
+under *Known gaps*.
+
+**One process note worth carrying, because it paid for itself three times in
+this phase.** Every defect found here was found by deleting the guard and
+watching the suite stay green — never by reading the code and agreeing with it.
+Two shipped guards survived `if (false)` at 88/88; the four `reason` assertions
+survived `/THIS_CANNOT_MATCH/`; B10 survived the mutant its own plan named for
+it. Reading found none of those. Run the mutant list in full, and treat a
+mutant that fails to redden as a finding rather than a nuisance.
