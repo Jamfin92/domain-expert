@@ -18,7 +18,9 @@ Baseline commit: `d45907a`.
 
 Review round 1 (see §7) modified three of these again:
 `packages/graph/test/search.test.ts`, `apps/server/test/api.test.ts`, and this
-file. No source file changed in that round.
+file. No source file changed in that round. Review round 2 (see §8) modified
+two: `packages/graph/test/search.test.ts` and this file. No source file changed
+in that round either.
 
 Nothing else. No `apps/cli`, no `apps/web`, no `packages/extract`, no
 `workspace.ts`, no `store.ts`, no `EXTRACTOR_VERSION`, no `package.json`.
@@ -97,9 +99,13 @@ restore the file byte-for-byte from the pre-run snapshot. All 15 ran.
 | H14 | response key `searched:` → `fields:` | **reddened** | "returns a parseable result that names the fields it searched" (+1) |
 | H9d | `compareHits` ranks by the LAST reason (maximum rank) instead of `reasons[0]` (minimum) | **reddened** | "orders hits independently of the order entities are listed in" (only) |
 | H7b | `const q = query.trim();` → `const q = query;` | **reddened** | "returns nothing for an empty or whitespace query" (only) |
+| H1b | `search.ts:147` `tableName: entity.tableName` → `tableName: ""` | **reddened** | "finds an entity through a property name" (only) |
+| H1c | `search.ts:148` `namespace: entity.namespace` → `namespace: null` | **reddened** | "finds an entity through a property name" (only) |
+| H1d | `search.ts:149` `file: entity.file` → `file: ""` | **reddened** | "finds an entity through a property name" (only) |
 
-**17 of 17 reddened. None stayed green.** (H9d and H7b were added in review
-round 1 — see §7; the first 15 are the original sweep.)
+**20 of 20 reddened. None stayed green.** (H9d and H7b were added in review
+round 1 — see §7; H1b/H1c/H1d in review round 2 — see §8; the first 15 are the
+original sweep.)
 
 Notes on the ones the plan flagged as easy to get wrong:
 
@@ -128,6 +134,19 @@ Notes on the ones the plan flagged as easy to get wrong:
   `searchEntities(g, "  email  ")` must still return `["Student"]`. Under the
   `query.trim()` → `query` mutant it fails with `expected [] to deeply equal
   [ 'Student' ]`. Confirmed red, then restored.
+- **H1b / H1c / H1d** — the three payload fields the hit carries straight
+  through from the entity. Each mutation was applied **individually**, run
+  against the full hermetic suite, and reverted before the next. Each produced
+  the identical result: `PSQ_NO_CORPUS=1 pnpm test` →
+  `Tests 1 failed | 362 passed | 58 skipped (421)`,
+  `Test Files 1 failed | 29 passed | 3 skipped (33)`, the single failure being
+  `packages/graph/test/search.test.ts > searchEntities — matching > finds an
+  entity through a property name`. Before the fix all three were **green**:
+  `EntitySearchResult.safeParse` in H14 cannot catch them, because `tableName`
+  and `file` are `z.string()` (so `""` parses) and `namespace` is `.nullable()`
+  (so `null` parses). `file` is the field H-b's entity → file/line/method
+  navigation is built on, so `file: ""` would have shipped silently. After the
+  three runs `git diff` over `packages/graph/src/search.ts` is empty.
 - **H13** — one new entry (`"search"`) in the existing loop at
   `api.test.ts:118-123`, no query string. Its mutant reddens only that test.
 
@@ -190,11 +209,22 @@ an iteration, not a test). `pnpm test:e2e` was **not** run.
    name in the fixture returns exactly one query, `"ent"`, that matches an
    entity on both its name and one of its properties — and it necessarily
    matches the table name too. **Correction (review round 1):** `"ent"` matches
-   **two** such entities, not one — `Student` (name/table/`Enrollments`) and
-   `Enrollment` (name/table/`EnrollmentId`) — each with three reasons. Earlier
-   wording in this audit said "an entity", singular, which was wrong. The gate
-   asserts on `Student` only, plus a whole-result uniqueness check; the second
-   three-reason entity is simply not named by it. The substance — one
+   **two** such entities, not one — `Student`, with **three** reasons
+   (`entityName:Student, tableName:Students, propertyName:Enrollments`), and
+   `Enrollment`, with **four**
+   (`entityName:Enrollment, tableName:Enrollments, propertyName:Student,
+   propertyName:StudentId`). Earlier wording in this audit said "an entity",
+   singular, which was wrong; the round-1 replacement for it was **also**
+   wrong — it claimed `Enrollment` matched via an `EnrollmentId` property and
+   carried three reasons. No `EnrollmentId` property exists:
+   `test/fixtures/mini-efcore/Models/Entities/Enrollment.cs` declares
+   `StudentId, Student, CourseId, Course, LetterGrade, RegisteredAt`, and the
+   two property reasons are `Student`/`StudentId` (both contain "ent", as in
+   "Stud-ent"). This wording was verified by dumping the real
+   `searchEntities(g, "ent")` output, not by reading the code — and it agrees
+   with §5 item 3, which the round-1 text contradicted. See §8 item 3. The gate
+   asserts on `Student` only, plus a whole-result uniqueness check; the
+   four-reason entity is simply not named by it. The substance — one
    hit per entity, not one per reason — is unchanged, and its mutant reddens.
    This was a fixture choice the plan left open, resolved against the fixture
    rather than by hand-writing a graph.
@@ -262,6 +292,22 @@ No other deviation. The plan's decisions were not re-litigated.
   for an unreachable tiebreak" is the plan's to resolve, not something to close
   blind; H9c already gates the `name` key, and H9a gates "some tiebreak beyond
   rank exists".
+- **D-Ha-8's "derived, not hardcoded" is not independently gated** (review
+  round 2, recorded not fixed). Replacing `searched: [...MATCH_FIELDS]` at
+  `apps/server/src/app.ts:193` with a hardcoded literal of the same three
+  fields leaves the whole suite green. The reviewer then ran the drift scenario
+  the decision exists for — adding a 4th match field: with the derived spread,
+  **both** route-level `searched` assertions redden; with the hardcoded
+  literal, one goes green. So drift is caught **incidentally**, not by design.
+  A real gate needs a second match-field set to exist, which today's schema has
+  no room for. Known gap, carried forward.
+- **The schema's "as received, before trimming" claim is ungated** (review
+  round 2, recorded not fixed). `packages/schema/src/index.ts:363` says the
+  echoed `query` is the raw string as received; changing `query: q` to
+  `query: q.trim()` at `apps/server/src/app.ts:193` leaves the suite green,
+  because the route tests only ever send `"email"` and `""`, neither of which
+  has surrounding whitespace. A because-clause with no control — the same
+  category as H7's pre-H7b whitespace assertion.
 
 ## 7. Review round 1 — two ungated plan behaviours
 
@@ -307,4 +353,66 @@ recorded one gap without fixing it (§6, the `namespace`/`file` tiebreaks).
 
 Counts are unchanged on purpose: H9d, H7b and the `path` label are assertions
 added to existing tests, not new `it` blocks. Skipped held at **58**, so the
+private corpus config is intact. `pnpm test:e2e` was **not** run.
+
+## 8. Review round 2 — three ungated payload fields, and a correction that was itself wrong
+
+A second fresh reviewer re-verified round 1's two new gates (H9d, H7b): both
+close their holes, land on the new assertion lines specifically, and do not
+shadow the originals. Scope and baselines were clean. It then found two blocking
+items and two non-blocking gaps.
+
+1. **Three `EntitySearchHit` payload fields were ungated** (`search.ts:146-151`).
+   The plan shapes the hit as `{ name, tableName, namespace, file, reasons }`
+   (plan.md:184-185), but only `name` and `reasons` were ever asserted.
+   Mutating `tableName` → `""`, `namespace` → `null` and `file` → `""`
+   individually each left the full hermetic suite **green** at 363 passed.
+   H14's `EntitySearchResult.safeParse` is structurally unable to catch them:
+   `tableName`/`file` are `z.string()` so `""` parses, and `namespace` is
+   `.nullable()` so `null` parses. `file` is the field H-b is built on, so a
+   silently empty `file` would have shipped and only surfaced as broken
+   navigation. Fixed by asserting the **whole hit object** in H1
+   (`packages/graph/test/search.test.ts`), with values read out of the
+   extracted fixture rather than written by hand → gates **H1b** (tableName),
+   **H1c** (namespace), **H1d** (file). All three mutants applied one at a time,
+   observed red (§1), source restored byte-for-byte.
+2. **Two gaps recorded, not fixed** — D-Ha-8's derived `searched` and the
+   schema's "before trimming" claim. Both are in §6 with the reviewer's own
+   drift-scenario evidence.
+3. **The round-1 audit correction was itself factually wrong.** §4 item 2's
+   round-1 replacement text said `"ent"` matched `Enrollment` via an
+   **`EnrollmentId`** property, with three reasons. No such property exists —
+   `Enrollment.cs` declares `StudentId, Student, CourseId, Course, LetterGrade,
+   RegisteredAt` — and the real output is **four** reasons on
+   `Student`/`StudentId`. §5 item 3 of this same audit had it right all along,
+   so the audit contradicted itself for a round. Corrected in §4, this time by
+   dumping `searchEntities(g, "ent")` and pasting the output, then deleting the
+   temporary dump.
+
+**The lesson, stated plainly — and this is the phase's most transferable
+finding:** this is the **second correction in a row whose replacement text
+introduced a new false claim**. Round 1 corrected "an entity" (singular) to a
+statement about `EnrollmentId` that was invented; round 2 corrected that. It is
+the same pattern G-b2 recorded — *the conclusion right every time, the
+because-clause wrong twice*. The headline claim ("one hit per entity, not one
+per reason") survived every round untouched and correct. What kept breaking was
+the supporting detail written from memory of the code instead of from the
+program's output. The rule that follows: **a correction is a new claim and
+carries the same evidence burden as the original** — do not let "I am fixing an
+error" license writing the replacement from reasoning. Dump the real value, and
+check whether the same document already states the fact elsewhere before
+writing a new version of it.
+
+### Gate numbers after round 2
+
+| Gate | Baseline | After round 2 |
+|---|---|---|
+| `pnpm test` | 421 passed (421) | **421 passed (421)**, 33 files |
+| `PSQ_NO_CORPUS=1 pnpm test` | 363 passed \| 58 skipped (421) | **363 passed \| 58 skipped (421)** |
+| `pnpm typecheck` | exit 0 | **exit 0** |
+
+Counts are unchanged on purpose: H1b/H1c/H1d are assertions folded into the
+existing H1 test — H1's `reasons` assertion was widened into a whole-object
+`toEqual` on `hits[0]`, alongside the unchanged names-list assertion — not new
+`it` blocks. Skipped held at **58**, so the
 private corpus config is intact. `pnpm test:e2e` was **not** run.

@@ -27,9 +27,19 @@ describe("searchEntities — matching", () => {
     // example with an empty list, so property matching is the point.
     const hits = searchEntities(g, "email");
     expect(hits.map((h) => h.name)).toEqual(["Student"]);
-    expect(hits[0]!.reasons).toEqual([
-      { field: "propertyName", matched: "Email", property: "Email" },
-    ]);
+    // H1b/H1c/H1d — assert the WHOLE hit, not just name + reasons.
+    // `tableName`, `namespace` and `file` are carried straight through from the
+    // entity and were previously ungated: `EntitySearchResult.safeParse` cannot
+    // catch a wrong value, because `file`/`tableName` are `z.string()` (so `""`
+    // parses) and `namespace` is `.nullable()` (so `null` parses). `file` is the
+    // field H-b navigates on, so a silently empty one would ship.
+    expect(hits[0]).toEqual({
+      name: "Student",
+      tableName: "Students",
+      namespace: "Mini.Api.Models.Entities",
+      file: "Models/Entities/Student.cs",
+      reasons: [{ field: "propertyName", matched: "Email", property: "Email" }],
+    });
   });
 
   // H2
