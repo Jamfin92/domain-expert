@@ -20,7 +20,10 @@ Review round 1 (see §7) modified three of these again:
 `packages/graph/test/search.test.ts`, `apps/server/test/api.test.ts`, and this
 file. No source file changed in that round. Review round 2 (see §8) modified
 two: `packages/graph/test/search.test.ts` and this file. No source file changed
-in that round either.
+in that round either. Review round 3 returned **Ship** and modified **one**:
+this file. It is audit bookkeeping only — four corrected numbers/citations and
+one recorded decision, listed in §9 — and no source or test file changed, which
+the unchanged gate numbers in §9 confirm.
 
 Nothing else. No `apps/cli`, no `apps/web`, no `packages/extract`, no
 `workspace.ts`, no `store.ts`, no `EXTRACTOR_VERSION`, no `package.json`.
@@ -66,7 +69,8 @@ graph is **extracted** (`extractDotnet(MINI_EFCORE)`,
 `Models/` (fact 12).
 
 **`apps/server/test/api.test.ts`** — `search` added to the existing
-parameterised 404 loop (now at `:118-123`), with a comment saying why it sends
+parameterised 404 loop (the test now at `:120-127`, its `for` at `:124-126`),
+with a comment saying why it sends
 no query string; plus a new `describe("entity search")` holding four tests
 (H14, H12, H12b, H12c). Review round 1 added the `path` label as vitest's
 message argument on that loop's `expect`, so a failure names which path 404'd
@@ -82,7 +86,7 @@ restore the file byte-for-byte from the pre-run snapshot. All 15 ran.
 
 | # | Mutant applied | Result | Test(s) reddened |
 |---|---|---|---|
-| H1 | `"propertyName"` removed from `MATCH_FIELDS` | **reddened** | "finds an entity through a property name" (+6 others) |
+| H1 | `"propertyName"` removed from `MATCH_FIELDS` | **reddened** | "finds an entity through a property name" (+8 others) |
 | H2 | `property.name.toLowerCase().includes(...)` → `property.name.includes(...)` | **reddened** | "is case-insensitive in both directions" (+4) |
 | H3 | all three `.includes(needle)` → `.startsWith(needle)` | **reddened** | "matches a substring, not just a prefix" (+2) |
 | H4 | `"tableName"` removed from `MATCH_FIELDS` | **reddened** | "finds an entity through its table name alone" (+4) |
@@ -106,6 +110,23 @@ restore the file byte-for-byte from the pre-run snapshot. All 15 ran.
 **20 of 20 reddened. None stayed green.** (H9d and H7b were added in review
 round 1 — see §7; H1b/H1c/H1d in review round 2 — see §8; the first 15 are the
 original sweep.)
+
+**The "+N others" counts are as-of the original sweep and are not maintained:**
+every later round adds assertions to existing tests, so the same mutant reddens
+more of them over time — re-measured against the committed tree (`c946079`), H1
+reddens **11**, H2 **6** and H6 **3**, against the 9/5/2 measured at the sweep.
+Every mutant still reddens and the named test is still among its failures, so
+this is table drift, not a gate defect.
+
+**Correction (review round 3): H1's row said "+6 others", and was wrong when it
+was written.** Re-running the H1 mutant with `search.test.ts` and `api.test.ts`
+restored to `e3c44c7` — the pre-round-1 state the original sweep measured —
+fails **9** tests, not 7. Corrected in the table above to "+8 others". The other
+four rows re-measured at that same commit hold exactly: H2 **5**, H3 **3**,
+H4 **5**, H6 **2**. The error is isolated to H1, and its headline ("reddened")
+was never in doubt — which is §8's lesson landing for a third round: what fails
+review in this phase is never the conclusion, always the number or the
+because-clause written beside it.
 
 Notes on the ones the plan flagged as easy to get wrong:
 
@@ -147,8 +168,33 @@ Notes on the ones the plan flagged as easy to get wrong:
   (so `null` parses). `file` is the field H-b's entity → file/line/method
   navigation is built on, so `file: ""` would have shipped silently. After the
   three runs `git diff` over `packages/graph/src/search.ts` is empty.
+
+  **How the three are told apart, and why they stay one assertion (review round
+  3).** H1b, H1c and H1d all ride on the single whole-object `toEqual` at
+  `packages/graph/test/search.test.ts:36-42`, so all three mutants redden the
+  same one test, `finds an entity through a property name`, with the same test
+  name in the report. They are distinguished **only by the assertion diff** —
+  vitest prints the drifted field and its expected/actual values — never by the
+  failing test's name. Two consequences, recorded because they are easy to lose:
+  a sweep harness that collects failing test *names* alone cannot tell H1b from
+  H1c from H1d, so it must capture `failureMessages` (which is exactly the
+  capture gap §5 item 1 records against the G-b2 flake, arriving here for a
+  second reason); and the three are not three independent gates in the counting
+  sense, they are one gate with three observable modes.
+
+  **Decision: keep the single `toEqual`, do not split it into three `it`s.**
+  Reviewed in round 3 and kept deliberately. A whole-object equality is the
+  assertion that stays correct when the hit gains a fourth field — three
+  field-by-field assertions would go green on a payload key nobody wrote an
+  assertion for, which is the exact hole round 2 opened this thread to close.
+  The §4 item 1 argument for splitting H12/H12b does not apply: those are two
+  *different* inputs where the first failing `expect` would abort before the
+  second was ever observed, whereas here one `expect` covers all three fields at
+  once and cannot mask any of them. The cost is the one recorded above — the
+  harness must read diffs, not names.
 - **H13** — one new entry (`"search"`) in the existing loop at
-  `api.test.ts:118-123`, no query string. Its mutant reddens only that test.
+  `api.test.ts:124-126` (the test runs `:120-127`), no query string. Its mutant
+  reddens only that test.
 
 ## 2. Corpus sweep
 
@@ -172,8 +218,19 @@ confirming that restricting search to entity names would answer the motivating
 example with an empty list.
 
 `repoAClient` (the separate corpus entry rev 2 conflated with repoA) was also
-swept: 0 entities, 0 hits, and 15 email-ish shape fields. It is the source of
-rev 2's wrong "24", exactly as the plan's `[B3]` says.
+swept: 0 entities, 0 hits, and **20 email-ish shape fields across 15 distinct
+shapes**. **Correction (review round 3):** this paragraph read "15 email-ish
+shape fields" — a *shape* count wearing a *field* label, and it broke its own
+arithmetic. The plan's `[B3]` explains rev 2's wrong "24" as repoA plus
+repoAClient, and 4 + 20 = 24 while 4 + 15 = 19. Both sides were re-measured by
+dumping the fields, not by reasoning: repoA has **4 email-ish fields across 4
+distinct shapes** (`LoginRequest.Email`, `RegisterRequest.Email`,
+`UserProfileDto.Email`, `WaitlistSignupRequest.Email` — one field each, so its
+"4" is right under either label), and repoAClient has **20 fields across 15
+shapes** (several `*FormData` shapes carry two, e.g.
+`PutnamHomeImprovementFormData.email` and `.businessEmail`). 4 + 20 = 24
+reproduces rev 2's number exactly, so `[B3]`'s account of where it came from is
+confirmed rather than merely asserted.
 
 For `q="user"` on repoA the reason breakdown is
 `{entityName: 3, tableName: 3, propertyName: 25}` — every `entityName` match is
@@ -302,7 +359,8 @@ No other deviation. The plan's decisions were not re-litigated.
   A real gate needs a second match-field set to exist, which today's schema has
   no room for. Known gap, carried forward.
 - **The schema's "as received, before trimming" claim is ungated** (review
-  round 2, recorded not fixed). `packages/schema/src/index.ts:363` says the
+  round 2, recorded not fixed). `packages/schema/src/index.ts:363` — the
+  comment; the `query` field it documents is at `:364` — says the
   echoed `query` is the raw string as received; changing `query: q` to
   `query: q.trim()` at `apps/server/src/app.ts:193` leaves the suite green,
   because the route tests only ever send `"email"` and `""`, neither of which
@@ -416,3 +474,65 @@ existing H1 test — H1's `reasons` assertion was widened into a whole-object
 `toEqual` on `hits[0]`, alongside the unchanged names-list assertion — not new
 `it` blocks. Skipped held at **58**, so the
 private corpus config is intact. `pnpm test:e2e` was **not** run.
+
+## 9. Review round 3 — Ship, with the audit's own numbers corrected
+
+A third fresh reviewer returned **Ship**: no blocking issues, every gate
+re-verified, scope clean. What follows is non-blocking bookkeeping, and it is
+written up rather than quietly patched because **this phase's transferable
+finding is that corrections carry new false claims**, and two of these were
+fresh errors sitting inside sections rounds 1 and 2 had already declared
+verified. Every number below was re-measured here before it was written; none
+was copied from the review report.
+
+1. **The H1 mutant row undercounted, and was wrong when written** (§1). It said
+   `(+6 others)` = 7 reddened. Re-run with both test files restored to
+   `e3c44c7`, the H1 mutant fails **9**. Corrected to `(+8 others)`. H2/H3/H4/H6
+   re-measured at that same commit hold at 5/3/5/2, so the error is isolated to
+   H1.
+2. **§1's counts no longer describe the committed tree** — a caveat, not a fix.
+   Rounds 1 and 2 added assertions to existing tests, so against `c946079` the
+   same mutants redden H1 **11**, H2 **6**, H6 **3**. Every mutant still
+   reddens; the table was never re-based and now says so.
+3. **repoAClient's count was wrong and broke its own arithmetic** (§2). "15
+   email-ish shape fields" was a shape count with a field label: the true
+   figures are **20 fields across 15 shapes**, which makes the plan's `[B3]`
+   account of rev 2's "24" (repoA 4 + repoAClient 20) add up, where 4 + 15 did
+   not.
+4. **Two line citations had drifted** — the 404 loop is at `api.test.ts:120-127`
+   with its `for` at `:124-126`, not `:118-123` (cited twice, both fixed). The
+   third flagged citation, `schema/src/index.ts:363`, was **checked and is
+   correct** — the comment is on `:363`, the `query` field it documents on
+   `:364`; the review report's proposed `:362` would have introduced a fifth
+   error, which is the same trap this section exists to record. Every other
+   `path:line` in this audit was checked against the files at `c946079` and
+   holds: `search.ts:80`, `:84-86`, `:86`, `:136`, `:146-151`, `:147`, `:148`,
+   `:149`, and `app.ts:193`.
+5. **H1b/H1c/H1d's distinguishability recorded, and the single assertion kept**
+   — see §1's note under the H1b/H1c/H1d bullet.
+
+**The lesson, and it is the same one a third time:** round 1's correction was
+wrong, round 2's correction of it was right but left four uncorrected numbers
+standing beneath it, and this round found two of those numbers had been wrong
+since the day they were written — in a table two reviewers had signed off. A
+verified *section* is not a verified *number*. Sign-off does not propagate
+downward into the figures a section contains, and "two rounds looked at this
+already" is the reason to re-measure, not the reason to skip it.
+
+### Gate numbers after round 3
+
+| Gate | Baseline | After round 3 |
+|---|---|---|
+| `PSQ_NO_CORPUS=1 pnpm test` | 363 passed \| 58 skipped (421) | **363 passed \| 58 skipped (421)** |
+| `pnpm typecheck` | exit 0 | **exit 0** |
+
+Unchanged by construction: round 3 edited **this file only**, no source and no
+test. The run is a no-op control confirming exactly that — and skipped held at
+**58**, so the private corpus config is still intact and §2's sweep numbers
+remain trustworthy. `pnpm test:e2e` was **not** run.
+
+Every mutant applied during this round's re-measurement (H1/H2/H3/H4/H6, against
+both the `e3c44c7` and `c946079` test files) was reverted from a byte-for-byte
+snapshot taken before the first run; `git status` is clean apart from this file,
+and the md5 of `packages/graph/src/search.ts`, `packages/graph/test/search.test.ts`
+and `apps/server/test/api.test.ts` each matches its pre-round value.
