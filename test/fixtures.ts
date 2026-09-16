@@ -19,6 +19,26 @@ export const MINI_EFCORE = resolve(here, "fixtures/mini-efcore");
  * fires the multiple-DbContext warning, and mini.test.ts asserts an empty
  * warning list twice.
  */
+/**
+ * The H-b1 fixture: the only hermetic input on which `entityRefs` is non-empty.
+ *
+ * Self-contained and namespace-consistent, and every negative gate in
+ * `packages/extract/test/entity-refs.test.ts` has its positive control inside
+ * THIS graph — a "yields nothing" assertion that shares no run with a "yields
+ * something" one passes just as well on a walker that emits nothing at all.
+ *
+ * Two constructs exist here for no reason other than sort-key reachability:
+ * `_db.Students.Add(new Student())` is the only entity+file+line tie with two
+ * different `via` values, and `CoursesController`'s two methods on one
+ * physical line the only entity+file+line+via tie with two different methods.
+ * Delete either and a key of the comparator becomes unreachable code.
+ *
+ * Kept separate from MINI_EFCORE deliberately, and MINI_EFCORE keeps its own
+ * job: it has no method bodies at all outside `OnModelCreating`, which makes
+ * it the control for the D-Hb-5 exclusion (G21).
+ */
+export const MINI_EFCORE_REFS = resolve(here, "fixtures/mini-efcore-refs");
+
 export const MINI_EFCORE_PRIMARY_CTOR = resolve(here, "fixtures/mini-efcore-primary-ctor");
 
 /**

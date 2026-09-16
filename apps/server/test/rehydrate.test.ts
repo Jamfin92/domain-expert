@@ -12,7 +12,7 @@ import {
   readEnvelope,
   type StoredRepo,
 } from "../src/store.js";
-import { MINI_EFCORE, MINI_NODE } from "../../../test/fixtures.js";
+import { MINI_EFCORE, MINI_EFCORE_REFS, MINI_NODE } from "../../../test/fixtures.js";
 
 /**
  * The read side. Every test here builds a real store by opening a real
@@ -67,7 +67,7 @@ vi.mock("../src/store.js", async (importOriginal) => {
   };
 });
 
-import { digestOf } from "@psq/extract";
+import { EXTRACTOR_VERSION, digestOf, extractDotnet } from "@psq/extract";
 
 const AT = "2026-01-01T00:00:00.000Z";
 const made: string[] = [];
@@ -497,4 +497,90 @@ describe("B29: a failed re-open persist never leaves the superseded envelope", (
     // a successful open into a failed one (D-Gb-6).
     expect(w.get(id)?.seed).toBe(222);
   }, 60_000);
+});
+
+/**
+ * H-b1. Two new `it()` blocks, deliberately NOT folded into B10/B11's six-case
+ * test: that one is pinned to `{loaded:3, failed:3, missing:1}` at :305-307,
+ * and any extra envelope in it moves those counters.
+ */
+describe("G22: an envelope stored before `entityRefs` existed", () => {
+  it("loads, and yields [] from the schema default rather than failing", async () => {
+    const state = tmp("state");
+    // MINI_EFCORE_REFS specifically. On MINI_EFCORE a fresh extraction returns
+    // `[]` too (that is G21), so this gate would pass on a deleted
+    // `.default([])` — the `[]` would have come from re-extraction. The
+    // fixture and the `extractor` value below are the whole gate.
+    const repo = copyOf(MINI_EFCORE_REFS);
+    const id = ws(state).open(repo).id;
+
+    // Strip the field, leaving the extractor CURRENT and the fingerprint
+    // intact, so nothing else can trigger a re-extract and supply the `[]`.
+    const p = envelopePath(state, id);
+    // Typed loosely on purpose: `delete` refuses a required property, and
+    // `entityRefs` is required in `EntityGraph`'s OUTPUT type — which is the
+    // very thing this test is here to exercise. The parsed object still
+    // carries every other field, so writing it back is lossless.
+    const env = JSON.parse(readFileSync(p, "utf8")) as {
+      extractor: number;
+      graph: Record<string, unknown>;
+    };
+    expect(env.extractor).toBe(EXTRACTOR_VERSION);
+    // It is there, and non-empty, before we take it away — so the `[]` this
+    // test ends on is a fact about the schema default and not about an
+    // envelope that never carried the field in the first place.
+    expect((env.graph["entityRefs"] as unknown[]).length).toBeGreaterThan(0);
+    delete env.graph["entityRefs"];
+    writeFileSync(p, JSON.stringify(env, null, 2));
+
+    calls.extractWithDigest = 0;
+    const w = ws(state);
+    await w.rehydrate();
+
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0 });
+    // Nothing was extracted again, so the `[]` below can only be the default.
+    expect(calls.extractWithDigest).toBe(0);
+    expect(w.get(id)!.graph.entityRefs).toEqual([]);
+
+    // The positive control. A fresh extraction of this SAME repo is non-empty,
+    // which is what makes the `[]` above attributable to `.default([])` and
+    // not to the fixture simply having no refs.
+    expect(extractDotnet(repo).entityRefs.length).toBeGreaterThan(0);
+  });
+});
+
+describe("G23: the H-b1 extractor bump", () => {
+  it("re-extracts an envelope written by extractor 1, and not one at the current version", async () => {
+    // The bump is one half of D-Hb-12: without it a graph stored by the
+    // previous extractor would parse cleanly and serve `entityRefs: []`
+    // forever, which is indistinguishable from a repo that genuinely has none.
+    expect(EXTRACTOR_VERSION).toBeGreaterThan(1);
+
+    const state = tmp("state");
+    const stale = copyOf(MINI_EFCORE_REFS);
+    const current = copyOf(MINI_EFCORE_REFS);
+
+    const seeder = ws(state);
+    const staleId = seeder.open(stale).id;
+    const currentId = seeder.open(current).id;
+    seeder.closeAll();
+
+    patch(state, staleId, { extractor: 1 });
+
+    calls.extractWithDigest = 0;
+    const w = ws(state);
+    await w.rehydrate();
+
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 2, failed: 0, missing: 0 });
+    // Exactly one re-extract: the stale one. The control is the other entry —
+    // a version check that fired for both would read the same in the counters
+    // above and only differs here.
+    expect(calls.extractWithDigest).toBe(1);
+    // And the rewritten envelope carries the new version, with the refs it
+    // was re-extracted for.
+    const env = readEnvelope(state, staleId);
+    expect(env.ok && env.envelope.extractor).toBe(EXTRACTOR_VERSION);
+    expect(w.get(staleId)!.graph.entityRefs.length).toBeGreaterThan(0);
+    expect(w.get(currentId)!.graph.entityRefs.length).toBeGreaterThan(0);
+  });
 });

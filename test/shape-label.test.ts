@@ -40,6 +40,7 @@ function graph(shapes: Shape[]): EntityGraph {
     routes: [],
     clientCalls: [],
     components: [],
+    entityRefs: [],
     warnings: [],
   };
 }

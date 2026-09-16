@@ -89,6 +89,7 @@ function envelope(over: Partial<StoredRepo> = {}): StoredRepo {
       routes: [],
       clientCalls: [],
       components: [],
+      entityRefs: [],
       warnings: [],
     },
     ...over,

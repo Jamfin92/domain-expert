@@ -21,6 +21,7 @@ function graph(over: Partial<EntityGraph>): EntityGraph {
     routes: [],
     clientCalls: [],
     components: [],
+    entityRefs: [],
     warnings: [],
     ...over,
   };
@@ -296,5 +297,46 @@ describe("nodeRootFor", () => {
     const root = tmp(["node_modules/pkg", "client"]);
     expect(nodeRootFor(root).root).toBe(join(root, "client"));
     cleanup();
+  });
+});
+
+describe("G20: mergeGraphs carries entityRefs through from the .NET side", () => {
+  const ref = {
+    entity: "Student",
+    file: "Controllers/StudentsController.cs",
+    line: 16,
+    type: "StudentsController",
+    method: "Create",
+    via: "entityName" as const,
+  };
+
+  it("the merged graph holds the .NET side's refs, unmodified", () => {
+    const merged = mergeGraphs(
+      graph({ contextName: "Ctx", entityRefs: [ref] }),
+      graph({ provider: "sqlite-ddl" }),
+      "client",
+    );
+    expect(merged.entityRefs).toEqual([ref]);
+  });
+
+  it("and `[]` when the .NET side has none, rather than dropping the field", () => {
+    // The positive control for the assertion above: `entityRefs: []` in the
+    // merge literal would satisfy it too, and only differs HERE — where the
+    // input carries refs — from a literal that threads the field. Kept as its
+    // own case so the pair cannot be collapsed to one by a later edit.
+    const merged = mergeGraphs(graph({}), graph({ provider: "sqlite-ddl" }), "client");
+    expect(merged.entityRefs).toEqual([]);
+  });
+
+  // Not re-prefixed, unlike every other path-bearing field above: an
+  // `EntityRef.file` is a path in the .NET root, which IS the merge root.
+  // `nodeRootFor` only moves the TypeScript side.
+  it("does not re-prefix a ref's file, because the .NET root is the merge root", () => {
+    const merged = mergeGraphs(
+      graph({ entityRefs: [ref] }),
+      graph({ provider: "sqlite-ddl" }),
+      "some/deep/client",
+    );
+    expect(merged.entityRefs[0]!.file).toBe("Controllers/StudentsController.cs");
   });
 });

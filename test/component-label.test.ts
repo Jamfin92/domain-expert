@@ -30,6 +30,7 @@ function graph(components: Component[]): EntityGraph {
     routes: [],
     clientCalls: [],
     components,
+    entityRefs: [],
     warnings: [],
   };
 }

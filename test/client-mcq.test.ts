@@ -40,6 +40,7 @@ function graph(components: Component[], clientCalls: ClientCall[]): EntityGraph 
     routes: [],
     clientCalls,
     components,
+    entityRefs: [],
     warnings: [],
   };
 }
