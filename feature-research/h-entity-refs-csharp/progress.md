@@ -1,10 +1,12 @@
 # Phase H-b1 — entity references, C# side, extraction half — PROGRESS
 
-**Status: BUILT, review rounds 1-3 applied, gates green, awaiting
-re-review.** Plan `plan.md` (rev 2, approved after rev 1 was rejected at plan
-review) plus **Amendment 1**, which records the one design change review round
-1 forced. Audit with the full mutant table and every measured number:
-`audit.md`; round 1 is its §6.
+**Status: SHIPPED. Four review rounds — rounds 1, 2 and 3 "Fix first", round
+4 "Ship" with zero blocking. James accepted 2026-09-16, then asked for the
+four non-blocking documentation corrections, which are in the tree.** Plan
+`plan.md` (rev 2, approved after rev 1 was rejected at plan review) plus
+**Amendment 1**, which records the one design change review round 1 forced.
+Audit with the full mutant table and every measured number: `audit.md`;
+round 1 is its §6.
 
 On `master` from `8de5fce`:
 
@@ -16,7 +18,9 @@ ef7b436  docs: H-b1 plan (rev 2), the implementation audit and the phase record
 5bd02ab  docs: note the untracked plan files the docs commit picked up
 71cdd8d  H-b1 review round 1: make the comparator total, and gate the dedupe key
 4bd4f70  H-b1 review round 2: gate the last dedupe component, and fix the handoff
-(tip)    H-b1 review round 3: correct the meta-gate's justification
+8c8d2c2  H-b1 review round 3: correct the meta-gate's justification, scope the handoff
+e9c9be2  H-b1 round 4 sweep: four factual corrections, no executable change
+(tip)    docs: H-b1 accepted — phase record
 ```
 
 The tip's own hash is deliberately not written here: naming it inside the
@@ -43,7 +47,9 @@ Visible today through the existing `GET /api/repos/:id/graph`. No new route.
 **Final:** `pnpm test` **446 passed (446)**. `PSQ_NO_CORPUS=1 pnpm test`
 **388 passed / 58 skipped (446)**. `pnpm typecheck` exit 0, four projects.
 Baseline was 421 / 363+58. **Skipped held at 58 through every run** — 31 mutant
-runs before review, 40 after round 1, 41 after round 2, 4 in round 3. `pnpm test:e2e` was never run.
+runs before review, 40 after round 1, 41 after round 2, 4 in round 3, and
+again through round 4's measurements and its sweep. `pnpm test:e2e` was never
+run.
 
 **The plan's G1-G23, plus G17b, G7's second half, three D-Hb-6 component gates
 (`type`, `entity`, `file` — `line`, `method` and `via` are gated under other
@@ -196,8 +202,6 @@ inert, not assumed to be:
 - **"Call" is not delivered, and the schema says so.** `typeof(Student)`,
   `nameof(Student)`, a declaration and an attribute argument are all refs.
   Narrowing needs receiver and argument-list analysis — possible H-e.
-- **Constructor bodies are invisible.** `parseCSharp` captures no constructor
-  as a method.
 - **Expression-bodied methods arrive with `body: []`** (`structure.ts:338`).
   D-Hb-10, demoted to H-b2 on the measurement that it is worth +2 refs and
   **zero** controllers on repoA.
