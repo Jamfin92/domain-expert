@@ -45,6 +45,11 @@ Docs:
 24. `feature-research/h-entity-refs-csharp/audit.md` (this file)
 25. `feature-research/h-entity-refs-csharp/progress.md`
 
+Also committed, but **not written by me** — they were already on disk,
+untracked, when this phase started, and the docs commit simply tracks them:
+`feature-research/h-entity-refs-csharp/plan.md` and `plan-rev1-rejected.md`.
+Neither was edited.
+
 **Nothing else was touched.** No `zod` in `apps/server/package.json`. No TS
 extractor, CLI or web change. `pnpm test:e2e` was never run.
 
