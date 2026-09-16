@@ -53,7 +53,10 @@ Neither was edited.
 **Nothing else was touched.** No `zod` in `apps/server/package.json`. No TS
 extractor, CLI or web change. `pnpm test:e2e` was never run.
 
-Commits: `bc9a893`, `335fac1`, `b544419`, plus this file.
+Commits: `bc9a893`, `335fac1`, `b544419`, `ef7b436`, `5bd02ab`, then the
+review rounds — `71cdd8d` (round 1), `4bd4f70` (round 2), and the round-3 tip
+(not named here: a commit cannot carry its own hash).
+`git log --oneline 8de5fce..HEAD` is the authority.
 
 ---
 
@@ -543,21 +546,51 @@ deleting `ref.file` from the dedupe key gives **19** with the
 | Gate | Mutant | Failing assertion observed | Reverted |
 |---|---|---|---|
 | D-Hb-6 `file` (new) | drop `ref.file` from the dedupe key | `expected [ 'Controllers/CoursesController.cs' ] to deeply equal [ …(2) ]`; `expected 19 to be 20` | clean |
-| the gate's own precondition (new) | add one comment line above `Dup` in `EnrollmentService.cs` | `expected '// entity names are resolved, and \`Du…' to match /^public class Dup \{ public void Sync\(\)/` | clean |
+| the gate's own precondition (new) | add one comment line above `Dup` in `EnrollmentService.cs` | **3 tests**, listed below | clean |
 
-The second row is the point. **The alignment of the two line numbers is
-load-bearing and nothing in C# enforces it**: one added comment line and the
-pair stops tying on `line`, the dedupe key never reaches `file`, and the
-mutant goes quietly green — the gate would not fail, it would stop being a
-gate. So the gate file reads both source lines directly and asserts the
-declaration is where it must be. It fired on exactly that mutant, naming the
-reason. A gate whose precondition can silently evaporate needs a gate on the
-precondition.
+**The alignment of the two line numbers is load-bearing and nothing in C#
+enforces it**, so the gate file also reads both source lines back and asserts
+the declaration is where it must be.
+
+**The justification I gave for that test was false, and review round 3
+measured it.** I wrote that on drift "the gate would not fail, it would stop
+being a gate". Here is the full failure set of that mutant — three assertions,
+of which I recorded one:
+
+```
+- the whole ordered array is exactly this, in exactly this order
+    expected [ { entity: 'Course', …(5) }, …(19) ] to deeply equal [ …(20) ]
+- D-Hb-6 … the same type, method, entity and via in TWO files are two refs
+    expected [ 'Controllers/CoursesController.cs' ] to deeply equal [ …(2) ]
+- D-Hb-6 … and the two Dup declarations really are on the same line
+    expected '// entity names are resolved, and `Du…' to match /^public class Dup …
+```
+
+The array pin holds `line: DUP_LINE` for both rows and the `file` gate filters
+on `r.line === DUP_LINE`, so drift reddens with or without the new test:
+**skipping it leaves 2 failing.** And it is strictly *weaker* than the pin it
+duplicates — the regex is prefix-anchored, so reflowing `Dup`'s body onto a
+second line keeps it green while moving the `Course` token: measured, **2
+failing, and this test is not one of them.**
+
+**Kept, relabelled a diagnostic.** On drift the other two report a 20-row array
+diff and a file-list mismatch, both of which read as "the walker is broken";
+this one names the cause and sends the reader to the fixture. That is worth a
+test. It is not worth the claim I attached to it.
+
+Corrected at all five sites it reached: the fixture comment, the gate file,
+this section, `plan.md`'s Amendment 1, and `progress.md`.
 
 I hit the same trap while building it: my first two attempts put `Dup` on line
 56 and then 54. The construction script computed the resulting line number and
 refused to write unless it was 55 in both files, which is why neither
 misalignment reached the tree.
+
+One consequence to state plainly: **`EnrollmentService.cs`'s 20-line comment
+block is structural, not prose.** Its length is what puts `Dup` on line 55.
+Reflowing it moves the declaration. That reddens three tests, so it is
+maintenance cost rather than a hole — but nobody should discover it by
+reformatting.
 
 All 26 pre-review mutants and all 10 from round 1 were re-run afterwards. Every
 one still reddens.

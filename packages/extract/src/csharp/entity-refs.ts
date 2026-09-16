@@ -162,10 +162,13 @@ export function collectEntityRefs(
           // review rounds 1 and 2 went looking.
           //
           // `join("|")` would alias if a component contained a `|`. Recorded,
-          // not fixed: C# identifiers cannot contain one and neither can a
-          // repo-relative path this reader produces, so no input reaches it,
-          // and a separator change would be an unmeasured fix to a problem
-          // nothing has.
+          // not fixed. A C# identifier cannot contain one, so `entity`,
+          // `type`, `method` and `via` are safe by the grammar; `line` is a
+          // number. `file` is the soft one — POSIX permits `|` in a filename,
+          // so this rests on no such path existing in a .NET repo psq reads,
+          // which is weaker than the rest. Left alone because changing the
+          // separator would be an unmeasured fix to a problem no input has;
+          // said precisely so nobody later reads it as a guarantee.
           const key = [ref.entity, ref.file, ref.line, ref.type, ref.method, ref.via].join("|");
           if (seen.has(key)) continue;
           seen.add(key);

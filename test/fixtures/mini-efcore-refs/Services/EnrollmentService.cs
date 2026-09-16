@@ -41,13 +41,13 @@ public class EnrollmentService
 // at the SAME LINE NUMBER in both files. `Dup.Sync` below and its twin in
 // CoursesController.cs are that pair, both on line 55.
 //
-// The two line numbers MUST stay equal. Add or remove a single line above
-// this point in either file and the pair stops tying on `line`, the dedupe
-// key never reaches `file`, and the mutant that deletes `ref.file` goes
-// quietly green again — the gate would not fail, it would just stop being a
-// gate. `entity-refs.test.ts` therefore asserts the tie itself, by line
-// number and in both files, so a misalignment reddens loudly instead of
-// silently ungating.
+// The two line numbers MUST stay equal. Add or remove a line above this
+// point in either file and the pair stops tying on `line` — caught loudly:
+// `entity-refs.test.ts` pins `line: DUP_LINE` for both rows AND filters the
+// `file` gate on it, so drift reddens three tests before any mutant runs.
+// Round 2's note here said drift would leave the gate quietly green; round 3
+// measured that and it is false. The test that reads this line back from
+// source is a diagnostic that names the cause, not the thing that catches it.
 //
 // Two same-named classes in different namespaces is also, incidentally, the
 // shape `resolveType` exists to disambiguate. It never looks `Dup` up: only

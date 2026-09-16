@@ -1,6 +1,6 @@
 # Phase H-b1 — entity references, C# side, extraction half — PROGRESS
 
-**Status: BUILT, review rounds 1 and 2 applied, gates green, awaiting
+**Status: BUILT, review rounds 1-3 applied, gates green, awaiting
 re-review.** Plan `plan.md` (rev 2, approved after rev 1 was rejected at plan
 review) plus **Amendment 1**, which records the one design change review round
 1 forced. Audit with the full mutant table and every measured number:
@@ -14,8 +14,15 @@ bc9a893  H-b1: EntityRef in @psq/schema, and the C# walker that fills it
 b544419  H-b1: make G17's sort keys actually observable, not merely tied
 ef7b436  docs: H-b1 plan (rev 2), the implementation audit and the phase record
 5bd02ab  docs: note the untracked plan files the docs commit picked up
-         + review rounds 1 and 2 (see git log)
+71cdd8d  H-b1 review round 1: make the comparator total, and gate the dedupe key
+4bd4f70  H-b1 review round 2: gate the last dedupe component, and fix the handoff
+(tip)    H-b1 review round 3: correct the meta-gate's justification
 ```
+
+The tip's own hash is deliberately not written here: naming it inside the
+commit it names makes the line wrong the moment the commit is amended, which
+is exactly what happened while writing it. `git log --oneline 8de5fce..HEAD`
+is the authority for everything after `5bd02ab`.
 
 **Not pushed.** master stays ahead of origin — James's standing call since
 phase E.
@@ -36,17 +43,23 @@ Visible today through the existing `GET /api/repos/:id/graph`. No new route.
 **Final:** `pnpm test` **446 passed (446)**. `PSQ_NO_CORPUS=1 pnpm test`
 **388 passed / 58 skipped (446)**. `pnpm typecheck` exit 0, four projects.
 Baseline was 421 / 363+58. **Skipped held at 58 through every run** — 31 mutant
-runs before review, 40 after round 1, 41 after round 2. `pnpm test:e2e` was never run.
+runs before review, 40 after round 1, 41 after round 2, 4 in round 3. `pnpm test:e2e` was never run.
 
-**The plan's G1-G23, plus G17b, five D-Hb-6 component gates, G7's second half
-and one gate on a gate's precondition — 25 test cases across three files.**
+**The plan's G1-G23, plus G17b, G7's second half, three D-Hb-6 component gates
+(`type`, `entity`, `file` — `line`, `method` and `via` are gated under other
+gate names) and one diagnostic on the `file` gate's precondition — 25 test
+cases across three files.**
 
-**38 mutants run, every one demonstrated red.** Counted from `audit.md`: §1's
-26 named rows + 3 unnamed comparator probes, §6's 8 new ones (its ninth row is
-labelled "same as B1"), and §7's 1 new one (its other row is §6's `file`
-mutant, re-run now that it reddens). A reader counting table rows finds 40,
-because two are deliberate cross-references. **Nothing is recorded-not-gated
-any more:** review round 2 closed the last one, D-Hb-6's `file` component.
+**38 mutants run, every one red against the tree as it stands.** Counted from
+`audit.md`: §1's 26 named rows + 3 unnamed comparator probes, §6's 8 new ones
+(its ninth row is labelled "same as B1"), and §7's 1 new one. A reader counting
+rows finds 40, because two are deliberate cross-references — and §6's `file`
+row records that mutant as GREEN at the time, which is what round 2 then fixed.
+
+**Every component of the comparator and of the dedupe key is gated** — twelve
+deletion mutants, twelve reds. That is the only completeness claim this phase
+supports. **It is not a claim that everything in the walker is gated**; three
+things are not, and they are listed under Known gaps below.
 
 ## The finding this phase turns on
 
@@ -92,7 +105,14 @@ Rules earned, added to H-a's four:
    Deleting each of the six dedupe components in turn then found **three**
    dead, not one. A key made of six fields is six claims, and rev 2 tested it
    as one.
-7. **The JSON reporter drops the vitest diff.** `failureMessages` carries only
+7. **Record the whole failure SET of a mutant, not its first assertion.**
+   Round 2 justified a new test with "without this, the gate would stop being
+   a gate", having recorded one of the three assertions that mutant actually
+   reddens. The other two were the gates that already caught it, so the
+   justification was exactly backwards — and the evidence needed to see that
+   was in the run I had already done. A mutant's red is a set; a claim about
+   what a test is *necessary for* can only be read off the whole set.
+8. **The JSON reporter drops the vitest diff.** `failureMessages` carries only
    "expected [...] to deeply equal [...]". A sweep harness must run
    `--reporter=default` alongside `--reporter=json` and read the `- Expected /
    + Received` block, or it records that a whole-object gate reddened without
@@ -158,6 +178,21 @@ Rules earned, added to H-a's four:
 
 ## Known gaps, recorded deliberately
 
+**Three things in the walker are recorded, not gated.** Each was measured
+inert, not assumed to be:
+
+- **`prev.kind === "punct"` (`entity-refs.ts`) is live dead code in the
+  production walker.** Dropping the conjunct leaves the whole hermetic suite
+  green — 388 passed / 58 skipped, 0 failed, re-measured in review round 3.
+  The lexer emits no bare `.` under any other kind (the `.` in `1.5` belongs to
+  the number token), so nothing can reach it. Kept for the reader.
+- **D-Hb-3's absent `kind` filter.** A `kind === "ident"` filter would differ
+  only for an entity literally named `record`/`get`/`set`/`where`/`global`/
+  `partial`/`required`. No mutant can redden it without such a fixture entity.
+- **Constructor-body invisibility.** `parseCSharp` captures no constructor as a
+  method, so there is no code path to mutate. Visible in the pinned 20-row
+  array rather than asserted as a negative.
+
 - **"Call" is not delivered, and the schema says so.** `typeof(Student)`,
   `nameof(Student)`, a declaration and an attribute argument are all refs.
   Narrowing needs receiver and argument-list analysis — possible H-e.
@@ -175,14 +210,20 @@ Rules earned, added to H-a's four:
 - **`resolveType`'s doc comment about repoB's shadow copies is stale** — repoB
   has 0 duplicate type names across its 28 read files. Not this phase's file.
 - **The `file` dedupe gate rests on a line-number coincidence that nothing in
-  C# enforces.** `Dup.Sync` must stay on the SAME line (`DUP_LINE`, currently
-  55) in both `Controllers/CoursesController.cs` and
-  `Services/EnrollmentService.cs`; one added comment line in either and the
-  pair stops tying on `line`, after which deleting `ref.file` from the dedupe
-  key goes quietly green. `entity-refs.test.ts` therefore reads both source
-  lines and asserts the declaration is there, so a misalignment reddens with
-  the reason named rather than silently ungating. **Do not "tidy" either
-  file's comments without re-running that test.**
+  C# enforces — but it cannot evaporate silently.** `Dup.Sync` must stay on the
+  SAME line (`DUP_LINE`, currently 55) in both
+  `Controllers/CoursesController.cs` and `Services/EnrollmentService.cs`.
+  Measured in review round 3: one added comment line reddens **three** tests —
+  the whole-array pin (which holds `line: DUP_LINE` for both rows), the `file`
+  gate (which filters on it), and the source-reading diagnostic. Deleting the
+  diagnostic still leaves two red. Round 2 claimed here that drift would leave
+  the gate "quietly green"; that was written from one failing assertion of
+  three and is **false**.
+- **`EnrollmentService.cs`'s 20-line comment block is structural, not prose.**
+  Its length is what puts `Dup` on line 55; reflowing it moves the
+  declaration. That reddens, so it is maintenance cost rather than a hole —
+  but do not reformat either file's comments without re-running
+  `entity-refs.test.ts`.
 - **G17's `localeCompare` gate is ICU-dependent by construction.** It rests on
   node collating `_` before letters while code units put it after
   (`"_Stale/Student.cs".localeCompare("Stale/Student.cs") === -1`, node

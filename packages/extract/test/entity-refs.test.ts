@@ -150,12 +150,23 @@ describe("D-Hb-6: every component of the dedupe key", () => {
   });
 
   it("and the two Dup declarations really are on the same line", () => {
-    // The gate on the gate. The tie above exists only while the two `Dup`
-    // classes share a line number, and nothing in C# enforces that — one
-    // added comment line in either file and the pair stops tying on `line`,
-    // after which deleting `ref.file` from the key goes quietly green again.
-    // Read from source rather than from the graph, so this cannot be
-    // satisfied by the same walker bug it is protecting.
+    // A DIAGNOSTIC, not a necessary gate — and round 2's comment here claimed
+    // the opposite. It said drift would mean "the gate would not fail, it
+    // would just stop being a gate". Measured in round 3: adding one comment
+    // line above `Dup` reddens THREE tests, and two of them are not this one.
+    // The whole-array pin holds `line: DUP_LINE` for both rows, and the gate
+    // above filters on `r.line === DUP_LINE`, so drift fails loudly with or
+    // without this test — deleting it from the suite still leaves 2 red.
+    //
+    // It is also strictly WEAKER than the pin it duplicates: the regex is
+    // prefix-anchored, so reflowing `Dup`'s body onto a second line keeps this
+    // green while moving the `Course` token, which only the array pin catches.
+    //
+    // Kept anyway, for the one thing it does better: on drift the other two
+    // report a 20-row array diff and a file-list mismatch, both of which read
+    // as "the walker is broken". This one names the actual cause — line
+    // DUP_LINE is no longer the declaration — and sends the reader to the
+    // fixture instead of the extractor.
     for (const file of [COURSES, SERVICE]) {
       const lines = readFileSync(join(MINI_EFCORE_REFS, file), "utf8").split("\n");
       expect(lines[DUP_LINE - 1]).toMatch(/^public class Dup \{ public void Sync\(\)/);

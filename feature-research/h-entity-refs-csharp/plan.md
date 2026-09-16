@@ -442,9 +442,12 @@ pair ties on entity, line, type, method and via, so only `file` separates it;
 deleting `ref.file` from the key drops the graph from 20 refs to 19.
 
 That coincidence of line numbers is load-bearing and nothing in C# enforces
-it, so the gate file also reads both source lines and asserts the declaration
-is where it must be. A gate whose precondition can silently evaporate needs a
-gate on the precondition.
+it. It cannot evaporate silently, though: the whole-array assertion pins
+`line: DUP_LINE` for both rows and the `file` gate filters on it, so drift
+reddens two tests on its own. The gate file additionally reads both source
+lines back — a diagnostic that names the cause rather than a third detector.
+Amendment 1 originally claimed that test was what caught drift; review round 3
+measured the full failure set and it is not.
 
 ## Fixture additions, all three for reachability only
 
