@@ -25,5 +25,12 @@ public class CoursesController
     // the same via. This is the only construct that can tie on
     // entity+file+line+via, and without it the comparator's `method` key is
     // unreachable code.
-    public void Left() { Course a = null!; _ = a; } public void Right() { Course b = null!; _ = b; }
+    //
+    // `Zulu` is written FIRST, and that is the whole point. The walker emits
+    // in source order and `Array.prototype.sort` is stable, so a tie written
+    // in ascending order comes out ascending whether the comparator has a
+    // `method` key or not — measured: with `Left` before `Right`, deleting
+    // the key changed no assertion in the suite. Only a tie written in
+    // DESCENDING order can observe it.
+    public void Zulu() { Course a = null!; _ = a; } public void Alpha() { Course b = null!; _ = b; }
 }

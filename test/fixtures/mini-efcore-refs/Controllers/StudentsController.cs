@@ -10,10 +10,18 @@ public class StudentsController
     public void Create()
     {
         // G17. Two DIFFERENT vias on one line — `_db.Students` is a
-        // `dbSetName` match and `new Student()` an `entityName` one — so the
-        // two refs tie on entity+file+line and the comparator's `via` key is
-        // reachable. Nothing else in this fixture produces that tie.
-        _db.Students.Add(new Student());
+        // `dbSetName` match and `Student` an `entityName` one — so the two
+        // refs tie on entity+file+line and the comparator's `via` key decides
+        // their order. Nothing else in this fixture produces that tie.
+        //
+        // The entityName match is written FIRST on the line on purpose.
+        // Measured: with `_db.Students.Add(new Student())` the walker emits
+        // the two in the order the comparator would have put them anyway, so
+        // dropping the `via` key changed nothing and the mutant that deletes
+        // it stayed green. A tie whose emission order already matches is not
+        // a reachable sort key.
+        Student created = _db.Students.Add(new Student()).Entity;
+        _ = created;
     }
 
     public void Pair()
