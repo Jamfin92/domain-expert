@@ -101,8 +101,10 @@ Baseline for the walker gate file: 14 tests, all passing.
 | G22 | M22: remove `.default([])` | | `expected { state: 'done', loaded: +0, …(2) } to deeply equal { state: 'done', loaded: 1, …(2) }` — the repo goes `failed` | clean |
 | G23 | M23: `EXTRACTOR_VERSION` back to 1 | | `expected 1 to be greater than 1` | clean |
 
-Three extra key-deletion mutants were run to check the two sort keys the plan
-does *not* single out. Both redden, so the comparator has no unreachable key:
+Three extra key-deletion mutants were run at this point, covering the three
+comparator keys the plan's G17 row does not name (`entity`, `file`, `line`).
+All three redden. The comparator gained a sixth key in review round 1, and its
+deletion mutant is in §6 with the rest of that round:
 
 | Key deleted | Failing assertion |
 |---|---|
@@ -287,7 +289,7 @@ for; the plan's worry ("touches every method in 109 files") does not show up.
 | shapes | **0** |
 | relations | **1** (`Student.CourseId->Course`) |
 | warnings | **0** |
-| **entityRefs** | **18** (13 before review round 1's three reachability additions) |
+| **entityRefs** | **20** (13 as first built, +5 in review round 1, +2 in round 2 — all reachability constructs) |
 
 All six are now asserted in `entity-refs.test.ts` — in rev 2 only **five**
 were: `relations` was claimed here and asserted nowhere (`grep -n relations
@@ -304,29 +306,28 @@ as a finding about D-Hb-5; there was none.
 |---|---|---|
 | Baseline, before any edit | **421 passed (421)**, 33 files | **363 passed / 58 skipped (421)**, 30+3 files |
 | After schema + wiring + version bump | — | 363 passed / 58 skipped (421) |
-| Final, round 1 as reviewed | 440 passed (440) | 382 passed / 58 skipped (440) |
-| **Final, after review round 1** | **444 passed (444)**, 34 files | **386 passed / 58 skipped (444)**, 31+3 files |
+| Final, as first reviewed | 440 passed (440) | 382 passed / 58 skipped (440) |
+| After review round 1 | 444 passed (444) | 386 passed / 58 skipped (444) |
+| **Final, after review round 2** | **446 passed (446)**, 34 files | **388 passed / 58 skipped (446)**, 31+3 files |
 
-**Skipped held at 58 at every single run**, including all 31 mutant runs before
-review and all 40 after. The private corpus config never went missing.
+**Skipped held at 58 at every single run**, including 31 mutant runs before
+review, 40 after round 1 and 41 after round 2. The private corpus config never
+went missing.
 
 `pnpm typecheck` exits 0 across all four projects, final.
 
-+23 tests: 18 in `entity-refs.test.ts`, 3 in `merge.test.ts` (G20), 2 in
++25 tests: 20 in `entity-refs.test.ts`, 3 in `merge.test.ts` (G20), 2 in
 `rehydrate.test.ts` (G22/G23).
 
 ---
 
 ## 3. Gates that could not be built
 
-**One, found in review round 1: the `file` component of D-Hb-6's dedupe key.**
-Deleting `ref.file` from the key leaves the whole hermetic suite green.
-Collapsing on it needs two refs identical in entity, line, type, method and via
-across two *different* files — i.e. two files declaring same-named types with
-same-named methods mentioning the same entity at the same line number. That
-needs a new fixture file, which is scope review round 1 did not open, so it is
-recorded in the gate file and in Amendment 1 rather than built. The
-comparator's `file` key is gated; only the dedupe component is not.
+**None, as of review round 2.**
+
+Round 1 left one: the `file` component of D-Hb-6's dedupe key, written off here
+as "needs a new fixture file". **That sentence was asserted, not measured, and
+it was wrong** — see §7. It is now built and the component is gated.
 
 Every gate G1-G23 in the plan's table was built and every named mutant reddens
 it.
@@ -447,7 +448,7 @@ deleted in turn**. Two more were green:
 | component | before | now |
 |---|---|---|
 | `entity` | **green** | red — `Both()` in `EnrollmentService`, two entities on one line |
-| `file` | **green** | **still green — recorded, not gated** (§3) |
+| `file` | **green** | red — gated in **round 2**, see §7 |
 | `line` | red | red |
 | `type` | **green** | red — the `CourseAudit`/`CourseAdmin` pair |
 | `method` | red | red |
@@ -466,7 +467,7 @@ two types on one line would collapse and lose a real fact.
 | D-Hb-6 `line` | drop `ref.line` | 4 failed | clean |
 | D-Hb-6 `method` | drop `ref.method` | 3 failed | clean |
 | D-Hb-6 `via` | drop `ref.via` | 6 failed | clean |
-| D-Hb-6 `file` | drop `ref.file` | **0 failed — recorded, not gated** | clean |
+| D-Hb-6 `file` | drop `ref.file` | at round 1: **0 failed**. Gated in round 2 — see §7 | clean |
 | G7 second half (new) | N2: `decl.name === opts.contextDecl?.name` | `expected [] to deeply equal [ { entity: 'Course', …(5) } ]`; `expected 17 to be 18` | clean |
 | comparator `type` | drop the key (same as B1) | see G17b | clean |
 
@@ -491,7 +492,9 @@ from 13 refs to 18.
   truth; it is six now.
 - **N5 — reproduced, both halves.** Denominator corrected to 7 of **16**
   (repoA has one entity with `dbSetName: null`), and repoB measured at **8 of
-  9** and carried into §5.
+  9** and carried into §5. **Corrected in this file only — `progress.md` kept
+  the wrong 17 and never received the repoB figure at all.** Review round 2
+  caught that; §7 has it.
 - **N6 — reproduced and relabelled.** `merge.test.ts`'s second G20 case was
   called "the positive control" while its own comment explained why it is not
   one; under M20 it stays green. Now labelled CHARACTERIZATION, as is the third
@@ -512,3 +515,81 @@ the **dedupe key**, and three of those six components were dead too.
 
 **Probe every component of a composite, not the composite.** A key made of six
 fields is six claims.
+
+---
+
+## 7. Review round 2 — what changed
+
+Verdict **Fix first**, two blocking. Both reproduced before anything was
+edited. Round 2 also **confirmed my refutation** of the round-1 fixture
+suggestion: `CourseSlug` closes at `CoursesController.cs:11`, and
+`CourseAudit`/`CourseAdmin` at `:47` is the right construction.
+
+### B1 — "needs a new fixture file" was asserted, not measured, and is false
+
+Round 1 left D-Hb-6's `file` component ungated and gave a reason. The reason
+was never tested, and it propagated into four places: `audit.md`, `plan.md`'s
+Amendment 1, `progress.md`, and the gate file itself.
+
+Measured this round: the gate builds inside two files this phase already
+edits. A `Dup` class with a `Sync()` method naming `Course`, declared at the
+**same line number** in both `Controllers/CoursesController.cs` and
+`Services/EnrollmentService.cs`, produces two refs identical in entity, line,
+type, method and via — separable only by `file`. Reproduces the reviewer's
+numbers exactly: **20 refs**, entities 2, relations 1, warnings `[]`, and
+deleting `ref.file` from the dedupe key gives **19** with the
+`EnrollmentService` row gone.
+
+| Gate | Mutant | Failing assertion observed | Reverted |
+|---|---|---|---|
+| D-Hb-6 `file` (new) | drop `ref.file` from the dedupe key | `expected [ 'Controllers/CoursesController.cs' ] to deeply equal [ …(2) ]`; `expected 19 to be 20` | clean |
+| the gate's own precondition (new) | add one comment line above `Dup` in `EnrollmentService.cs` | `expected '// entity names are resolved, and \`Du…' to match /^public class Dup \{ public void Sync\(\)/` | clean |
+
+The second row is the point. **The alignment of the two line numbers is
+load-bearing and nothing in C# enforces it**: one added comment line and the
+pair stops tying on `line`, the dedupe key never reaches `file`, and the
+mutant goes quietly green — the gate would not fail, it would stop being a
+gate. So the gate file reads both source lines directly and asserts the
+declaration is where it must be. It fired on exactly that mutant, naming the
+reason. A gate whose precondition can silently evaporate needs a gate on the
+precondition.
+
+I hit the same trap while building it: my first two attempts put `Dup` on line
+56 and then 54. The construction script computed the resulting line number and
+refused to write unless it was 55 in both files, which is why neither
+misalignment reached the tree.
+
+All 26 pre-review mutants and all 10 from round 1 were re-run afterwards. Every
+one still reddens.
+
+### B2 — the correction reached the audit and not the handoff
+
+`progress.md` still said "7 of repoA's **17** DbSet names" — the figure
+corrected to 16 in round 1 — and never carried repoB's **8 of 9** at all.
+`progress.md` is the only state the next phase reads, so it was contradicting
+its own audit on a number the previous round had just fixed. Both numbers are
+now in it, with repoB named as the worse case. §6's N5 entry has been corrected
+too: it claimed the fix outright when it was true of this file only.
+
+**This is H-a's rule 2 — a correction carries the original's full evidence
+burden — failing on distribution rather than on evidence.** The measurement was
+right and landed in one of the two documents that needed it. Worth carrying:
+when a number is corrected, grep every phase document for the old value before
+calling it done.
+
+### Non-blocking, all reproduced
+
+- Amendment 1's component table had an empty middle column on all six rows.
+  Rebuilt as before/after, which is what it was trying to say.
+- The `D-Hb-6` describe was titled "the dedupe key keeps `type`" while holding
+  the `entity` and `file` cases too. Retitled "every component of the dedupe
+  key".
+- §1's "three extra key-deletion mutants … the two sort keys the plan does not
+  single out" was stale at three rows and two keys. It now names the three
+  comparator keys G17's row does not (`entity`, `file`, `line`) and points at
+  §6 for the sixth.
+- `progress.md`'s mutant arithmetic is now stated, not left to be inferred.
+- The dedupe key's `join("|")` would alias if a component contained `|`.
+  Unreachable for C# identifiers and repo-relative paths, and pre-existing;
+  recorded in the walker rather than changed, since changing it would be an
+  unmeasured fix to a problem no input has.

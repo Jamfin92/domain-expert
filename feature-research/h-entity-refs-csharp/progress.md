@@ -1,6 +1,6 @@
 # Phase H-b1 — entity references, C# side, extraction half — PROGRESS
 
-**Status: BUILT, review round 1 fixes applied, gates green, awaiting
+**Status: BUILT, review rounds 1 and 2 applied, gates green, awaiting
 re-review.** Plan `plan.md` (rev 2, approved after rev 1 was rejected at plan
 review) plus **Amendment 1**, which records the one design change review round
 1 forced. Audit with the full mutant table and every measured number:
@@ -14,7 +14,7 @@ bc9a893  H-b1: EntityRef in @psq/schema, and the C# walker that fills it
 b544419  H-b1: make G17's sort keys actually observable, not merely tied
 ef7b436  docs: H-b1 plan (rev 2), the implementation audit and the phase record
 5bd02ab  docs: note the untracked plan files the docs commit picked up
-         + review round 1 fixes (see git log)
+         + review rounds 1 and 2 (see git log)
 ```
 
 **Not pushed.** master stays ahead of origin — James's standing call since
@@ -33,13 +33,20 @@ phase E.
 
 Visible today through the existing `GET /api/repos/:id/graph`. No new route.
 
-**Final:** `pnpm test` **444 passed (444)**. `PSQ_NO_CORPUS=1 pnpm test`
-**386 passed / 58 skipped (444)**. `pnpm typecheck` exit 0, four projects.
+**Final:** `pnpm test` **446 passed (446)**. `PSQ_NO_CORPUS=1 pnpm test`
+**388 passed / 58 skipped (446)**. `pnpm typecheck` exit 0, four projects.
 Baseline was 421 / 363+58. **Skipped held at 58 through every run** — 31 mutant
-runs before review, 40 after. `pnpm test:e2e` was never run.
+runs before review, 40 after round 1, 41 after round 2. `pnpm test:e2e` was never run.
 
-**26 gates, 34 named mutants, 33 demonstrated red.** The one that does not is
-D-Hb-6's `file` dedupe component, recorded not gated — see below.
+**The plan's G1-G23, plus G17b, five D-Hb-6 component gates, G7's second half
+and one gate on a gate's precondition — 25 test cases across three files.**
+
+**38 mutants run, every one demonstrated red.** Counted from `audit.md`: §1's
+26 named rows + 3 unnamed comparator probes, §6's 8 new ones (its ninth row is
+labelled "same as B1"), and §7's 1 new one (its other row is §6's `file`
+mutant, re-run now that it reddens). A reader counting table rows finds 40,
+because two are deliberate cross-references. **Nothing is recorded-not-gated
+any more:** review round 2 closed the last one, D-Hb-6's `file` component.
 
 ## The finding this phase turns on
 
@@ -108,8 +115,8 @@ Rules earned, added to H-a's four:
   → **type** → method`, code-unit only. **Six keys, amended from five in review
   round 1** (Amendment 1): `type` was emitted and deduped on but never
   compared, while the comment claimed the order was total over the tuple. All
-  six comparator keys have a deletion mutant that reddens, and so do five of
-  the six dedupe components.
+  six comparator keys and **all six** dedupe components have a deletion mutant
+  that reddens — the last, `file`, was closed in review round 2.
 - **D-Hb-12** — `.default([])` plus the version bump. Both halves gated (G22,
   G23) and each redundant-looking half has the other's mutant as its control.
 - **D-Hb-13/14** — name-keyed, imprecision gated by G19 and **measured at 0 on
@@ -122,12 +129,17 @@ Rules earned, added to H-a's four:
   The plan's baseline (232 / 161 / 73 / 5-of-10) is **refuted**; only
   `dbSetName` reproduced. The plan's own split also summed to 234, not the 232
   it stated. No design decision rested on it.
-- **`via: "dbSetName"` does not mean "went through the DbContext".** EF gives a
-  navigation collection the same name as the DbSet, and **7 of repoA's 17
-  DbSet names are also nav-property names**. In a hand-checked 15-ref sample,
-  **3 are nav-property accesses**: 15/15 true as *mentions*, 12/15 as *DbSet
-  accesses*. Honest as a match rule; wrong if anyone later reads it as an
-  access kind.
+- **`via: "dbSetName"` does not mean "went through the DbContext" — the
+  phase's largest soft spot, and worse on repoB than on repoA.** EF names a
+  navigation collection after the entity exactly as it names the DbSet, so the
+  `.`-preceded rule cannot tell `db.Payments` from `creditLine.Payments`.
+  Measured: **7 of repoA's 16 DbSet names** and **8 of repoB's 9** are also
+  navigation-property names. (16, not 17: repoA has 17 entities and the
+  Identity-derived `User` has `dbSetName: null`, so it has no DbSet name to
+  collide with.) In a hand-checked 15-ref repoA sample, **3 are nav-property
+  accesses**: 15/15 true as *mentions*, 12/15 as *DbSet accesses*. Honest as a
+  match rule; wrong if anyone later reads it as an access kind — and on repoB,
+  at 8 of 9, wrong far more often.
 - **Name-keying costs 0 on the corpus** — neither repo declares any type name
   twice, so `resolveType` has nothing to disambiguate. The criterion cannot see
   a same-named type from a package or a `global using`, so this is "0 today",
@@ -138,10 +150,11 @@ Rules earned, added to H-a's four:
 - **`mini-efcore` did not move**: 5 entities, 4 relations, 0 shapes, 0
   warnings, `entityRefs: []`. The plan flagged any movement as a finding; there
   was none.
-- **`mini-efcore-refs`**: 2 entities, 0 shapes, 1 relation, 0 warnings, **18
-  refs** — all six pinned. (13 refs before review round 1 added three
-  reachability constructs; and `relations` was claimed pinned in the audit
-  while asserted nowhere, which round 1 caught.)
+- **`mini-efcore-refs`**: 2 entities, 0 shapes, 1 relation, 0 warnings, **20
+  refs** — all six pinned. (13 refs as first built; +5 in review round 1 for
+  three reachability constructs, +2 in round 2 for the `file` one. `relations`
+  was claimed pinned in the audit while asserted nowhere, which round 1
+  caught.)
 
 ## Known gaps, recorded deliberately
 
@@ -161,11 +174,15 @@ Rules earned, added to H-a's four:
   `entityRefs` as a fourth. H-a2 owns it.
 - **`resolveType`'s doc comment about repoB's shadow copies is stale** — repoB
   has 0 duplicate type names across its 28 read files. Not this phase's file.
-- **D-Hb-6's `file` dedupe component is ungated**, measured: deleting
-  `ref.file` from the key leaves the suite green. Collapsing on it needs two
-  files declaring same-named types with same-named methods mentioning the same
-  entity at the same line number, which needs a new fixture file. Recorded in
-  the gate file and in Amendment 1.
+- **The `file` dedupe gate rests on a line-number coincidence that nothing in
+  C# enforces.** `Dup.Sync` must stay on the SAME line (`DUP_LINE`, currently
+  55) in both `Controllers/CoursesController.cs` and
+  `Services/EnrollmentService.cs`; one added comment line in either and the
+  pair stops tying on `line`, after which deleting `ref.file` from the dedupe
+  key goes quietly green. `entity-refs.test.ts` therefore reads both source
+  lines and asserts the declaration is there, so a misalignment reddens with
+  the reason named rather than silently ungating. **Do not "tidy" either
+  file's comments without re-running that test.**
 - **G17's `localeCompare` gate is ICU-dependent by construction.** It rests on
   node collating `_` before letters while code units put it after
   (`"_Stale/Student.cs".localeCompare("Stale/Student.cs") === -1`, node

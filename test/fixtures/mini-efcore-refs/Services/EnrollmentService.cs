@@ -23,3 +23,33 @@ public class EnrollmentService
     // found ungated by the reviewer.
     public void Both() { Student s = null!; Course c = null!; _ = (s, c); }
 }
+// D-Hb-6, the `file` component of the dedupe key — the last component that had
+// no mutant, and the reason this file is padded out to the length of
+// `Controllers/CoursesController.cs`.
+//
+// The dedupe key is `entity|file|line|type|method|via`, six fields, and under
+// rule 1 each one is a separate claim. Review round 1 deleted all six in turn
+// and found three dead: `type` (the reviewer's finding), `entity`, and this
+// one. The first two were gated then. This one was written off in the audit,
+// the plan amendment and the gate file with the same unmeasured
+// because-clause — "it needs a new fixture file" — which review round 2
+// disproved by building it in the two files the phase already edits.
+//
+// Collapsing on `file` needs two refs identical in entity, line, type, method
+// and via, in two DIFFERENT files. So: one class of the same name, with a
+// method of the same name, mentioning the same entity the same way, declared
+// at the SAME LINE NUMBER in both files. `Dup.Sync` below and its twin in
+// CoursesController.cs are that pair, both on line 55.
+//
+// The two line numbers MUST stay equal. Add or remove a single line above
+// this point in either file and the pair stops tying on `line`, the dedupe
+// key never reaches `file`, and the mutant that deletes `ref.file` goes
+// quietly green again — the gate would not fail, it would just stop being a
+// gate. `entity-refs.test.ts` therefore asserts the tie itself, by line
+// number and in both files, so a misalignment reddens loudly instead of
+// silently ungating.
+//
+// Two same-named classes in different namespaces is also, incidentally, the
+// shape `resolveType` exists to disambiguate. It never looks `Dup` up: only
+// entity names are resolved, and `Dup` is not one.
+public class Dup { public void Sync() { Course d = null!; _ = d; } }

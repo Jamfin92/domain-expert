@@ -45,3 +45,11 @@ public class CoursesController
 // `CourseAudit` is written FIRST for the same reason `Zulu` is: a tie already
 // in ascending order is a no-op under a stable sort.
 public class CourseAudit { public void Sync() { Course a = null!; _ = a; } } public class CourseAdmin { public void Sync() { Course b = null!; _ = b; } }
+// D-Hb-6, the `file` component of the dedupe key.
+//
+// `Dup.Sync` below is declared on line 55 of THIS file and on line 55 of
+// `Services/EnrollmentService.cs`, with the same type name, method name,
+// entity and via. That is the only pair in the fixture that can tie on
+// everything except `file`. The longer note is in EnrollmentService.cs; the
+// one thing to know here is that the two line numbers MUST stay equal.
+public class Dup { public void Sync() { Course d = null!; _ = d; } }

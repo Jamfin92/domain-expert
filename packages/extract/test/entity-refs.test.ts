@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { EntityRef } from "@psq/schema";
 import { extractDotnet } from "../src/dotnet.js";
 import { MINI_EFCORE, MINI_EFCORE_REFS } from "../../../test/fixtures.js";
@@ -13,6 +15,13 @@ const STUDENTS = "Controllers/StudentsController.cs";
 const COURSES = "Controllers/CoursesController.cs";
 const STALE = "_Stale/Student.cs";
 const SERVICE = "Services/EnrollmentService.cs";
+
+/**
+ * `Dup.Sync` is declared at this line in BOTH `COURSES` and `SERVICE`, which
+ * is the only way two refs can tie on everything except `file`. The equality
+ * of the two line numbers is the gate; the value itself is arbitrary.
+ */
+const DUP_LINE = 55;
 
 /**
  * The fixture's shape, pinned. If any of these move, a gate below is reading
@@ -50,7 +59,8 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
   //       StudentsController:23 ties on entity+file+line and separates on
   //       `via`; CoursesController:35 ties on entity+file+line+via and
   //       separates on `method`; CoursesController:47 ties on everything but
-  //       `type`; and `_Stale/` vs the letter-named
+  //       `type`; `Dup.Sync` at DUP_LINE in two files ties on everything but
+  //       `file`; and `_Stale/` vs the letter-named
   //       directories is the one file pair ICU orders differently from code
   //       units, which is what makes the localeCompare mutant reddenable.
   it("is exactly this, in exactly this order", () => {
@@ -60,9 +70,11 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
       { entity: "Course", file: COURSES, line: 35, type: "CoursesController", method: "Zulu", via: "entityName" },
       { entity: "Course", file: COURSES, line: 47, type: "CourseAdmin", method: "Sync", via: "entityName" },
       { entity: "Course", file: COURSES, line: 47, type: "CourseAudit", method: "Sync", via: "entityName" },
+      { entity: "Course", file: COURSES, line: DUP_LINE, type: "Dup", method: "Sync", via: "entityName" },
       { entity: "Course", file: "Data/RefsDbContext.cs", line: 18, type: "RefsDbContext", method: "SeedFirstCourse", via: "entityName" },
       { entity: "Course", file: SERVICE, line: 15, type: "EnrollmentService", method: "Enroll", via: "dbSetName" },
       { entity: "Course", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName" },
+      { entity: "Course", file: SERVICE, line: DUP_LINE, type: "Dup", method: "Sync", via: "entityName" },
       { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName" },
       { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName" },
       { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "entityName" },
@@ -107,7 +119,7 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
   });
 });
 
-describe("D-Hb-6: the dedupe key keeps `type`", () => {
+describe("D-Hb-6: every component of the dedupe key", () => {
   it("two types with same-named methods on ONE line are two refs, not one", () => {
     // The dedupe key is the whole emitted tuple. Drop `type` from it and the
     // pair on CoursesController:47 collapses, losing a real fact — one of the
@@ -127,14 +139,28 @@ describe("D-Hb-6: the dedupe key keeps `type`", () => {
     expect(tie.map((r) => r.entity)).toEqual(["Course", "Student"]);
   });
 
-  // The `file` component is RECORDED, NOT GATED, and measured: deleting
-  // `ref.file` from the key leaves the whole hermetic suite green. Collapsing
-  // it needs two refs identical in entity, line, type, method and via across
-  // two DIFFERENT files — so two files declaring same-named types with
-  // same-named methods mentioning the same entity on the same line number.
-  // That needs a new fixture file, which is scope review round 1 did not
-  // open. The comparator's `file` key IS gated (dropping it reorders the
-  // array); only the dedupe component is not.
+  it("the same type, method, entity and via in TWO files are two refs", () => {
+    // The `file` component, and the last one to get a mutant. Round 1 wrote it
+    // off as needing a new fixture file; round 2 disproved that by building it
+    // in two files this phase already edits. `Dup.Sync` sits at DUP_LINE in
+    // both, so the pair ties on entity, line, type, method and via and can
+    // only be separated by `file`.
+    const tie = refs.filter((r) => r.line === DUP_LINE && r.type === "Dup");
+    expect(tie.map((r) => r.file)).toEqual([COURSES, SERVICE]);
+  });
+
+  it("and the two Dup declarations really are on the same line", () => {
+    // The gate on the gate. The tie above exists only while the two `Dup`
+    // classes share a line number, and nothing in C# enforces that — one
+    // added comment line in either file and the pair stops tying on `line`,
+    // after which deleting `ref.file` from the key goes quietly green again.
+    // Read from source rather than from the graph, so this cannot be
+    // satisfied by the same walker bug it is protecting.
+    for (const file of [COURSES, SERVICE]) {
+      const lines = readFileSync(join(MINI_EFCORE_REFS, file), "utf8").split("\n");
+      expect(lines[DUP_LINE - 1]).toMatch(/^public class Dup \{ public void Sync\(\)/);
+    }
+  });
 });
 
 describe("G4: the walker is not controller-scoped", () => {
@@ -252,6 +278,6 @@ describe("G21: a repo whose only mentions are in OnModelCreating yields []", () 
     expect(extractDotnet(MINI_EFCORE).entityRefs).toEqual([]);
     // The positive control, and it must be in this same run: "[] " is also
     // what a walker that never emits anything returns.
-    expect(refs.length).toBe(18);
+    expect(refs.length).toBe(20);
   });
 });

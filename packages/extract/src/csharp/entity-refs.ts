@@ -157,7 +157,15 @@ export function collectEntityRefs(
 
           // Two mentions on one line collapse; two on different lines do not.
           // The key is the whole emitted tuple, so nothing is deduped away
-          // that a consumer could have told apart.
+          // that a consumer could have told apart. Each of the six components
+          // has a deletion mutant that reddens — three of them did not until
+          // review rounds 1 and 2 went looking.
+          //
+          // `join("|")` would alias if a component contained a `|`. Recorded,
+          // not fixed: C# identifiers cannot contain one and neither can a
+          // repo-relative path this reader produces, so no input reaches it,
+          // and a separator change would be an unmeasured fix to a problem
+          // nothing has.
           const key = [ref.entity, ref.file, ref.line, ref.type, ref.method, ref.via].join("|");
           if (seen.has(key)) continue;
           seen.add(key);

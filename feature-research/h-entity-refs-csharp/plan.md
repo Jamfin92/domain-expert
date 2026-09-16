@@ -422,21 +422,29 @@ The dedupe key was specified as `entity|file|line|type|method|via` and, under
 rule 1, each component is a plan-specified behaviour needing a named mutant.
 Rev 2 shipped none. Measured by deleting each component in turn:
 
-| component | deleted from the key | result |
-|---|---|---|
-| `entity` | | **was green** — now gated |
-| `file` | | **green** — see below |
-| `line` | | red |
-| `type` | | **was green** — now gated |
-| `method` | | red |
-| `via` | | red |
+Each row is that one component deleted from the key, suite re-run:
 
-**`file` stays ungated and is recorded as such.** Collapsing on it needs two
-refs identical in entity, line, type, method and via across two *different*
-files — two files declaring same-named types with same-named methods
-mentioning the same entity at the same line number. That needs a new fixture
-file, which is scope this review did not open. The comparator's `file` key is
-gated; only the dedupe component is not.
+| component deleted | before round 1 | now |
+|---|---|---|
+| `entity` | green — ungated | red — gated in round 1 |
+| `file` | green — ungated | red — gated in round 2 |
+| `line` | red | red |
+| `type` | green — ungated | red — gated in round 1 |
+| `method` | red | red |
+| `via` | red | red |
+
+**All six are gated.** Round 1 wrote `file` off as needing a new fixture file.
+**That was asserted, not measured, and review round 2 disproved it** by
+building the gate in two files the phase already edits: a `Dup` class with a
+`Sync()` method naming `Course`, declared at the *same line number* in both
+`Controllers/CoursesController.cs` and `Services/EnrollmentService.cs`. The
+pair ties on entity, line, type, method and via, so only `file` separates it;
+deleting `ref.file` from the key drops the graph from 20 refs to 19.
+
+That coincidence of line numbers is load-bearing and nothing in C# enforces
+it, so the gate file also reads both source lines and asserts the declaration
+is where it must be. A gate whose precondition can silently evaporate needs a
+gate on the precondition.
 
 ## Fixture additions, all three for reachability only
 
@@ -446,6 +454,9 @@ gated; only the dedupe component is not.
   learned.
 - `Services/EnrollmentService.cs` — `Both()`, two different entities on one
   physical line. The only tie on everything but `entity`.
+- `Controllers/CoursesController.cs` **and** `Services/EnrollmentService.cs` —
+  `Dup.Sync` at the same line number in both (added in review round 2). The
+  only tie on everything but `file`.
 - `_Stale/Student.cs` — a gutted class sharing the detected context's **name**
   with its own `OnModelCreating`, and no `DbContext` base. D-Hb-5 compares the
   declaration by object identity, and rev 2 asserted nothing that could tell
