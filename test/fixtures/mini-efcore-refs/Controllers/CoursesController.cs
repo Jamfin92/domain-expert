@@ -34,3 +34,14 @@ public class CoursesController
     // DESCENDING order can observe it.
     public void Zulu() { Course a = null!; _ = a; } public void Alpha() { Course b = null!; _ = b; }
 }
+
+// G17b, added in review round 1. A tie on everything EXCEPT `type`: two types
+// on one physical line, each with a method of the same name naming the same
+// entity with the same via. Nothing else in the fixture can produce one, and
+// without it `type` was deduped on but never compared — so two refs differing
+// only in `type` tied completely and came out in whatever order the walker
+// happened to emit them.
+//
+// `CourseAudit` is written FIRST for the same reason `Zulu` is: a tie already
+// in ascending order is a no-op under a stable sort.
+public class CourseAudit { public void Sync() { Course a = null!; _ = a; } } public class CourseAdmin { public void Sync() { Course b = null!; _ = b; } }

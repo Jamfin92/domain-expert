@@ -1,15 +1,20 @@
 # Phase H-b1 — entity references, C# side, extraction half — PROGRESS
 
-**Status: BUILT, gates green, awaiting review.** Plan `plan.md` (rev 2,
-approved after rev 1 was rejected at plan review) followed. Audit with the full
-mutant table and every measured number: `audit.md`.
+**Status: BUILT, review round 1 fixes applied, gates green, awaiting
+re-review.** Plan `plan.md` (rev 2, approved after rev 1 was rejected at plan
+review) plus **Amendment 1**, which records the one design change review round
+1 forced. Audit with the full mutant table and every measured number:
+`audit.md`; round 1 is its §6.
 
-Three commits on `master`, `8de5fce` → `b544419`, plus the docs commit:
+On `master` from `8de5fce`:
 
 ```
 bc9a893  H-b1: EntityRef in @psq/schema, and the C# walker that fills it
 335fac1  H-b1: the mini-efcore-refs fixture and gates G1-G23
 b544419  H-b1: make G17's sort keys actually observable, not merely tied
+ef7b436  docs: H-b1 plan (rev 2), the implementation audit and the phase record
+5bd02ab  docs: note the untracked plan files the docs commit picked up
+         + review round 1 fixes (see git log)
 ```
 
 **Not pushed.** master stays ahead of origin — James's standing call since
@@ -28,12 +33,13 @@ phase E.
 
 Visible today through the existing `GET /api/repos/:id/graph`. No new route.
 
-**Final:** `pnpm test` **440 passed (440)**. `PSQ_NO_CORPUS=1 pnpm test`
-**382 passed / 58 skipped (440)**. `pnpm typecheck` exit 0, four projects.
-Baseline was 421 / 363+58. **Skipped held at 58 through all 31 mutant runs.**
-`pnpm test:e2e` was never run.
+**Final:** `pnpm test` **444 passed (444)**. `PSQ_NO_CORPUS=1 pnpm test`
+**386 passed / 58 skipped (444)**. `pnpm typecheck` exit 0, four projects.
+Baseline was 421 / 363+58. **Skipped held at 58 through every run** — 31 mutant
+runs before review, 40 after. `pnpm test:e2e` was never run.
 
-**23 gates, 26 named mutants, every one demonstrated red.**
+**26 gates, 34 named mutants, 33 demonstrated red.** The one that does not is
+D-Hb-6's `file` dedupe component, recorded not gated — see below.
 
 ## The finding this phase turns on
 
@@ -73,7 +79,13 @@ Rules earned, added to H-a's four:
 5. **A precondition for reachability is not reachability.** After building a
    gate for an ordering, a default, or a tiebreak, delete the thing it gates
    and confirm the suite reddens. Do not reason about whether it would.
-6. **The JSON reporter drops the vitest diff.** `failureMessages` carries only
+6. **Probe every component of a composite, not the composite.** Review round
+   1 found `type` was in the emitted tuple and in the dedupe key and in no
+   comparator key — while the comparator's own comment called itself total.
+   Deleting each of the six dedupe components in turn then found **three**
+   dead, not one. A key made of six fields is six claims, and rev 2 tested it
+   as one.
+7. **The JSON reporter drops the vitest diff.** `failureMessages` carries only
    "expected [...] to deeply equal [...]". A sweep harness must run
    `--reporter=default` alongside `--reporter=json` and read the `- Expected /
    + Received` block, or it records that a whole-object gate reddened without
@@ -93,7 +105,11 @@ Rules earned, added to H-a's four:
   Constructor bodies are invisible because `parseCSharp` captures no
   constructors — a hole, not a choice.
 - **D-Hb-6/7** — dedupe on the whole tuple; sorted `entity → file → line → via
-  → method`, code-unit only. All five keys have a deletion mutant that reddens.
+  → **type** → method`, code-unit only. **Six keys, amended from five in review
+  round 1** (Amendment 1): `type` was emitted and deduped on but never
+  compared, while the comment claimed the order was total over the tuple. All
+  six comparator keys have a deletion mutant that reddens, and so do five of
+  the six dedupe components.
 - **D-Hb-12** — `.default([])` plus the version bump. Both halves gated (G22,
   G23) and each redundant-looking half has the other's mutant as its control.
 - **D-Hb-13/14** — name-keyed, imprecision gated by G19 and **measured at 0 on
@@ -122,8 +138,10 @@ Rules earned, added to H-a's four:
 - **`mini-efcore` did not move**: 5 entities, 4 relations, 0 shapes, 0
   warnings, `entityRefs: []`. The plan flagged any movement as a finding; there
   was none.
-- **`mini-efcore-refs`**: 2 entities, 0 shapes, 1 relation, 0 warnings, **13
-  refs** — all pinned.
+- **`mini-efcore-refs`**: 2 entities, 0 shapes, 1 relation, 0 warnings, **18
+  refs** — all six pinned. (13 refs before review round 1 added three
+  reachability constructs; and `relations` was claimed pinned in the audit
+  while asserted nowhere, which round 1 caught.)
 
 ## Known gaps, recorded deliberately
 
@@ -143,6 +161,18 @@ Rules earned, added to H-a's four:
   `entityRefs` as a fourth. H-a2 owns it.
 - **`resolveType`'s doc comment about repoB's shadow copies is stale** — repoB
   has 0 duplicate type names across its 28 read files. Not this phase's file.
+- **D-Hb-6's `file` dedupe component is ungated**, measured: deleting
+  `ref.file` from the key leaves the suite green. Collapsing on it needs two
+  files declaring same-named types with same-named methods mentioning the same
+  entity at the same line number, which needs a new fixture file. Recorded in
+  the gate file and in Amendment 1.
+- **G17's `localeCompare` gate is ICU-dependent by construction.** It rests on
+  node collating `_` before letters while code units put it after
+  (`"_Stale/Student.cs".localeCompare("Stale/Student.cs") === -1`, node
+  v24.19.0). If node's ICU ever changes that, the gate stops distinguishing the
+  two comparators and goes quietly green — it does not fail loudly. Same
+  property as H-a's H9c, which was accepted on the same terms. **This is not a
+  flake; do not log it as one.**
 - **`apps/server/package.json` still does not declare `zod`.** Examined and
   accepted for the sixth time.
 - **The version bump re-extracts every stored repo on the next boot.** One
@@ -171,6 +201,8 @@ flake appeared in the baseline runs, the 31 mutant runs, or the final runs.
 Read this file and `audit.md`, then write a **new** plan. H-b1 is closed.
 
 **Before accepting any gate on an ordering, a default or a tiebreak, delete the
-thing it gates and watch the suite go red.** That is the one process change
-this phase paid for, and it cost three gates that had already survived a plan
-rejection written specifically to catch gates like them.
+thing it gates and watch the suite go red — and if the thing is composite,
+delete each component separately.** That is the process change this phase paid
+for twice: three dead comparator keys found before review, three dead dedupe
+components found by it, in a plan rejection and a build both written
+specifically to catch exactly that.

@@ -37,8 +37,11 @@ export interface EntityRefOptions {
    * relations, keys and indexes, so re-reporting them as references would say
    * that configuring an entity is a use of it.
    *
-   * Compared by object identity, not by name — a second class called
-   * `AppDbContext` in another namespace is not the detected context.
+   * Compared by object identity, not by name. `_Stale/Student.cs` carries a
+   * gutted class that shares the detected context's NAME and has its own
+   * `OnModelCreating`; it is not the detected context and its mentions are
+   * refs. G7 asserts both halves, so rewriting this to `decl.name ===
+   * opts.contextDecl?.name` reddens — which it did not before review round 1.
    */
   contextDecl: TypeDecl | null;
 }
@@ -55,13 +58,28 @@ function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** `entity -> file -> line -> via -> method`, total over the emitted tuple. */
+/**
+ * `entity -> file -> line -> via -> type -> method`.
+ *
+ * Six keys, which is every field of `EntityRef` — so the order really is
+ * total over the emitted tuple, and the comparator's key set is exactly the
+ * dedupe key's. Before review round 1 the comment said "total" over five
+ * keys, with `type` deduped on but never compared: two refs differing only in
+ * `type` tied completely and fell back to `Array.prototype.sort` stability,
+ * i.e. to source order. `type` was inserted rather than appended so the
+ * relative order of the five original keys is untouched.
+ *
+ * Each of the six has a deletion mutant that reddens the suite, and so does
+ * deleting any one of them from the dedupe key. Neither claim is reasoning:
+ * both were run.
+ */
 export function compareEntityRefs(a: EntityRef, b: EntityRef): number {
   return (
     cmp(a.entity, b.entity) ||
     cmp(a.file, b.file) ||
     a.line - b.line ||
     cmp(a.via, b.via) ||
+    cmp(a.type, b.type) ||
     cmp(a.method, b.method)
   );
 }
@@ -106,6 +124,12 @@ export function collectEntityRefs(
 
           // The DbSet rule first: `_db.Students` is a use of the set, whereas
           // a bare `Students` is a local that happens to share the name.
+          //
+          // `prev.kind === "punct"` is RECORDED, NOT GATED, and measured
+          // inert: the lexer never emits a bare `.` under any other kind —
+          // the `.` in `1.5` is part of the number token — so dropping the
+          // conjunct leaves the whole suite green. Kept for the reader, in
+          // the same category as D-Hb-3's absent `kind` filter.
           const prev = i > 0 ? body[i - 1]! : null;
           if (prev !== null && prev.kind === "punct" && prev.text === ".") {
             entity = byDbSetName.get(tok.text);

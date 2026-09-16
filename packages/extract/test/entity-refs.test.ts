@@ -11,6 +11,8 @@ const refs = graph.entityRefs;
 
 const STUDENTS = "Controllers/StudentsController.cs";
 const COURSES = "Controllers/CoursesController.cs";
+const STALE = "_Stale/Student.cs";
+const SERVICE = "Services/EnrollmentService.cs";
 
 /**
  * The fixture's shape, pinned. If any of these move, a gate below is reading
@@ -22,6 +24,7 @@ describe("the mini-efcore-refs fixture itself", () => {
     expect(graph.entities.map((e) => e.name)).toEqual(["Course", "Student"]);
     expect(graph.entities.map((e) => e.dbSetName)).toEqual(["Courses", "Students"]);
     expect(graph.shapes).toEqual([]);
+    expect(graph.relations.map((r) => r.id)).toEqual(["Student.CourseId->Course"]);
     expect(graph.warnings).toEqual([]);
   });
 });
@@ -43,10 +46,11 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
   //   G10 two mentions on two lines are two refs (Pair, 30 and 32)
   //   G11 two mentions on one line are one ref (Pair line 30 holds two)
   //   G16 `via` is `dbSetName` only for a `.`-preceded DbSet match
-  //   G17 the order, code-unit only, with both tie-breaking keys exercised:
+  //   G17 the order, code-unit only, with every tie-breaking key exercised:
   //       StudentsController:23 ties on entity+file+line and separates on
   //       `via`; CoursesController:35 ties on entity+file+line+via and
-  //       separates on `method`; and `_Stale/` vs the letter-named
+  //       separates on `method`; CoursesController:47 ties on everything but
+  //       `type`; and `_Stale/` vs the letter-named
   //       directories is the one file pair ICU orders differently from code
   //       units, which is what makes the localeCompare mutant reddenable.
   it("is exactly this, in exactly this order", () => {
@@ -54,16 +58,21 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
       { entity: "Course", file: COURSES, line: 20, type: "CoursesController", method: "Slug", via: "entityName" },
       { entity: "Course", file: COURSES, line: 35, type: "CoursesController", method: "Alpha", via: "entityName" },
       { entity: "Course", file: COURSES, line: 35, type: "CoursesController", method: "Zulu", via: "entityName" },
+      { entity: "Course", file: COURSES, line: 47, type: "CourseAdmin", method: "Sync", via: "entityName" },
+      { entity: "Course", file: COURSES, line: 47, type: "CourseAudit", method: "Sync", via: "entityName" },
       { entity: "Course", file: "Data/RefsDbContext.cs", line: 18, type: "RefsDbContext", method: "SeedFirstCourse", via: "entityName" },
-      { entity: "Course", file: "Services/EnrollmentService.cs", line: 15, type: "EnrollmentService", method: "Enroll", via: "dbSetName" },
+      { entity: "Course", file: SERVICE, line: 15, type: "EnrollmentService", method: "Enroll", via: "dbSetName" },
+      { entity: "Course", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName" },
+      { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName" },
       { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName" },
       { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "entityName" },
       { entity: "Student", file: STUDENTS, line: 30, type: "StudentsController", method: "Pair", via: "entityName" },
       { entity: "Student", file: STUDENTS, line: 32, type: "StudentsController", method: "Pair", via: "entityName" },
       { entity: "Student", file: STUDENTS, line: 55, type: "StudentsController", method: "Locals", via: "entityName" },
       { entity: "Student", file: STUDENTS, line: 56, type: "StudentsController", method: "Locals", via: "dbSetName" },
-      { entity: "Student", file: "Services/EnrollmentService.cs", line: 14, type: "EnrollmentService", method: "Enroll", via: "entityName" },
-      { entity: "Student", file: "_Stale/Student.cs", line: 24, type: "Student", method: "Touch", via: "entityName" },
+      { entity: "Student", file: SERVICE, line: 14, type: "EnrollmentService", method: "Enroll", via: "entityName" },
+      { entity: "Student", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName" },
+      { entity: "Student", file: STALE, line: 24, type: "Student", method: "Touch", via: "entityName" },
     ];
     expect(refs).toEqual(expected);
   });
@@ -78,6 +87,17 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
     expect(tie.map((r) => r.via)).toEqual(["dbSetName", "entityName"]);
   });
 
+  it("and on everything but `type`, so the `type` key is reachable", () => {
+    // Two types on ONE line with same-named methods. Added in review round 1:
+    // `type` was in the emitted tuple and in the dedupe key but not in the
+    // comparator, so a pair like this tied completely and came out in the
+    // order the walker happened to emit it. Source order is `CourseAudit`
+    // then `CourseAdmin`; the comparator is what reverses them.
+    const tie = refs.filter((r) => r.entity === "Course" && r.file === COURSES && r.line === 47);
+    expect(tie.map((r) => r.method)).toEqual(["Sync", "Sync"]);
+    expect(tie.map((r) => r.type)).toEqual(["CourseAdmin", "CourseAudit"]);
+  });
+
   it("and on entity+file+line+via, so the `method` key is reachable", () => {
     const tie = refs.filter((r) => r.entity === "Course" && r.file === COURSES && r.line === 35);
     expect(tie.map((r) => r.via)).toEqual(["entityName", "entityName"]);
@@ -85,6 +105,36 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
     // the only thing that puts them the other way round.
     expect(tie.map((r) => r.method)).toEqual(["Alpha", "Zulu"]);
   });
+});
+
+describe("D-Hb-6: the dedupe key keeps `type`", () => {
+  it("two types with same-named methods on ONE line are two refs, not one", () => {
+    // The dedupe key is the whole emitted tuple. Drop `type` from it and the
+    // pair on CoursesController:47 collapses, losing a real fact — one of the
+    // two classes stops being reported as referencing the entity at all.
+    // Ungated until review round 1: deleting `ref.type` from the key left the
+    // full hermetic suite green at 382/58.
+    const tie = refs.filter((r) => r.file === COURSES && r.line === 47);
+    expect(tie.length).toBe(2);
+    expect(new Set(tie.map((r) => r.type)).size).toBe(2);
+  });
+
+  it("two DIFFERENT entities on one line are two refs, not one", () => {
+    // The `entity` component, found ungated by probing all six components of
+    // the key after the reviewer found `type` ungated. Same failure mode: the
+    // second entity mentioned on the line stops being reported at all.
+    const tie = refs.filter((r) => r.file === SERVICE && r.line === 24);
+    expect(tie.map((r) => r.entity)).toEqual(["Course", "Student"]);
+  });
+
+  // The `file` component is RECORDED, NOT GATED, and measured: deleting
+  // `ref.file` from the key leaves the whole hermetic suite green. Collapsing
+  // it needs two refs identical in entity, line, type, method and via across
+  // two DIFFERENT files — so two files declaring same-named types with
+  // same-named methods mentioning the same entity on the same line number.
+  // That needs a new fixture file, which is scope review round 1 did not
+  // open. The comparator's `file` key IS gated (dropping it reorders the
+  // array); only the dedupe component is not.
 });
 
 describe("G4: the walker is not controller-scoped", () => {
@@ -106,12 +156,22 @@ describe("G6: a mention outside any method body yields nothing", () => {
 });
 
 describe("G7: OnModelCreating on the detected context contributes nothing", () => {
-  it("no ref names it, while another method on the same class does contribute", () => {
-    expect(refs.filter((r) => r.method === "OnModelCreating")).toEqual([]);
+  it("no ref comes from it, while another method on the same class does contribute", () => {
+    expect(refs.filter((r) => r.file === "Data/RefsDbContext.cs" && r.method === "OnModelCreating"))
+      .toEqual([]);
     // The control has to be on RefsDbContext itself: "no OnModelCreating ref"
     // is equally true of a walker that skips the whole context type.
-    expect(refs.filter((r) => r.type === "RefsDbContext").map((r) => r.method))
+    expect(refs.filter((r) => r.file === "Data/RefsDbContext.cs").map((r) => r.method))
       .toEqual(["SeedFirstCourse"]);
+  });
+
+  it("but a gutted class merely SHARING its name is not the detected context", () => {
+    // D-Hb-5 excludes one declaration, compared by object identity. Compare by
+    // NAME instead and this ref disappears — and before review round 1 there
+    // was no such class in the fixture, so that rewrite left the suite green.
+    expect(refs.filter((r) => r.file === STALE && r.method === "OnModelCreating")).toEqual([
+      { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName" },
+    ]);
   });
 });
 
@@ -173,8 +233,8 @@ describe("G19: D-Hb-13 — name-keying, made visible rather than hidden", () => 
     // the stated imprecision; the phase audit puts a number on its cost.
     expect(graph.entities.find((e) => e.name === "Student")!.file)
       .toBe("Models/Student.cs");
-    expect(refs.filter((r) => r.file === "_Stale/Student.cs")).toEqual([
-      { entity: "Student", file: "_Stale/Student.cs", line: 24, type: "Student", method: "Touch", via: "entityName" },
+    expect(refs.filter((r) => r.file === STALE && r.type === "Student")).toEqual([
+      { entity: "Student", file: STALE, line: 24, type: "Student", method: "Touch", via: "entityName" },
     ]);
     // In-scope refs are unaffected.
     expect(refs.filter((r) => r.file === STUDENTS).length).toBe(6);
@@ -192,6 +252,6 @@ describe("G21: a repo whose only mentions are in OnModelCreating yields []", () 
     expect(extractDotnet(MINI_EFCORE).entityRefs).toEqual([]);
     // The positive control, and it must be in this same run: "[] " is also
     // what a walker that never emits anything returns.
-    expect(refs.length).toBe(13);
+    expect(refs.length).toBe(18);
   });
 });

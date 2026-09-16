@@ -25,3 +25,20 @@ public class Student
         _ = legacy;
     }
 }
+
+/// G7's second half, added in review round 1.
+///
+/// A gutted leftover that still carries the detected context's NAME and its
+/// own `OnModelCreating`, but no longer derives from `DbContext` — so
+/// `findContexts` does not see it and D-Hb-5 must not exclude it. The walker
+/// compares the declaration by object identity; comparing by name instead
+/// would silence this method, and before this class existed that rewrite left
+/// the whole suite green.
+public class RefsDbContext
+{
+    public void OnModelCreating(object builder)
+    {
+        Course legacy = null!;
+        _ = (builder, legacy);
+    }
+}

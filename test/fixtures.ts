@@ -19,6 +19,8 @@ export const MINI_EFCORE = resolve(here, "fixtures/mini-efcore");
  * fires the multiple-DbContext warning, and mini.test.ts asserts an empty
  * warning list twice.
  */
+export const MINI_EFCORE_PRIMARY_CTOR = resolve(here, "fixtures/mini-efcore-primary-ctor");
+
 /**
  * The H-b1 fixture: the only hermetic input on which `entityRefs` is non-empty.
  *
@@ -27,19 +29,25 @@ export const MINI_EFCORE = resolve(here, "fixtures/mini-efcore");
  * THIS graph — a "yields nothing" assertion that shares no run with a "yields
  * something" one passes just as well on a walker that emits nothing at all.
  *
- * Two constructs exist here for no reason other than sort-key reachability:
- * `_db.Students.Add(new Student())` is the only entity+file+line tie with two
- * different `via` values, and `CoursesController`'s two methods on one
- * physical line the only entity+file+line+via tie with two different methods.
- * Delete either and a key of the comparator becomes unreachable code.
+ * Three constructs exist here for no reason other than sort-key reachability,
+ * each the ONLY tie of its kind in the fixture:
+ *   - `Student created = _db.Students.Add(...)` ties on entity+file+line and
+ *     separates on `via`
+ *   - `Zulu`/`Alpha`, two methods on one physical line, tie on
+ *     entity+file+line+via and separate on `method`
+ *   - `CourseAudit`/`CourseAdmin`, two TYPES on one physical line with
+ *     same-named methods, tie on everything but `type` (added in review
+ *     round 1, when `type` turned out to be deduped on but never compared)
+ * Each is written in DESCENDING order, which is the part that matters: a tie
+ * already ascending is a no-op under a stable sort, so it proves nothing.
+ * `_Stale/` is named with a leading underscore for a fourth reason — it is
+ * the only path pair ICU and code-unit collation order differently.
  *
  * Kept separate from MINI_EFCORE deliberately, and MINI_EFCORE keeps its own
  * job: it has no method bodies at all outside `OnModelCreating`, which makes
  * it the control for the D-Hb-5 exclusion (G21).
  */
 export const MINI_EFCORE_REFS = resolve(here, "fixtures/mini-efcore-refs");
-
-export const MINI_EFCORE_PRIMARY_CTOR = resolve(here, "fixtures/mini-efcore-primary-ctor");
 
 /**
  * The positive control for both new warnings, and a separate directory for the

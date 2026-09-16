@@ -389,3 +389,71 @@ Items 1, 2 and 3 are the same failure H-a's `progress.md` records: a table
 built from test ideas rather than from the mechanism, and a correction that
 carried no evidence. It recurred in the first plan written after that record
 was filed.
+
+---
+
+# Amendment 1 — review round 1 (2026-09-16)
+
+Rev 2 was approved and built. Review round 1 came back **Fix first** on two
+blocking items, both about `EntityRef.type`. This amendment records the design
+change; the measurements behind it are in `audit.md` §6.
+
+## D-Hb-7 is amended: five sort keys become six
+
+**As approved:** `entity → file → line → via → method`, described in the
+implementation as "total over the emitted tuple".
+
+**That description was false.** `type` is emitted (it is one of `EntityRef`'s
+six fields) and is part of D-Hb-6's dedupe key, but it was not a comparator
+key. Two refs differing only in `type` therefore survived dedupe, tied on all
+five keys, and fell through to `Array.prototype.sort`'s stability — i.e. to
+whatever order the walker happened to emit them in. Measured: deleting
+`cmp(a.type, b.type)` from the comparator today reddens two assertions; before
+this amendment there was nothing to delete.
+
+**Amended to:** `entity → file → line → via → type → method`. `type` is
+**inserted, not appended**, so the relative order of the five approved keys is
+unchanged and no previously-pinned row moves. The comparator is now genuinely
+total over the emitted tuple, and its key set is exactly D-Hb-6's dedupe key.
+
+## D-Hb-6 gains gates it never had
+
+The dedupe key was specified as `entity|file|line|type|method|via` and, under
+rule 1, each component is a plan-specified behaviour needing a named mutant.
+Rev 2 shipped none. Measured by deleting each component in turn:
+
+| component | deleted from the key | result |
+|---|---|---|
+| `entity` | | **was green** — now gated |
+| `file` | | **green** — see below |
+| `line` | | red |
+| `type` | | **was green** — now gated |
+| `method` | | red |
+| `via` | | red |
+
+**`file` stays ungated and is recorded as such.** Collapsing on it needs two
+refs identical in entity, line, type, method and via across two *different*
+files — two files declaring same-named types with same-named methods
+mentioning the same entity at the same line number. That needs a new fixture
+file, which is scope this review did not open. The comparator's `file` key is
+gated; only the dedupe component is not.
+
+## Fixture additions, all three for reachability only
+
+- `Controllers/CoursesController.cs` — `CourseAudit`/`CourseAdmin`, two TYPES
+  on one physical line with same-named methods. The only tie in the fixture on
+  everything but `type`. Written descending, for the reason rev 2 already
+  learned.
+- `Services/EnrollmentService.cs` — `Both()`, two different entities on one
+  physical line. The only tie on everything but `entity`.
+- `_Stale/Student.cs` — a gutted class sharing the detected context's **name**
+  with its own `OnModelCreating`, and no `DbContext` base. D-Hb-5 compares the
+  declaration by object identity, and rev 2 asserted nothing that could tell
+  identity from name: rewriting the comparison to `decl.name ===
+  opts.contextDecl?.name` left the whole suite green. It now reddens.
+
+## Unchanged
+
+Every other decision, the scope cut, and the "Out, recorded" list stand as
+approved. `apps/server/package.json` still does not declare `zod`. Nothing was
+pushed.

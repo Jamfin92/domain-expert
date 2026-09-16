@@ -201,8 +201,17 @@ are true. False-positive rate 0/15 = 0%.** Consistent with plan review's 11/11.
 But the sample surfaces something the plan does not record, and it is the more
 useful half of this number. **The `.`-preceded rule matches a navigation
 property exactly as readily as the DbSet**, because EF's convention gives them
-the same name. Measured on repoA: **7 of the 17 DbSet names are also
-navigation-property names on an entity** —
+the same name. Measured on repoA: **7 of the 16 DbSet names are also
+navigation-property names on an entity** — 16, not 17: repoA has 17 entities
+and one of them (the Identity-derived `User`) has `dbSetName: null`, so it has
+no DbSet name to collide with. Corrected in review round 1; the overlap set
+itself was right.
+
+On **repoB the same overlap is 8 of 9** — `CreditLines`, `ExportHistory`,
+`ImportHistory`, `InterestEntries`, `Payments`, `PayoffSimulations`,
+`RefreshTokens`, `SavedColumnMappings`. Nearly every DbSet name in that repo is
+also a navigation-property name, so the caveat below is not a repoA quirk; it
+is the EF convention working as designed.
 
 ```
 ApplicationDocuments  -> also LicenseApplication.ApplicationDocuments
@@ -278,11 +287,12 @@ for; the plan's worry ("touches every method in 109 files") does not show up.
 | shapes | **0** |
 | relations | **1** (`Student.CourseId->Course`) |
 | warnings | **0** |
-| **entityRefs** | **13** |
+| **entityRefs** | **18** (13 before review round 1's three reachability additions) |
 
-All six are asserted in `entity-refs.test.ts` — the first four in a dedicated
-"the fixture itself" test, so a drift in the fixture fails there by name rather
-than as one confusing row of the big array diff.
+All six are now asserted in `entity-refs.test.ts` — in rev 2 only **five**
+were: `relations` was claimed here and asserted nowhere (`grep -n relations
+packages/extract/test/entity-refs.test.ts` was empty). Review round 1 caught
+the overstatement; the assertion was added rather than the claim weakened.
 
 `mini-efcore`'s own numbers **did not move**: 5 entities, 4 relations, 0
 shapes, 0 warnings, and `entityRefs: []`. The plan flagged any movement there
@@ -294,22 +304,32 @@ as a finding about D-Hb-5; there was none.
 |---|---|---|
 | Baseline, before any edit | **421 passed (421)**, 33 files | **363 passed / 58 skipped (421)**, 30+3 files |
 | After schema + wiring + version bump | — | 363 passed / 58 skipped (421) |
-| Final | **440 passed (440)**, 34 files | **382 passed / 58 skipped (440)**, 31+3 files |
+| Final, round 1 as reviewed | 440 passed (440) | 382 passed / 58 skipped (440) |
+| **Final, after review round 1** | **444 passed (444)**, 34 files | **386 passed / 58 skipped (444)**, 31+3 files |
 
-**Skipped held at 58 at every single run**, including all 31 mutant runs. The
-private corpus config never went missing.
+**Skipped held at 58 at every single run**, including all 31 mutant runs before
+review and all 40 after. The private corpus config never went missing.
 
 `pnpm typecheck` exits 0 across all four projects, final.
 
-+19 tests: 14 in `entity-refs.test.ts`, 3 in `merge.test.ts` (G20), 2 in
++23 tests: 18 in `entity-refs.test.ts`, 3 in `merge.test.ts` (G20), 2 in
 `rehydrate.test.ts` (G22/G23).
 
 ---
 
 ## 3. Gates that could not be built
 
-**None.** Every gate G1-G23 in the plan's table was built and every named
-mutant reddens it.
+**One, found in review round 1: the `file` component of D-Hb-6's dedupe key.**
+Deleting `ref.file` from the key leaves the whole hermetic suite green.
+Collapsing on it needs two refs identical in entity, line, type, method and via
+across two *different* files — i.e. two files declaring same-named types with
+same-named methods mentioning the same entity at the same line number. That
+needs a new fixture file, which is scope review round 1 did not open, so it is
+recorded in the gate file and in Amendment 1 rather than built. The
+comparator's `file` key is gated; only the dedupe component is not.
+
+Every gate G1-G23 in the plan's table was built and every named mutant reddens
+it.
 
 G17's `via` and `method` keys were nearly the exception — see §1. The plan's
 instruction was to delete them from the comparator rather than ship them
@@ -373,10 +393,15 @@ and no seventh.
 
 - **The version bump re-extracts every stored repo on the next boot.** One
   time, user-visible as a slower first rehydrate. Gated by G23.
-- **`via: "dbSetName"` does not mean "went through the DbContext".** ~20% of a
-  hand-checked repoA sample are navigation-property accesses that share the
-  DbSet's name (obligation 2). The field is honest as a *match rule* and would
-  be wrong as an *access kind*.
+- **`via: "dbSetName"` does not mean "went through the DbContext", and this is
+  the phase's largest soft spot.** EF names a navigation collection after the
+  entity exactly as it names the DbSet, so the `.`-preceded rule cannot tell
+  `db.Payments` from `creditLine.Payments`. Measured: **7 of repoA's 16** DbSet
+  names and **8 of repoB's 9** are also navigation-property names, and 3 of a
+  hand-checked 15-ref repoA sample are navigation accesses (~20%). The field is
+  honest as a *match rule* and would be wrong as an *access kind*. On repoB,
+  where the overlap is 8 of 9, anyone reading it as an access kind would be
+  wrong far more often than on repoA.
 - **Name-keying costs 0 on today's corpus and is not thereby safe.** Obligation
   3's criterion cannot see a same-named type from a package or a `global
   using`.
@@ -385,3 +410,105 @@ and no seventh.
 - **`apps/server/package.json` still does not declare `zod`** — owed since
   G-b1, deliberately still owed, now examined a sixth time.
 - **Not pushed.** master remains ahead of origin.
+
+---
+
+## 6. Review round 1 — what changed
+
+Verdict was **Fix first** on two blocking items, both about `EntityRef.type`.
+Every finding below was reproduced on this tree before anything was edited; all
+eight did. Nothing was taken on the summary's word.
+
+### B1 — the comparator was not total, and said it was
+
+`compareEntityRefs` had five keys; `EntityRef` has six fields. `type` was
+emitted and deduped on but never compared, so two refs differing only in
+`type` tied completely and fell back to `Array.prototype.sort` stability.
+The doc comment asserted "total over the emitted tuple" — a fresh unverified
+because-clause, in the phase chartered to stop those.
+
+Fixed by **inserting** `cmp(a.type, b.type)` between the `via` and `method`
+keys, so the five approved keys keep their relative order and no pinned row
+moves. D-Hb-7 amended in `plan.md`, Amendment 1.
+
+The reviewer's suggested fixture edit — "a `Zulu()` on `CourseSlug` sharing
+line 35" — **is not constructible as stated**: `CourseSlug`'s declaration
+closes at line 11, twenty-four lines above `Zulu`. Two types can only share a
+line by being written on one physical line. Built instead as a new pair,
+`CourseAudit`/`CourseAdmin`, declared on one line at `CoursesController.cs:47`
+and written descending.
+
+### B2 — D-Hb-6's dedupe key was ungated, and not only on `type`
+
+Reproduced: deleting `ref.type` from the key left the full hermetic suite green
+at 382/58. Rather than gate only the component named, **all six components were
+deleted in turn**. Two more were green:
+
+| component | before | now |
+|---|---|---|
+| `entity` | **green** | red — `Both()` in `EnrollmentService`, two entities on one line |
+| `file` | **green** | **still green — recorded, not gated** (§3) |
+| `line` | red | red |
+| `type` | **green** | red — the `CourseAudit`/`CourseAdmin` pair |
+| `method` | red | red |
+| `via` | red | red |
+
+Deleting `type` from the key was **not** an option: two same-named methods on
+two types on one line would collapse and lose a real fact.
+
+### The added mutants
+
+| Gate | Mutant | Failing assertion observed | Reverted |
+|---|---|---|---|
+| G17b (new) | B1: drop `cmp(a.type, b.type)` | `expected [ 'CourseAudit', 'CourseAdmin' ] to deeply equal [ 'CourseAdmin', 'CourseAudit' ]` | clean |
+| D-Hb-6 `type` (new) | B2: drop `ref.type` from the dedupe key | `expected [ 'Sync' ] to deeply equal [ 'Sync', 'Sync' ]`; `expected 1 to be 2`; `expected 17 to be 18` | clean |
+| D-Hb-6 `entity` (new) | drop `ref.entity` from the dedupe key | `expected [ 'Student' ] to deeply equal [ 'Course', 'Student' ]`; `expected 17 to be 18` | clean |
+| D-Hb-6 `line` | drop `ref.line` | 4 failed | clean |
+| D-Hb-6 `method` | drop `ref.method` | 3 failed | clean |
+| D-Hb-6 `via` | drop `ref.via` | 6 failed | clean |
+| D-Hb-6 `file` | drop `ref.file` | **0 failed — recorded, not gated** | clean |
+| G7 second half (new) | N2: `decl.name === opts.contextDecl?.name` | `expected [] to deeply equal [ { entity: 'Course', …(5) } ]`; `expected 17 to be 18` | clean |
+| comparator `type` | drop the key (same as B1) | see G17b | clean |
+
+All 26 pre-review mutants were re-run against the changed comparator and
+fixture. Every one still reddens; counts moved only because the fixture grew
+from 13 refs to 18.
+
+### Non-blocking, all reproduced
+
+- **N1 — reproduced and fixed.** The `MINI_EFCORE_REFS` docblock had been
+  inserted between the pre-existing primary-constructor docblock and its
+  declaration, orphaning `MINI_EFCORE_PRIMARY_CTOR`. Moved below it; the
+  H-b1 prose was also refreshed, since it named two ties where there are now
+  three.
+- **N2 — reproduced and gated**, rather than recorded. See above.
+- **N3 — reproduced and recorded.** `prev.kind === "punct"` is inert: the
+  lexer emits no bare `.` under any other kind (the `.` in `1.5` is part of the
+  number token), and dropping the conjunct leaves the suite green. Kept with a
+  comment putting it in D-Hb-3's "recorded, not gated" category.
+- **N4 — reproduced and fixed by adding the assertion.** Obligation 5 claimed
+  six pinned counts and `relations` was asserted nowhere. Five of six was the
+  truth; it is six now.
+- **N5 — reproduced, both halves.** Denominator corrected to 7 of **16**
+  (repoA has one entity with `dbSetName: null`), and repoB measured at **8 of
+  9** and carried into §5.
+- **N6 — reproduced and relabelled.** `merge.test.ts`'s second G20 case was
+  called "the positive control" while its own comment explained why it is not
+  one; under M20 it stays green. Now labelled CHARACTERIZATION, as is the third
+  case, which gates a path that would have to be *added* — rev 1's G9 mutant
+  class.
+- **N7 — recorded** in `progress.md`: G17's `localeCompare` gate is
+  ICU-dependent by construction and self-invalidates if node's collation of
+  `_` changes. Same property as H-a's H9c, which was accepted.
+
+### The finding round 1 adds
+
+**Rev 2 learned "a tie is not a reachable sort key" and then shipped a key with
+no tie at all.** `type` was in the tuple and in the dedupe key, and the one
+place it could have been compared said in a comment that it was. The mechanism
+that caught it is the same one that caught G17: delete the thing and watch.
+Applied to the comparator, rev 2 found three dead keys. It was never applied to
+the **dedupe key**, and three of those six components were dead too.
+
+**Probe every component of a composite, not the composite.** A key made of six
+fields is six claims.

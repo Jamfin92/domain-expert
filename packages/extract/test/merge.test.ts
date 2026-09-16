@@ -320,17 +320,23 @@ describe("G20: mergeGraphs carries entityRefs through from the .NET side", () =>
   });
 
   it("and `[]` when the .NET side has none, rather than dropping the field", () => {
-    // The positive control for the assertion above: `entityRefs: []` in the
-    // merge literal would satisfy it too, and only differs HERE — where the
-    // input carries refs — from a literal that threads the field. Kept as its
-    // own case so the pair cannot be collapsed to one by a later edit.
+    // CHARACTERIZATION, not a control — the label this carried until review
+    // round 1 was wrong, and the comment contradicted itself one line later.
+    // Under M20 (`entityRefs: []` in the merge literal) this case stays
+    // GREEN, because a hardcoded `[]` satisfies it exactly as well. The gate
+    // on M20 is the case above; this one only pins that an empty .NET side
+    // does not become undefined.
     const merged = mergeGraphs(graph({}), graph({ provider: "sqlite-ddl" }), "client");
     expect(merged.entityRefs).toEqual([]);
   });
 
-  // Not re-prefixed, unlike every other path-bearing field above: an
-  // `EntityRef.file` is a path in the .NET root, which IS the merge root.
-  // `nodeRootFor` only moves the TypeScript side.
+  // CHARACTERIZATION, not a gate. Re-prefixing a ref's file is code that
+  // would have to be ADDED — `mergeGraphs` re-prefixes the TypeScript side
+  // only, and an `EntityRef.file` is already a path in the .NET root, which IS
+  // the merge root. That is the mutant class rev 1's G9 was corrected for: a
+  // mutant that has to add code gates no decision the implementation makes.
+  // Kept because it documents why `entityRefs` is absent from the re-prefix
+  // list above, where every other path-bearing field appears.
   it("does not re-prefix a ref's file, because the .NET root is the merge root", () => {
     const merged = mergeGraphs(
       graph({ entityRefs: [ref] }),
