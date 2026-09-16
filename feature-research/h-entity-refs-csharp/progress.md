@@ -219,6 +219,11 @@ inert, not assumed to be:
   diagnostic still leaves two red. Round 2 claimed here that drift would leave
   the gate "quietly green"; that was written from one failing assertion of
   three and is **false**.
+  **The diagnostic is not redundant, though**, and round 3's "strictly weaker"
+  was wrong too: measured in round 4, a whitespace-only edit to line 55 — a
+  second space after `public` — reddens the diagnostic **alone**, 1 of 20,
+  because the lexer ignores the change so the graph and both pins stay green.
+  "Not stronger in any case measured" is the honest form. Keep the test.
 - **`EnrollmentService.cs`'s 20-line comment block is structural, not prose.**
   Its length is what puts `Dup` on line 55; reflowing it moves the
   declaration. That reddens, so it is maintenance cost rather than a hole —

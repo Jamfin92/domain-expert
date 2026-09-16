@@ -350,7 +350,8 @@ are genuinely unbuildable as gates here:
 - **Constructor-body invisibility.** `parseCSharp` captures no constructor as a
   method, so there is no code path to mutate. The fixture's two contexts both
   have constructors; none contributes a ref, and that is visible in the pinned
-  13-row array rather than asserted as a negative.
+  20-row array rather than asserted as a negative. (Said "13-row" until the
+  round-4 sweep; the array grew to 18 in review round 1 and 20 in round 2.)
 
 ---
 
@@ -568,10 +569,18 @@ of which I recorded one:
 
 The array pin holds `line: DUP_LINE` for both rows and the `file` gate filters
 on `r.line === DUP_LINE`, so drift reddens with or without the new test:
-**skipping it leaves 2 failing.** And it is strictly *weaker* than the pin it
-duplicates — the regex is prefix-anchored, so reflowing `Dup`'s body onto a
+**skipping it leaves 2 failing.** It is also **not stronger, in any case
+measured** — the regex is prefix-anchored, so reflowing `Dup`'s body onto a
 second line keeps it green while moving the `Course` token: measured, **2
-failing, and this test is not one of them.**
+failing (the array pin and the `file` gate), and this test is not one of
+them.**
+
+"Not stronger in any measured case" is as far as the evidence goes. Round 3
+wrote "strictly weaker", which is a broader claim than the reflow supports —
+and round 4 found it **false**: a whitespace-only edit to line 55 (a second
+space after `public`) reddens **this test alone, 1 of 20**, while the lexer
+ignores the change so the graph and both pins stay green. The diagnostic does
+catch one thing nothing else does.
 
 **Kept, relabelled a diagnostic.** On drift the other two report a 20-row array
 diff and a file-list mismatch, both of which read as "the walker is broken";
@@ -623,6 +632,11 @@ calling it done.
   §6 for the sixth.
 - `progress.md`'s mutant arithmetic is now stated, not left to be inferred.
 - The dedupe key's `join("|")` would alias if a component contained `|`.
-  Unreachable for C# identifiers and repo-relative paths, and pre-existing;
-  recorded in the walker rather than changed, since changing it would be an
-  unmeasured fix to a problem no input has.
+  A C# identifier cannot contain one, so `entity`, `type`, `method` and `via`
+  are safe by the grammar and `line` is a number. **`file` is the soft one**:
+  POSIX permits `|` in a filename, so that component rests on no such path
+  existing in a .NET repo psq reads, which is weaker than the rest.
+  Pre-existing; recorded in the walker rather than changed, since changing it
+  would be an unmeasured fix to a problem no input has. (The weakened form
+  reached the walker comment in round 3 and **not this line** — corrected in
+  the round-4 sweep, which is §7's own B2 lesson landing on §7.)

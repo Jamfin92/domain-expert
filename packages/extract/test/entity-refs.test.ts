@@ -158,14 +158,22 @@ describe("D-Hb-6: every component of the dedupe key", () => {
     // above filters on `r.line === DUP_LINE`, so drift fails loudly with or
     // without this test — deleting it from the suite still leaves 2 red.
     //
-    // It is also strictly WEAKER than the pin it duplicates: the regex is
-    // prefix-anchored, so reflowing `Dup`'s body onto a second line keeps this
-    // green while moving the `Course` token, which only the array pin catches.
+    // It is also NOT STRONGER than the pins it duplicates, in any case
+    // measured. The regex is prefix-anchored, so reflowing `Dup`'s body onto a
+    // second line keeps this green while moving the `Course` token — and that
+    // reddens two OTHER tests, the array pin and the `file` gate above (which
+    // filters on `r.line === DUP_LINE`, so the tie empties).
     //
-    // Kept anyway, for the one thing it does better: on drift the other two
-    // report a 20-row array diff and a file-list mismatch, both of which read
-    // as "the walker is broken". This one names the actual cause — line
-    // DUP_LINE is no longer the declaration — and sends the reader to the
+    // "Not stronger in any measured case" is as far as the evidence goes, and
+    // deliberately not "strictly weaker", which is false: a whitespace-only
+    // edit to this line — a second space after `public` — reddens THIS test
+    // alone, 1 of 20, while the lexer ignores the change so the graph and
+    // both pins stay green. So it does catch one thing nothing else does.
+    //
+    // The everyday reason to keep it is smaller and more useful: on drift the
+    // other two report a 20-row array diff and a file-list mismatch, both of
+    // which read as "the walker is broken". This one names the actual cause —
+    // line DUP_LINE is no longer the declaration — and sends the reader to the
     // fixture instead of the extractor.
     for (const file of [COURSES, SERVICE]) {
       const lines = readFileSync(join(MINI_EFCORE_REFS, file), "utf8").split("\n");
