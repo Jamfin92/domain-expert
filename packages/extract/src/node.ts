@@ -229,6 +229,9 @@ export function extractNode(repoRoot: string): EntityGraph {
     routes,
     clientCalls,
     components,
+    // The TypeScript reader emits no entity refs: on the Node side an entity
+    // is a SQLite table-name string, not a symbol. That half is H-c.
+    entityRefs: [],
     warnings,
   };
 }

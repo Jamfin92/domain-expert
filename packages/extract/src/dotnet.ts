@@ -4,6 +4,7 @@ import type {
 } from "@psq/schema";
 import { parseCSharp, type FileParse, type PropertyDecl, type TypeDecl } from "./csharp/structure.js";
 import { entityConfigs, enumMemberArg, lambdaMembers, type EntityConfig } from "./csharp/fluent.js";
+import { collectEntityRefs } from "./csharp/entity-refs.js";
 import { repoRelative, walk } from "./files.js";
 import { csharpShapes } from "./csharp/shapes.js";
 import { pairShapes } from "./pair.js";
@@ -290,7 +291,8 @@ export function extractDotnet(
   if (contexts.length === 0) {
     return {
       kind: "entity", repo: repoRoot, provider: "efcore", contextName: null,
-      entities: [], relations: [], shapes: [], routes: [], clientCalls: [], components: [], warnings,
+      entities: [], relations: [], shapes: [], routes: [], clientCalls: [], components: [],
+      entityRefs: [], warnings,
     };
   }
   if (contexts.length > 1) {
@@ -622,6 +624,11 @@ export function extractDotnet(
   // compared against the entity it mirrors.
   const shapes = pairShapes(entities, csharpShapes(parses, entityNames, unwrap), warnings);
 
+  // Every mention of an entity in a method body. Runs over `parses`, which is
+  // every `.cs` file in the repo — controllers and services included, not just
+  // the ones that contributed an entity.
+  const entityRefs = collectEntityRefs(parses, entities, { contextDecl: ctx.decl });
+
   return {
     kind: "entity",
     repo: repoRoot,
@@ -633,6 +640,9 @@ export function extractDotnet(
     routes: [],
     clientCalls: [],
     components: [],
+    // Already sorted by `collectEntityRefs`, with code-unit comparisons. The
+    // three `localeCompare` sorts above are the neighbour this must not copy.
+    entityRefs,
     warnings,
   };
 }

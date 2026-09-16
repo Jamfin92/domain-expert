@@ -205,6 +205,8 @@ export function mergeGraphs(
     routes,
     clientCalls,
     components,
+    // C# side only; `extractNode` always produces `[]`.
+    entityRefs: dotnet.entityRefs,
     warnings: [...dotnet.warnings, ...nodeWarnings, ...rootWarnings, ...mergeWarnings],
   };
 }

@@ -57,7 +57,7 @@ export function detectProvider(repoRoot: string): Provider {
  * serves one class of stale graph. An auto-derived digest of the extractor's
  * own sources was considered and rejected as too clever for the gain.
  */
-export const EXTRACTOR_VERSION = 1;
+export const EXTRACTOR_VERSION = 2;
 
 /**
  * Extract whatever this repo is, alongside a fingerprint of the files that
@@ -120,6 +120,7 @@ function extractGraph(repoRoot: string): EntityGraph {
         routes: [],
         clientCalls: [],
         components: [],
+        entityRefs: [],
         warnings: [
           "No .csproj, .cs, package.json, tsconfig.json or TypeScript source found here. " +
             "psq reads .NET projects with an EF Core DbContext and Node backends with a SQLite schema.",

@@ -291,6 +291,56 @@ export const Component = z.object({
 });
 export type Component = z.infer<typeof Component>;
 
+/**
+ * Which of the two name rules matched a token.
+ *
+ * `entityName` — the token text equals `Entity.name` (the C# class name).
+ * `dbSetName`  — the token text equals `Entity.dbSetName` AND is immediately
+ *                preceded by a `.`, i.e. `_db.Students`.
+ *
+ * Both are exact-text rules, never substring — the deliberate contrast with
+ * `searchEntities`, which is human-facing and matches partials.
+ */
+export const RefVia = z.enum(["entityName", "dbSetName"]);
+export type RefVia = z.infer<typeof RefVia>;
+
+/**
+ * One place in the repo that MENTIONS an entity. Not a call site.
+ *
+ * Nothing here distinguishes a call from a mention: `Student s = null;`,
+ * `typeof(Student)`, `nameof(Student)` and an attribute argument all produce
+ * an `EntityRef`. Narrowing to call sites needs argument-list and receiver
+ * analysis and is deliberately not done (D-Hb-14).
+ *
+ * `method` is NOT nullable. Only method bodies are scanned, so a ref with no
+ * enclosing method is unreachable and a nullable field would be dead code.
+ *
+ * Known blind spots, all recorded rather than guessed at:
+ *   - constructor bodies are invisible, because `parseCSharp` never captures
+ *     a constructor as a method at all
+ *   - expression-bodied methods reach the walker with `body: []`
+ *     (`csharp/structure.ts:338`)
+ *   - `#if` blocks and comments are dropped by the lexer, never tokens
+ *   - the match is keyed by NAME, with no symbol table: a same-named class in
+ *     a namespace the DbContext does not import is reported as a ref to the
+ *     entity (D-Hb-13). `EntityRef` carries no `FactSource`, so the graph
+ *     cannot label that; it is measured in the phase audit instead.
+ */
+export const EntityRef = z.object({
+  /** `Entity.name`, always — never the DbSet property name. */
+  entity: z.string(),
+  /** Repo-relative path of the REFERENCING file, not the declaring one. */
+  file: z.string(),
+  /** 1-based line of the matched token, not of the enclosing method. */
+  line: z.number().int().nonnegative(),
+  /** Name of the type declaring the enclosing method. */
+  type: z.string(),
+  /** Name of the enclosing method. */
+  method: z.string(),
+  via: RefVia,
+});
+export type EntityRef = z.infer<typeof EntityRef>;
+
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
   repo: z.string(),
@@ -312,6 +362,16 @@ export const EntityGraph = z.object({
   clientCalls: z.array(ClientCall),
   /** UI component definitions; `ClientCall.components` resolves against this. */
   components: z.array(Component),
+  /**
+   * Every mention of an entity inside a C# method body (H-b1).
+   *
+   * `.default([])` so an envelope stored before this field existed still
+   * parses, and the inferred OUTPUT type still makes the field required so
+   * `tsc` enumerates every construction site. Paired with the
+   * `EXTRACTOR_VERSION` bump: without it an old graph would serve `[]`
+   * forever instead of re-extracting.
+   */
+  entityRefs: z.array(EntityRef).default([]),
   /** Non-fatal parse problems. Never silently dropped. */
   warnings: z.array(z.string()),
 });
