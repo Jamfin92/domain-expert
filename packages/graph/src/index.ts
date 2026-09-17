@@ -8,6 +8,7 @@ export {
   type DistrictBasis,
 } from "./layout3d.js";
 export { searchEntities, MATCH_FIELDS } from "./search.js";
+export { refsFor } from "./refs.js";
 import type { EntityGraph, Relation } from "@psq/schema";
 
 /**
