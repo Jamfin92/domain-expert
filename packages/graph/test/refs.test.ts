@@ -96,12 +96,19 @@ describe("G29: an omitted via means BOTH vias, not neither", () => {
     //
     // MEASURED, suite-wide, not predicted: that mutant reddens SIX tests —
     // G24, G25, G27, G28 and G29 in this file, plus G30 in
-    // `apps/server/test/api.test.ts`. It is subsumed: every no-`via` lookup in
-    // this file empties at once, so no mutant reddens G29 alone. G28 does have
-    // a mutant that singles it out in this file (ignore `opts.via`, which
-    // reddens G28 here and nothing else here); G29 has none, so G29 is
-    // DOCUMENTATION of the contract, in the same category as G26 — keep it,
-    // but do not count it as an independent gate.
+    // `apps/server/test/api.test.ts`. Also measured: the other mutant of this
+    // predicate (ignore `opts.via`) singles G28 out within this file — it
+    // reddens G28 here and nothing else here — and leaves G29 green.
+    //
+    // INFERRED, not measured — no mutant reddens G29 alone. The argument, not
+    // an observation: the predicate is two lines, and any mutation of "omitted
+    // `via` means both" empties every no-`via` lookup in this file at once, so
+    // G24, G25, G27 and G28's partition control go red with G29. No
+    // counter-mutant was found, but none was proven impossible either; treat
+    // this as reasoning that has survived two reviews, not as a measurement.
+    //
+    // On that inference G29 is DOCUMENTATION of the contract, in the same
+    // category as G26 — keep it, but do not count it as an independent gate.
     //
     // G28's third assertion — the partition control, `refs.test.ts:87` — is
     // one of the six, and it stays. Deleting a positive control to make a
