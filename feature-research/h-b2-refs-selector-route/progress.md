@@ -29,8 +29,18 @@ ef5a683  test(extract): G37 — tripwire on the ICU precondition G17 rides on
 a65a033  docs(h-b2): fix the record — gate count 11+2+1=14, G29 cite re-measured
 ```
 
-`git log --oneline 5143fe2..HEAD` is the authority. **Not pushed** — master is
-48 ahead of origin, James's standing call since phase E.
+plus `753b7b1` (acceptance) and `dd072c6` (the corpus-quote scrub, below).
+`git log --oneline 5143fe2..HEAD` is the authority.
+
+**PUSHED 2026-09-17 — this ends the standing "don't push" call held since phase
+E.** `origin/master` == `dd072c6`, 51 commits published. `Jamfin92/domain-expert`
+is a **PUBLIC** repo, which is why `dd072c6` exists: the D-Hb-10 finding had
+named a private corpus repo's file path and quoted a line of its source, and
+both were replaced with a description of the shape before the push. **Anything
+written here from now on is public the moment it is pushed — do not quote corpus
+source or paths.** Note that earlier phases' commits, now published, still name
+`paper-profile` and one absolute home path; James was shown this and accepted it
+rather than rewrite 51 commits' history.
 
 **Measured live at close, not taken from any agent's report:** `pnpm test`
 **460 passed (460)**, 35 files — baseline 446/34, so **+14 and no pre-existing
