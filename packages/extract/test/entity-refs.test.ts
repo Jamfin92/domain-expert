@@ -300,3 +300,32 @@ describe("G21: a repo whose only mentions are in OnModelCreating yields []", () 
     expect(refs.length).toBe(20);
   });
 });
+
+describe("G37: the environmental precondition that makes G17 discriminating", () => {
+  it("code-unit and localeCompare order this fixture's files differently", () => {
+    // G17 asserts the walker sorts by CODE UNIT. That claim is only
+    // discriminating while the fixture contains a file pair the two orderings
+    // disagree about — today `_Stale/` versus the letter-named directories.
+    // Swap the comparator for `localeCompare` and G17 reddens; but if a future
+    // edit removed the `_Stale/` rows, or a node upgrade changed ICU's
+    // handling of a leading `_`, G17 would go on passing while gating nothing.
+    //
+    // Derived from the live ref set rather than asserted on the literal pair:
+    // a hardcoded `"_Stale/Student.cs".localeCompare("Stale/Student.cs")` fires
+    // on an ICU change but stays GREEN if the rows leave the fixture, which
+    // disarms G17 just as completely.
+    //
+    // This does not duplicate G17 and does not desensitise it: G17's claim is
+    // behavioural (what the walker emits), this one is environmental (that the
+    // two orderings can be told apart at all). Measured today on node v24.19.0
+    // / ICU 78.3.
+    const files = refs.filter((r) => r.entity === "Course").map((r) => r.file);
+    expect(new Set(files).size).toBeGreaterThan(1);
+    const byCodeUnit = [...files].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const byLocale = [...files].sort((a, b) => a.localeCompare(b));
+    expect(byCodeUnit).not.toEqual(byLocale);
+    // Named, so the failure says WHICH pair went away rather than only that
+    // two sorted arrays agree.
+    expect(files).toContain(STALE);
+  });
+});
