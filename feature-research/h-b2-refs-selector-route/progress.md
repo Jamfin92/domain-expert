@@ -1,8 +1,8 @@
 # Phase H-b2 — `refsFor` and `GET /api/repos/:id/refs` — PROGRESS
 
-**Status: SHIPPED. Two review rounds — round 1 "Fix first" (record only, code
-confirmed correct), round 2 "Fix first" on one arithmetic line. Both closed.
-Awaiting James's acceptance.**
+**Status: SHIPPED AND ACCEPTED. James accepted 2026-09-17.** Two review rounds —
+round 1 "Fix first" (record only, code confirmed correct), round 2 "Fix first"
+on one arithmetic line. Both closed.
 
 Plan `plan.md` (rev 3, approved — rev 1 was rejected at plan review, rev 2 was
 re-cut when James pulled D-Hb-10). Audit with every mutant table and measured
