@@ -358,18 +358,18 @@ close.
 
 **Why deferred.** Measured against the *shipped* walker, D-Hb-10 yields **+6
 refs on repoA** (241 → 247), of which **2 are genuine and 4 are false
-positives**; repoB does not move at all. The false positives are all
-`private Guid GetUserId() => Guid.Parse(User.FindFirstValue(...));` — ASP.NET's
-inherited `ControllerBase.User`, a `ClaimsPrincipal`, colliding with repoA's
-`User` entity (`Models/Domain/User.cs`, the Identity-derived one). They move the
+positives**; repoB does not move at all. The false positives all come from one
+shape: a single-expression id helper on a controller that reads the caller from
+ASP.NET's inherited `ControllerBase.User` — a `ClaimsPrincipal` — which
+collides by name with repoA's Identity-derived `User` entity. They move the
 controller-yield statistic 6/10 → 8/10 on **pure noise**. H-e narrows
 call-vs-mention, so shipping the fix there means the noise never lands.
 
 This also **refutes the H-b1 record's demotion figure** of "+2 refs and zero
 controllers", which came from a pre-build simulation against a baseline whose own
-split summed to 234, not the 232 it claimed. The record's reason — "`GetUserId`
-helpers referencing no entity" — was right in substance and wrong in letter, and
-the letter is what the walker sees.
+split summed to 234, not the 232 it claimed. The record's reason — that those
+controller helpers reference no entity — was right in substance and wrong in
+letter, and the letter is what the walker sees.
 
 **The fix.** `structure.ts:336-341`'s scan is undepth-tracked and correct today
 only because its result is discarded. Replace it with the depth-tracked pattern
