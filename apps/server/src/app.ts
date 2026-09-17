@@ -4,8 +4,8 @@ import express, {
 } from "express";
 import { Workspace } from "./workspace.js";
 import { drift } from "@psq/extract";
-import { searchEntities, MATCH_FIELDS } from "@psq/graph";
-import { Section } from "@psq/schema";
+import { refsFor, searchEntities, MATCH_FIELDS } from "@psq/graph";
+import { RefVia, Section } from "@psq/schema";
 
 /**
  * The JSON API. Both shells talk to this and nothing else:
@@ -191,6 +191,62 @@ export function createApp(
       return;
     }
     res.json({ query: q, searched: [...MATCH_FIELDS], hits: searchEntities(repo.graph, q) });
+  }));
+
+  /**
+   * Where one entity is MENTIONED. `graph.entityRefs` already carries this;
+   * without the route it is reachable only by pulling the whole graph and
+   * filtering client-side — 20 refs on the fixture, 241 on repoA.
+   *
+   * `entity` is a query parameter, not a path segment: entity names are not
+   * URL-safe in general, and `:id/refs` keeps the collection addressable for a
+   * later "all refs" form.
+   *
+   * `known` is reported SEPARATELY from `refs` (D-Hb2-4) because `refs: []` is
+   * otherwise ambiguous between "referenced nowhere" and "you typed a name
+   * this repo has never heard of" — and the walker's name-keying imprecision
+   * (D-Hb-13) makes that a live concern. An unknown entity is a 200 with
+   * `known: false`, never a 404: on this route 404 means the REPO is not open,
+   * and one status code must mean one thing.
+   *
+   * Guard order copies /search above: the repo lookup runs FIRST, then
+   * validation, so 404 beats 400 and the two endpoints cannot disagree.
+   * Neither parameter is coerced — with express's "simple" query parser
+   * `?entity=a&entity=b` arrives as ["a","b"], which `String(...)` would
+   * quietly look up as "a,b" and answer, confidently, with nothing.
+   *
+   * `via` is validated with the schema enum rather than a hand-written pair,
+   * so the allowed set exists once. Note D-Hb2-6: `via: "dbSetName"` means the
+   * matched token was the DbSet property name preceded by a `.` — a mention
+   * rule, NOT evidence that the code went through the DbContext.
+   */
+  app.get("/api/repos/:id/refs", handler((req, res) => {
+    const repo = workspace.get(String(req.params["id"]));
+    if (!repo) {
+      fail(res, 404, "That repo is not open.");
+      return;
+    }
+    const entity = req.query["entity"];
+    if (typeof entity !== "string" || entity.trim() === "") {
+      fail(res, 400, "Give a single ?entity= name.");
+      return;
+    }
+    const rawVia = req.query["via"];
+    let via: RefVia | null = null;
+    if (rawVia !== undefined) {
+      const parsed = RefVia.safeParse(rawVia);
+      if (!parsed.success) {
+        fail(res, 400, "?via= must be entityName or dbSetName.");
+        return;
+      }
+      via = parsed.data;
+    }
+    res.json({
+      entity,
+      via,
+      known: repo.graph.entities.some((e) => e.name === entity),
+      refs: refsFor(repo.graph, entity, via === null ? undefined : { via }),
+    });
   }));
 
   app.get("/api/repos/:id/layout", handler((req, res) => {

@@ -8,7 +8,7 @@ import type { Express } from "express";
 import { EntitySearchResult } from "@psq/schema";
 import { createApp } from "../src/app.js";
 import { Workspace } from "../src/workspace.js";
-import { MINI_EFCORE, MINI_FULLSTACK_REACT, MINI_NODE } from "../../../test/fixtures.js";
+import { MINI_EFCORE, MINI_EFCORE_REFS, MINI_FULLSTACK_REACT, MINI_NODE } from "../../../test/fixtures.js";
 
 let app: Express;
 let workspace: Workspace;
@@ -185,6 +185,114 @@ describe("entity search", () => {
     expect(res.body.query).toBe("");
     expect(res.body.hits).toEqual([]);
     expect(res.body.searched).toEqual(["entityName", "tableName", "propertyName"]);
+  });
+});
+
+describe("entity refs", () => {
+  // `openMini()` opens MINI_EFCORE, which has NO refs at all. The refs fixture
+  // is opened inline, the pattern MINI_NODE (:317) and MINI_FULLSTACK_REACT
+  // (:410) already use.
+  async function openRefs(): Promise<string> {
+    const res = await request(app).post("/api/repos").send({ path: MINI_EFCORE_REFS });
+    expect(res.status).toBe(201);
+    return res.body.repo.id as string;
+  }
+
+  // G30
+  it("answers with entity, via, known and the refs themselves", async () => {
+    const id = await openRefs();
+    const res = await request(app).get(`/api/repos/${id}/refs`).query({ entity: "Course" });
+    expect(res.status).toBe(200);
+    // The WHOLE body, keys included: asserting only `refs` would still pass
+    // with `entity`, `via` and `known` missing, which is exactly M30.
+    expect(Object.keys(res.body).sort()).toEqual(["entity", "known", "refs", "via"]);
+    expect(res.body.entity).toBe("Course");
+    expect(res.body.via).toBe(null);
+    expect(res.body.known).toBe(true);
+    expect(res.body.refs.length).toBe(11);
+    expect(res.body.refs[0]).toEqual({
+      entity: "Course",
+      file: "Controllers/CoursesController.cs",
+      line: 20,
+      type: "CoursesController",
+      method: "Slug",
+      via: "entityName",
+    });
+    // `via` filters through the route, and narrows to a strict subset.
+    const one = await request(app).get(`/api/repos/${id}/refs`).query({ entity: "Course", via: "dbSetName" });
+    expect(one.status).toBe(200);
+    expect(one.body.via).toBe("dbSetName");
+    expect(one.body.refs.map((r: { file: string; line: number }) => `${r.file}:${r.line}`))
+      .toEqual(["Services/EnrollmentService.cs:15"]);
+  });
+
+  // G31
+  it("404s for a repo that is not open, with the same body every :id route uses", async () => {
+    const res = await request(app).get("/api/repos/deadbeef/refs").query({ entity: "Course" });
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "That repo is not open." });
+  });
+
+  // G32
+  it("400s when entity is missing or blank", async () => {
+    const id = await openRefs();
+    const missing = await request(app).get(`/api/repos/${id}/refs`);
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toContain("?entity=");
+    for (const blank of ["", " ", "%20%20"]) {
+      const res = await request(app).get(`/api/repos/${id}/refs?entity=${blank}`);
+      expect(res.status, JSON.stringify(blank)).toBe(400);
+    }
+  });
+
+  // G33
+  it("separates a known entity with no refs from a name the repo never heard of", async () => {
+    // MINI_EFCORE is the reachable case, measured: 5 real entities and an
+    // EMPTY entityRefs. On MINI_EFCORE_REFS both entities carry refs, so
+    // `known` and `refs.length > 0` could never disagree there.
+    const mini = await openMini();
+    const zero = await request(app).get(`/api/repos/${mini}/refs`).query({ entity: "Student" });
+    expect(zero.status).toBe(200);
+    expect(zero.body.known).toBe(true);
+    expect(zero.body.refs).toEqual([]);
+
+    const unknown = await request(app).get(`/api/repos/${mini}/refs`).query({ entity: "Nonesuch" });
+    expect(unknown.status).toBe(200);
+    expect(unknown.body.known).toBe(false);
+    expect(unknown.body.refs).toEqual([]);
+  });
+
+  // G34
+  it("400s on a via outside the schema's set, rather than answering nothing", async () => {
+    const id = await openRefs();
+    const res = await request(app).get(`/api/repos/${id}/refs`).query({ entity: "Course", via: "bogus" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("?via=");
+    // Control, same run: a valid via on the same request is a 200.
+    const ok = await request(app).get(`/api/repos/${id}/refs`).query({ entity: "Course", via: "entityName" });
+    expect(ok.status).toBe(200);
+    expect(ok.body.refs.length).toBe(10);
+  });
+
+  // G35
+  it("puts the repo lookup FIRST: wrong in both ways is a 404, not a 400", async () => {
+    // Nothing in G31 or G32 observes the guard order — G31 sends a valid
+    // entity and G32 a valid repo. This request is wrong both ways.
+    const res = await request(app).get("/api/repos/deadbeef/refs");
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "That repo is not open." });
+  });
+
+  // G36
+  it("400s on repeated params rather than looking up the joined string", async () => {
+    // express's "simple" query parser turns `?entity=a&entity=b` into
+    // ["a","b"]. `String(...)` would look up "a,b" and answer 200 with an
+    // empty, confident, wrong result.
+    const id = await openRefs();
+    const twoEntities = await request(app).get(`/api/repos/${id}/refs?entity=Course&entity=Student`);
+    expect(twoEntities.status).toBe(400);
+    const twoVias = await request(app).get(`/api/repos/${id}/refs?entity=Course&via=entityName&via=dbSetName`);
+    expect(twoVias.status).toBe(400);
   });
 });
 
