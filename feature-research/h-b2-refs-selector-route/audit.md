@@ -11,6 +11,13 @@ Commits, in logical units:
 
 ## Files changed
 
+**Review round 1 (this revision) touched four files:**
+`packages/graph/test/refs.test.ts`, `packages/extract/test/entity-refs.test.ts`
+(the G37 block only), `apps/server/src/app.ts` (route comment + one readability
+expression), `feature-research/h-b2-refs-selector-route/audit.md`. Nothing else.
+
+The full phase list follows.
+
 Production:
 
 1. `packages/graph/src/refs.ts` — **new**. `refsFor(graph, entity, opts?)`.
@@ -88,16 +95,34 @@ set recorded (rule 7), then reverted with `git checkout --` and
 `git status --porcelain` confirmed to show nothing but the untracked
 `feature-research/h-b2-refs-selector-route/` directory.
 
+**Corrected in review round 1.** The graph-side rows M24-M29 originally recorded
+failure sets scoped to `refs.test.ts` ("n of 6") while the server-side rows
+M30-M36 recorded suite-wide sets — an inconsistency that read as rule-7
+compliance and was not. All five graph-side mutants were **re-measured
+suite-wide** (`pnpm test`, both reporters, full 460/35) and the rows below now
+carry the whole failure set. Counts marked **suite-wide** are the re-measured
+figures; the "n of 6" phrasing is gone.
+
+**What the re-measurement exposes, and it is the point of rule 7:**
+`api.test.ts`'s G30 and G34 re-assert `refsFor`'s behaviour through HTTP —
+G30 pins `refs.length === 11`, `refs[0]` in full and the `via=dbSetName`
+narrowing; G34's positive control pins `refs.length === 10` for
+`via=entityName`. So **a `refsFor` regression is caught in two packages**, and
+four of the five graph-side mutants cross the package boundary. That overlap is
+load-bearing information for anyone later judging whether a gate here is
+redundant: deleting a `refs.test.ts` assertion does not necessarily stop the
+suite noticing, and deleting an `api.test.ts` one does not either.
+
 Messages below are verbatim from the default reporter.
 
 | Gate | Mutant | Applied (code diff) | Failing assertion observed (exact vitest message/diff) | Reverted (clean check) |
 |---|---|---|---|---|
-| G24 | M24 drop the entity predicate | `filter((r) => r.entity === entity && (via === undefined \|\| r.via === via))` → `filter((r) => (via === undefined \|\| r.via === via))` | Reddens **6 of 6**. G24: `AssertionError: expected 20 to be 11 // Object.is equality` (diff `- 11 / + 20`, at `refs.test.ts:22:27`). G25: `expected [ { entity: 'Course', …(5) }, …(19) ] to deeply equal []` (diff lists all 20 rows as `+`). G26: `expected [ { entity: 'Course', …(5) }, …(19) ] to deeply equal []`. G27: `expected [ …(20) ] to deeply equal [ …(11) ]`. G28: `expected [ …(3) ] to deeply equal [ 'Services/EnrollmentService.cs:15' ]`. G29: `expected 20 to be 9 // Object.is equality` | yes — `git status --porcelain` clean |
-| G25 | M25 case-fold both sides | `r.entity === entity` → `r.entity.toLowerCase() === entity.toLowerCase()` | Reddens **1 of 6**, G25 only: `AssertionError: expected [ { entity: 'Student', …(5) }, …(8) ] to deeply equal []` at `refs.test.ts:36:35` (the `refsFor(g, "student")` line) | yes — clean |
+| G24 | M24 drop the entity predicate | `filter((r) => r.entity === entity && (via === undefined \|\| r.via === via))` → `filter((r) => (via === undefined \|\| r.via === via))` | Reddens **8 suite-wide** — all 6 in `refs.test.ts` plus **G30** (`expected 20 to be 11 // Object.is equality`) and **G34** (`expected 17 to be 10 // Object.is equality`, the `via=entityName` control) in `api.test.ts`. The six in `refs.test.ts`, in file order — G24: `AssertionError: expected 20 to be 11 // Object.is equality` (diff `- 11 / + 20`, at `refs.test.ts:22:27`). G25: `expected [ { entity: 'Course', …(5) }, …(19) ] to deeply equal []` (diff lists all 20 rows as `+`). G26: `expected [ { entity: 'Course', …(5) }, …(19) ] to deeply equal []`. G27: `expected [ …(20) ] to deeply equal [ …(11) ]`. G28: `expected [ …(3) ] to deeply equal [ 'Services/EnrollmentService.cs:15' ]`. G29: `expected 20 to be 9 // Object.is equality` | yes — `git status --porcelain` clean |
+| G25 | M25 case-fold both sides | `r.entity === entity` → `r.entity.toLowerCase() === entity.toLowerCase()` | Reddens **1 suite-wide**, G25 only: `AssertionError: expected [ { entity: 'Student', …(5) }, …(8) ] to deeply equal []` at `refs.test.ts:36:35` (the `refsFor(g, "student")` line). The only graph-side mutant that does **not** cross into `api.test.ts` — no route gate sends a wrong-cased entity | yes — clean |
 | G26 | **none by design** | — | G26 is documentation, not a gated claim: G25's negative half already exercises the unknown-name path, and the plan retires a distinct mutant for it. Observed incidentally red under M24 (`expected [ { entity: 'Course', …(5) }, …(19) ] to deeply equal []`), which is consistent with it having no claim of its own | n/a |
-| G27 | M27 `.reverse()` | `…filter(…)` → `…filter(…).reverse()` | Reddens **1 of 6**, G27 only: `AssertionError: expected [ '_Stale/Student.cs:41', …(10) ] to deeply equal [ …(11) ]`, diff shows the pinned sequence reversed — `- "Controllers/CoursesController.cs:20" … + "_Stale/Student.cs:41", + "Services/EnrollmentService.cs:55", + "Services/EnrollmentService.cs:24", + "Services/EnrollmentService.cs:15", + "Data/RefsDbContext.cs:18", + "Controllers/CoursesController.cs:55"` (the `:47` pair is the fixed midpoint) at `refs.test.ts:61:38` | yes — clean |
-| G28 | M28 ignore `opts.via` | `filter((r) => r.entity === entity && (via === undefined \|\| r.via === via))` → `filter((r) => r.entity === entity)` | Reddens **1 of 6**, G28 only: `AssertionError: expected [ …(11) ] to deeply equal [ 'Services/EnrollmentService.cs:15' ]` at `refs.test.ts:81:27`. G29 stays **green** — the discriminating half of the M28/M29 pair | yes — clean |
-| G29 | M29 filter unconditionally | `(via === undefined \|\| r.via === via)` → `r.via === opts?.via` | Reddens **5 of 6** — G24 `expected +0 to be 11`, G25 `expected +0 to be 9`, G27 `expected [] to deeply equal [ …(11) ]`, G28 `expected 11 to be +0`, **G29** `expected [] to deeply equal [ 'dbSetName', 'entityName' ]` at `refs.test.ts:98:57`. G26 stays green. **Deviation from the plan's prediction, see below** | yes — clean |
+| G27 | M27 `.reverse()` | `…filter(…)` → `…filter(…).reverse()` | Reddens **2 suite-wide** — G27 and **G30** (`expected { entity: 'Course', …(5) } to deeply equal { entity: 'Course', …(5) }`, G30's `refs[0]` pin). G27: `AssertionError: expected [ '_Stale/Student.cs:41', …(10) ] to deeply equal [ …(11) ]`, diff shows the pinned sequence reversed — `- "Controllers/CoursesController.cs:20" … + "_Stale/Student.cs:41", + "Services/EnrollmentService.cs:55", + "Services/EnrollmentService.cs:24", + "Services/EnrollmentService.cs:15", + "Data/RefsDbContext.cs:18", + "Controllers/CoursesController.cs:55"` (the `:47` pair is the fixed midpoint) at `refs.test.ts:61:38` | yes — clean |
+| G28 | M28 ignore `opts.via` | `filter((r) => r.entity === entity && (via === undefined \|\| r.via === via))` → `filter((r) => r.entity === entity)` | Reddens **3 suite-wide** — G28: `AssertionError: expected [ …(11) ] to deeply equal [ 'Services/EnrollmentService.cs:15' ]` at `refs.test.ts:81:27`; **G30**: `expected [ …(11) ] to deeply equal [ 'Services/EnrollmentService.cs:15' ]` (the route's own `via=dbSetName` narrowing); **G34**: `expected 11 to be 10 // Object.is equality` (the `via=entityName` control). G28 is the only test **in `refs.test.ts`** it reddens. G29 stays **green** — the discriminating half of the M28/M29 pair | yes — clean |
+| G29 | M29 filter unconditionally | `(via === undefined \|\| r.via === via)` → `r.via === opts?.via` | Reddens **6 suite-wide** — G24 `expected +0 to be 11`, G25 `expected +0 to be 9`, G27 `expected [] to deeply equal [ …(11) ]`, G28 `expected 11 to be +0` (the partition control, `refs.test.ts:87`), **G29** `expected [] to deeply equal [ 'dbSetName', 'entityName' ]` at `refs.test.ts:98:57`, and **G30** in `api.test.ts` `expected +0 to be 11`. G26 and G34 stay green (G34's control passes a `via`). **Deviation from the plan's prediction, see below** | yes — clean |
 | G30 | M30 return `{refs}` alone | body `{ entity, via, known, refs }` → `{ refs }` | Reddens **2 of 7** — G30: `AssertionError: expected [ 'refs' ] to deeply equal [ 'entity', 'known', 'refs', 'via' ]`; G33: `expected undefined to be true // Object.is equality` | yes — clean |
 | G31 | M31 drop the `!repo` guard | the four-line `if (!repo) { fail(res, 404, …); return; }` deleted, lookup becomes `workspace.get(…)!` | Reddens **2 of 7** — G31: `expected 400 to be 404 // Object.is equality`; G35: `expected 400 to be 404 // Object.is equality`. (400, not 500: `handler()` turns the thrown `TypeError` into a 400, which is exactly the silent-downgrade this gate exists to catch) | yes — clean |
 | G32 | M32 drop `entity` validation | the `typeof entity !== "string" \|\| entity.trim() === ""` guard deleted | Reddens **2 of 7** — G32: `expected 200 to be 400 // Object.is equality`; G36: `expected 200 to be 400 // Object.is equality` | yes — clean |
@@ -105,9 +130,9 @@ Messages below are verbatim from the default reporter.
 | G34 | M34 drop the `via` validation | the `RefVia.safeParse` block → `const via = rawVia === undefined ? null : (rawVia as RefVia)` | Reddens **2 of 7** — G34: `expected 200 to be 400 // Object.is equality` (`?via=bogus` answered 200 with an empty list); G36: `expected 200 to be 400` (the repeated-`via` half) | yes — clean |
 | G35 | M35 validate before the repo lookup | the repo-lookup block moved below both validation blocks | Reddens **1 of 7**, G35 only: `AssertionError: expected 400 to be 404 // Object.is equality`. G31 and G32 both stay **green**, which is the measured proof that neither of them observes guard order | yes — clean |
 | G36 | M36 `String(entity)` coercion | `const entity = req.query["entity"]; if (typeof entity !== "string" \|\| entity.trim() === "")` → `const entity = String(req.query["entity"]); if (entity.trim() === "")` | Reddens **2 of 7** — G36: `expected 200 to be 400 // Object.is equality` (`?entity=Course&entity=Student` looked up `"Course,Student"` and answered 200); G32: `expected 200 to be 400` (missing `entity` became the string `"undefined"`) | yes — clean |
-| G37 | **none by design** | — | G37 asserts a property of the fixture **and** the platform together (that code-unit and `localeCompare` orderings of the ref files can be told apart), not a behaviour of production code, so there is no production mutant to apply. It **passed on arrival**, so G17 is not disarmed today. Control measured instead: filtering the `_Stale` rows out of the derivation reddens it — `AssertionError: expected [ …(10) ] to not deeply equal [ …(10) ]` / `Compared values have no visual difference.` at `entity-refs.test.ts:326:28`. Reverted, green again | n/a (test-side control reverted; `git status --porcelain` clean) |
+| G37 | **none by design** | — | G37 asserts a property of the fixture **and** the platform together (that code-unit and `localeCompare` orderings of the ref files can be told apart), not a behaviour of production code, so there is no production mutant to apply. It **passed on arrival**, so G17 is not disarmed today. Control measured instead: filtering the `_Stale` rows out of the derivation reddens it. **Re-measured in review round 1 after widening the derivation to ALL refs (N6):** G37 still passes on arrival (`pnpm test` 460/460, 35 files), and the control still reddens — `AssertionError: expected [ …(18) ] to not deeply equal [ …(18) ]` / `Compared values have no visual difference.`, 18 rows now rather than 10 because the derivation is no longer narrowed to `Course`. Reverted, green again | n/a (test-side control reverted; `git status --porcelain` clean) |
 
-### Deviation: M29 reddens G28 as well as G29
+### Deviation: M29 reddens G28 as well as G29 — and G30, for six in all
 
 The plan predicted M29 would redden G29 and **not** G28. As written, G28's last
 assertion is a partition control —
@@ -123,15 +148,47 @@ reddens under M29 while staying green under M28. G28 reddens under both. This
 is the only place the implementation's observed behaviour differs from the
 plan's stated expectation; nothing about the design changed.
 
+**Re-measured in review round 1: the set is SIX, not five** — the five in
+`refs.test.ts` plus **G30** in `api.test.ts`, which asks the route for `Course`
+with no `via` and gets `[]`. The original row was scoped to `refs.test.ts` and
+so undercounted.
+
+**`refs.test.ts` now carries this measured set in its own comment.** Round 1
+found the G29 comment asserting the mutant "reddens here and NOWHERE else",
+which this measurement refutes — the codebase's own recorded failure mode, an
+unverified because-clause travelling with the code while the correction sat only
+in an audit the next reader will not open. The comment now names the six and
+says why G28's partition control stays.
+
+### Correction to `plan.md:183-185` — G29 is documentation, not a gated claim
+
+The plan promoted G29 from "positive control" to a gated claim on the belief
+that M29 isolated it. **It does not, and no mutant does.** Any mutation of
+"omitted `via` means both" empties every no-`via` lookup in the file at once, so
+G24, G25, G27 and G28's partition control all go red with it. G28, by contrast,
+*is* singled out within `refs.test.ts` by M28.
+
+So **G29 is subsumed — documentation, in the same category as G26.** It is kept,
+not deleted: the contract it states is real and a reader should find it written
+down. It simply must not be counted as an independent gate. The approved plan is
+**not** rewritten; this is the record of the correction.
+
+Gate count, honestly stated: of the 14 gates in the plan's inventory, **12 carry
+an isolating or distinguishing mutant** and **2 (G26, G29) are documentation**,
+plus G37 whose control is environmental rather than a production mutant.
+
 ## Suite numbers
 
 | Run | Before (at `5143fe2`) | After |
 |---|---|---|
-| `pnpm test` | **446 passed (446)**, 34 files | **460 passed (460)**, 34 files |
+| `pnpm test` | **446 passed (446)**, 34 files | **460 passed (460)**, **35 files** |
 | `PSQ_NO_CORPUS=1 pnpm test` | **388 passed / 58 skipped (446)** | **402 passed / 58 skipped (460)** |
 | `pnpm typecheck` | exit 0, four projects | exit 0, four projects |
 
-+14 = 6 (G24-G29) + 7 (G30-G36) + 1 (G37). **Skipped held at exactly 58**, so
++14 = 6 (G24-G29) + 7 (G30-G36) + 1 (G37), and **34 → 35 files** because
+`packages/graph/test/refs.test.ts` is new — the round-1 correction to this row,
+which had both counts at 34; a new test file makes equal before/after file
+counts impossible. **Skipped held at exactly 58**, so
 the gitignored private corpus is intact. **Every pre-existing test is unmoved**
 — no existing test was edited, renamed or renumbered, and the per-file counts
 moved only where tests were added (`api.test.ts` 33 → 40,
@@ -147,6 +204,57 @@ assert the two hardcoded `6`s, and all three pass unchanged in the final run.
 No extractor code and no fixture file was touched this phase, so no stored
 envelope is invalidated and no `EXTRACTOR_VERSION` bump was needed or made.
 
+## Review round 1 — what changed, and what did not
+
+Verdict was **Fix first — record only, not code**: `refs.ts` and the route were
+confirmed correct, no gate needed rebuilding, and **no behaviour changed**. The
+selector, the route's logic and every gate's assertions are as they shipped,
+with two exceptions, both explicitly scoped by the review:
+
+1. **N6 — G37 derives from ALL refs, not the `Course` subset**
+   (`entity-refs.test.ts`). `refs.filter(r => r.entity === "Course").map(...)`
+   → `refs.map(r => r.file)`. G17 sorts the **whole** ref array, so the whole
+   array is what must stay discriminating; the narrowed derivation would have
+   stayed green after an edit that removed only `_Stale/Student.cs:24` (a
+   `Student` row) while taking half of G17's discriminating power with it.
+   Measured both ways, in the G37 row above: passes widened, control still
+   reddens.
+2. **N8 — readability in `app.ts`.**
+   `via === null ? undefined : { via }` → `{ via: via ?? undefined }`. The two
+   forms are indistinguishable to `refsFor`, which reads `opts?.via`. No
+   behaviour change, and G30/G34 — unchanged — pin both the filtered and the
+   unfiltered result through HTTP.
+
+Record-only fixes:
+
+- **B1** — the refuted because-clause in `refs.test.ts`'s G29 comment, replaced
+  with the re-measured six-test failure set and the reason G28's partition
+  control stays. Re-measured here, not copied from the review.
+- **B2** — all five graph-side mutant rows re-measured suite-wide; the
+  `api.test.ts` overlap (G30/G34) named.
+- **N3** — G29 relabelled documentation; `plan.md:183-185` corrected in this
+  audit, the approved plan left as approved.
+- **N4** — the after-file count 34 → **35**.
+- **N5** — one paragraph in the route comment naming the **one** `/search`
+  decision this route deliberately does not copy: `?q=` is a 200 with no hits,
+  a blank `?entity=` is a 400. The plan specifies the 400 (`plan.md:140`); the
+  comment previously claimed to copy `/search` wholesale and was silent about
+  the exception.
+- **N7** — open risk 4 no longer implies `RefVia` is the first runtime zod value
+  `app.ts` pulls from `@psq/schema`.
+
+**Explicitly not done**, per the review: `api.test.ts:246`'s `" "` loop entry
+left alone (harmless), `plan.md` not rewritten, no gate deleted, no assertion
+changed, nothing touched outside the four files named at the top.
+
+One measurement note, recorded because it was observed rather than reasoned:
+during M27's JSON run `api.test.ts > opening a repo > reopening replaces the old
+copy instead of leaking a database` failed once. It does not read `refsFor`, it
+did not fail in the same mutant's default-reporter run, and it did not reproduce
+on a clean re-run of M27 under both reporters. Recorded as a **pre-existing
+intermittent failure unrelated to this phase**, not as part of M27's failure set
+— which is 2: G27 and G30.
+
 ## Open risks
 
 1. **`via` is still a mention rule** (D-Hb2-6). The route now makes refs easy to
@@ -159,9 +267,14 @@ envelope is invalidated and no `EXTRACTOR_VERSION` bump was needed or made.
    not a bug.
 3. **`apps/web/src/lib/api.ts:126`'s hand-written `EntityGraph` is still four
    fields behind** and will not see `entityRefs`. Out of scope (H-a2), untouched.
-4. **`apps/server/package.json` still does not declare `zod`**, which the route
-   now leans on indirectly through `RefVia`. Examined and left, as the plan
-   directs — for the seventh time.
+4. **`apps/server/package.json` still does not declare `zod`.** Examined and
+   left, as the plan directs — for the seventh time. **This phase does not
+   change that risk.** The original wording ("which the route now leans on")
+   implied `RefVia` was a first: it is not — `app.ts:338` already calls
+   `Section.safeParse` on a runtime zod value from `@psq/schema` (`app.ts:344`
+   after this round's comment edit, `:338` before it), and predates
+   this phase. `RefVia` is one more caller of an undeclared transitive
+   dependency, not a new exposure.
 5. **D-Hb-10 remains deferred to H-e** with its measured design intact in
    `plan.md`'s "Deferred to H-e" section. Nothing in this phase touched
    `structure.ts`.

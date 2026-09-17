@@ -315,11 +315,17 @@ describe("G37: the environmental precondition that makes G17 discriminating", ()
     // on an ICU change but stays GREEN if the rows leave the fixture, which
     // disarms G17 just as completely.
     //
+    // Derived from ALL refs, not the `Course` subset. G17 sorts the WHOLE ref
+    // array, so the whole array is what has to stay discriminating; narrowing
+    // the derivation to one entity would leave this green after an edit that
+    // removed only `_Stale/Student.cs:24` (a Student row) while taking half of
+    // what makes G17's sort discriminating with it.
+    //
     // This does not duplicate G17 and does not desensitise it: G17's claim is
     // behavioural (what the walker emits), this one is environmental (that the
     // two orderings can be told apart at all). Measured today on node v24.19.0
     // / ICU 78.3.
-    const files = refs.filter((r) => r.entity === "Course").map((r) => r.file);
+    const files = refs.map((r) => r.file);
     expect(new Set(files).size).toBeGreaterThan(1);
     const byCodeUnit = [...files].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     const byLocale = [...files].sort((a, b) => a.localeCompare(b));

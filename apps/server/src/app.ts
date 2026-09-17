@@ -215,6 +215,12 @@ export function createApp(
    * `?entity=a&entity=b` arrives as ["a","b"], which `String(...)` would
    * quietly look up as "a,b" and answer, confidently, with nothing.
    *
+   * ONE decision is deliberately NOT copied from /search: a present-but-empty
+   * `?entity=` is a 400 here, where /search answers `?q=` with a 200 and no
+   * hits. The asymmetry is intentional — /search's empty query is a search
+   * that found nothing, while an empty entity name can only be a malformed
+   * lookup, and `known: false` would read as a fact about the repo.
+   *
    * `via` is validated with the schema enum rather than a hand-written pair,
    * so the allowed set exists once. Note D-Hb2-6: `via: "dbSetName"` means the
    * matched token was the DbSet property name preceded by a `.` — a mention
@@ -245,7 +251,7 @@ export function createApp(
       entity,
       via,
       known: repo.graph.entities.some((e) => e.name === entity),
-      refs: refsFor(repo.graph, entity, via === null ? undefined : { via }),
+      refs: refsFor(repo.graph, entity, { via: via ?? undefined }),
     });
   }));
 
