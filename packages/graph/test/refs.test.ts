@@ -8,9 +8,14 @@ import { MINI_EFCORE_REFS } from "../../../test/fixtures.js";
 // author believed about the payload in both the code and the test, so the two
 // agree while both are wrong.
 //
-// mini-efcore-refs yields exactly two entities (Course, Student) and 20 refs.
-// Measured on this tree: Course carries 11 and Student 9, and BOTH carry both
+// mini-efcore-refs yields exactly two entities (Course, Student) and 22 refs.
+// Measured on this tree: Course carries 12 and Student 10, and BOTH carry both
 // vias — which is what makes G28 and G29 reachable at all.
+//
+// H-e moved Course 11 -> 12 (a ref inside an expression-bodied method body,
+// which the walker could not see before D-Hb-10) and Student 9 -> 10 (review
+// round 2's M10 case: a line carrying a dropped bare receiver AND a genuine
+// mention that must survive it).
 const g = extractDotnet(MINI_EFCORE_REFS);
 
 /** Compact, order-sensitive rendering of a ref list. */
@@ -19,23 +24,23 @@ const at = (rs: ReturnType<typeof refsFor>): string[] => rs.map((r) => `${r.file
 describe("G24: refsFor filters to the named entity", () => {
   it("returns that entity's refs and no others", () => {
     const course = refsFor(g, "Course");
-    expect(course.length).toBe(11);
+    expect(course.length).toBe(12);
     expect([...new Set(course.map((r) => r.entity))]).toEqual(["Course"]);
     // The positive control, in the same graph and the same run: the refs that
     // were filtered OUT exist. Without it a walker emitting only Course refs
     // would pass the assertions above for the wrong reason.
-    expect(g.entityRefs.length).toBe(20);
-    expect(refsFor(g, "Student").length).toBe(9);
+    expect(g.entityRefs.length).toBe(22);
+    expect(refsFor(g, "Student").length).toBe(10);
   });
 });
 
 describe("G25: the match is exact and case-sensitive", () => {
-  it("`student` finds nothing while `Student` finds nine", () => {
+  it("`student` finds nothing while `Student` finds ten", () => {
     // The negative half is paired with its positive control in one `it` on
     // purpose: "[] " is also what a broken selector returns for everything.
     expect(refsFor(g, "student")).toEqual([]);
     expect(refsFor(g, "STUDENT")).toEqual([]);
-    expect(refsFor(g, "Student").length).toBe(9);
+    expect(refsFor(g, "Student").length).toBe(10);
   });
 });
 
@@ -69,6 +74,7 @@ describe("G27: order is inherited from the graph, never re-sorted", () => {
       "Services/EnrollmentService.cs:15",
       "Services/EnrollmentService.cs:24",
       "Services/EnrollmentService.cs:55",
+      "Services/EnrollmentService.cs:112",
       "_Stale/Student.cs:41",
     ]);
   });
@@ -82,7 +88,7 @@ describe("G28: opts.via filters", () => {
     expect([...new Set(dbSetName.map((r) => r.via))]).toEqual(["dbSetName"]);
     // Both halves non-empty: a filter that returned nothing would satisfy a
     // one-sided assertion.
-    expect(entityName.length).toBe(10);
+    expect(entityName.length).toBe(11);
     expect([...new Set(entityName.map((r) => r.via))]).toEqual(["entityName"]);
     expect(entityName.length + dbSetName.length).toBe(refsFor(g, "Course").length);
   });
@@ -116,8 +122,8 @@ describe("G29: an omitted via means BOTH vias, not neither", () => {
     // finding, not a defect to tidy away.
     const both = refsFor(g, "Student");
     expect([...new Set(both.map((r) => r.via))].sort()).toEqual(["dbSetName", "entityName"]);
-    expect(both.length).toBe(9);
-    expect(refsFor(g, "Student", undefined).length).toBe(9);
-    expect(refsFor(g, "Student", {}).length).toBe(9);
+    expect(both.length).toBe(10);
+    expect(refsFor(g, "Student", undefined).length).toBe(10);
+    expect(refsFor(g, "Student", {}).length).toBe(10);
   });
 });

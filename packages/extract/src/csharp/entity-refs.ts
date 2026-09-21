@@ -141,6 +141,54 @@ export function collectEntityRefs(
           }
           if (via === null || entity === undefined) continue;
 
+          // The receiver-position rule (H-e). Drop a candidate whose token is
+          // a BARE identifier used as a receiver: `prev != "."` and
+          // `next == "."`. Two conjuncts, each with its own mutant.
+          //
+          // MEASURED, across both .NET corpus repos, against the walker with
+          // D-Hb-10 already in: 14 of 14 matches are one collision — a
+          // framework property inherited from a base class whose name equals
+          // an entity's — and 0 are genuine refs. That is 14 of the 303 refs
+          // those two repos produce WITH D-Hb-10 and without this rule, i.e.
+          // 4.6%; against the 289 that remain after it, 4.8%. The denominator
+          // is named because "4.6%" alone is two different numbers.
+          //
+          // It cannot touch a `dbSetName` ref BY CONSTRUCTION, not by luck:
+          // `via = "dbSetName"` is assigned at exactly one place above, inside
+          // a guard that requires `prev.text === "."`, and this rule requires
+          // `prev != "."`. The two are disjoint. The measured "0 of 101
+          // dbSetName refs" is a consequence of that, not a corpus accident.
+          //
+          // STATED LIMITATIONS, not safety claims. The rule is purely
+          // syntactic, so it is wrong in both directions:
+          //
+          //   OVER-REACH — a genuine static-member access on an entity type,
+          //   `Student.Create(...)`, matches and is dropped. Measured
+          //   occurrences in the corpus: 0. "0", not "impossible". The fixture
+          //   deliberately carries no case asserting the wrong answer for it,
+          //   and round 2 removed one that accidentally did.
+          //
+          //   UNDER-REACH — `?.` and `!.` escape the rule entirely. MEASURED:
+          //   the lexer emits `Student?.Name` as `ident` + one `punct` token
+          //   `?.`, and `Student!.Name` as `ident` + `punct !` + `punct .`, so
+          //   `next.text === "."` is false in both and the ref survives. The
+          //   exact corpus phenomenon written `User?.FindFirstValue(...)`
+          //   would NOT be dropped. Harmless today because the corpus spells
+          //   it `.`, and left alone rather than "fixed" unmeasured — but it
+          //   is a hole, not an omission nobody noticed.
+          //
+          // And the drop is invisible downstream: the rejected alternative was
+          // an `EntityRef` field for query-time filtering, which needs a
+          // schema change. Nothing can report what was discarded here.
+          //
+          // This `continue` MUST stay above `seen.add(key)`. Below it, a
+          // receiver-position occurrence would poison the dedupe key and
+          // suppress a LATER legitimate ref sharing the same tuple.
+          const next = i + 1 < body.length ? body[i + 1]! : null;
+          const bareReceiver =
+            !(prev !== null && prev.text === ".") && next !== null && next.text === ".";
+          if (bareReceiver) continue;
+
           const ref: EntityRef = {
             entity,
             // The REFERENCING file. Already repo-relative — `parseCSharp` is

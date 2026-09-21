@@ -57,7 +57,7 @@ export function detectProvider(repoRoot: string): Provider {
  * serves one class of stale graph. An auto-derived digest of the extractor's
  * own sources was considered and rejected as too clever for the gain.
  */
-export const EXTRACTOR_VERSION = 2;
+export const EXTRACTOR_VERSION = 3;
 
 /**
  * Extract whatever this repo is, alongside a fingerprint of the files that

@@ -549,12 +549,22 @@ describe("G22: an envelope stored before `entityRefs` existed", () => {
   });
 });
 
-describe("G23: the H-b1 extractor bump", () => {
-  it("re-extracts an envelope written by extractor 1, and not one at the current version", async () => {
+describe("G23: the extractor bump", () => {
+  it("re-extracts an envelope written by the PREVIOUS extractor, and not one at the current version", async () => {
     // The bump is one half of D-Hb-12: without it a graph stored by the
-    // previous extractor would parse cleanly and serve `entityRefs: []`
+    // previous extractor would parse cleanly and serve stale extraction
     // forever, which is indistinguishable from a repo that genuinely has none.
-    expect(EXTRACTOR_VERSION).toBeGreaterThan(1);
+    //
+    // Both literals below track the bump and MUST move with it. The two
+    // `toBe(EXTRACTOR_VERSION)` assertions further down read the constant
+    // SYMBOLICALLY and are therefore true at any value — a declaration cannot
+    // be gated by a test that merely mirrors it. These two are the gate:
+    //   - the bound below reddens when `EXTRACTOR_VERSION` is reverted (M8);
+    //   - the `extractor: 2` patch is the behavioural half, proving that an
+    //     envelope written by version 2 really does re-extract under 3.
+    // H-e raised both from 1 to 2 with the 2 -> 3 bump. Raise them again on
+    // the next bump, or the gate silently stops gating.
+    expect(EXTRACTOR_VERSION).toBeGreaterThan(2);
 
     const state = tmp("state");
     const stale = copyOf(MINI_EFCORE_REFS);
@@ -565,7 +575,7 @@ describe("G23: the H-b1 extractor bump", () => {
     const currentId = seeder.open(current).id;
     seeder.closeAll();
 
-    patch(state, staleId, { extractor: 1 });
+    patch(state, staleId, { extractor: 2 });
 
     calls.extractWithDigest = 0;
     const w = ws(state);

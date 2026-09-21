@@ -24,6 +24,50 @@ const SERVICE = "Services/EnrollmentService.cs";
 const DUP_LINE = 55;
 
 /**
+ * H-e. The `Course` mention inside `Terse.Roster`'s EXPRESSION BODY, after a
+ * statement lambda that carries its own `;`. It exists only because D-Hb-10
+ * captures expression-bodied method bodies at all and because the scan that
+ * captures them tracks depth. Unlike DUP_LINE the value is not load-bearing —
+ * it just has to be the line the token is actually on.
+ */
+const TERSE_LINE = 112;
+
+/**
+ * H-e. The line of `Receiver.Read`'s bare-receiver `Student` — `prev != "."`,
+ * `next == "."`. It yields NO ref, and that absence is the receiver rule's
+ * only positive control outside the private corpus.
+ *
+ * The token is a PROPERTY whose name collides with an entity's, which is the
+ * phenomenon the corpus actually shows. Round 1 used `Student.Empty`, a static
+ * member access on the entity TYPE — the shape both the plan and
+ * `entity-refs.ts` record as a tolerated LIMITATION — so it pinned the wrong
+ * answer. Corrected in round 2.
+ *
+ * Deliberately alone on its line: the dedupe key excludes token position, so a
+ * second `Student` mention here would keep the row alive whatever the rule
+ * did. `PAIR_LINE` below is where that second mention lives on purpose.
+ */
+const RECEIVER_LINE = 85;
+
+/**
+ * H-e M10. TWO `Student` entityName mentions in one method on ONE line — a
+ * bare receiver first, a genuine type mention second — which share the whole
+ * dedupe key. It yields exactly ONE ref while the receiver rule's `continue`
+ * sits ABOVE `seen.add`, and NONE if it is moved below. Unlike RECEIVER_LINE,
+ * this line's job is to carry two mentions, not one.
+ */
+const PAIR_LINE = 96;
+
+/**
+ * H-e round 3. The declaration that makes `Receiver`'s two cases the RIGHT
+ * answer rather than the wrong one: a member whose name collides with an
+ * entity's. Delete it and `Student.Length` becomes a static-member access on
+ * the entity type — the tolerated limitation — while G38 stays green. Pinned
+ * because a gate that survives the removal of its own premise is not a gate.
+ */
+const COLLIDING_MEMBER_LINE = 83;
+
+/**
  * The fixture's shape, pinned. If any of these move, a gate below is reading
  * a different repo than the one it was written against and its "yields
  * nothing" assertions stop meaning anything.
@@ -75,6 +119,7 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
       { entity: "Course", file: SERVICE, line: 15, type: "EnrollmentService", method: "Enroll", via: "dbSetName" },
       { entity: "Course", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName" },
       { entity: "Course", file: SERVICE, line: DUP_LINE, type: "Dup", method: "Sync", via: "entityName" },
+      { entity: "Course", file: SERVICE, line: TERSE_LINE, type: "Terse", method: "Roster", via: "entityName" },
       { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName" },
       { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName" },
       { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "entityName" },
@@ -84,6 +129,7 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
       { entity: "Student", file: STUDENTS, line: 56, type: "StudentsController", method: "Locals", via: "dbSetName" },
       { entity: "Student", file: SERVICE, line: 14, type: "EnrollmentService", method: "Enroll", via: "entityName" },
       { entity: "Student", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName" },
+      { entity: "Student", file: SERVICE, line: PAIR_LINE, type: "Receiver", method: "Pair", via: "entityName" },
       { entity: "Student", file: STALE, line: 24, type: "Student", method: "Touch", via: "entityName" },
     ];
     expect(refs).toEqual(expected);
@@ -297,7 +343,7 @@ describe("G21: a repo whose only mentions are in OnModelCreating yields []", () 
     expect(extractDotnet(MINI_EFCORE).entityRefs).toEqual([]);
     // The positive control, and it must be in this same run: "[] " is also
     // what a walker that never emits anything returns.
-    expect(refs.length).toBe(20);
+    expect(refs.length).toBe(22);
   });
 });
 
@@ -333,5 +379,106 @@ describe("G37: the environmental precondition that makes G17 discriminating", ()
     // Named, so the failure says WHICH pair went away rather than only that
     // two sorted arrays agree.
     expect(files).toContain(STALE);
+  });
+});
+
+describe("G38: the receiver-position rule — H-e's Gap-1 positive control", () => {
+  it("a bare `Student` used as a receiver yields nothing, while the class still contributes", () => {
+    // The whole reason this class is in the fixture. Before it, the rule
+    // matched the fixture ZERO times: every gate on it would have passed by
+    // finding nothing, which is the failure mode this project keeps meeting.
+    //
+    // MEASURED, not argued: delete the rule from `entity-refs.ts` (M4) and
+    // this array grows a row, reddening here AND the whole-array pin above.
+    expect(refs.filter((r) => r.type === "Receiver" && r.method === "Read")).toEqual([]);
+
+    // Two controls, both in this same run, because "[]" is also what a broken
+    // walker returns for everything:
+    //   1. the token really is on that line and really is in receiver
+    //      position — read back from source, so a failure names the cause
+    //      rather than only reporting an empty filter;
+    const lines = readFileSync(join(MINI_EFCORE_REFS, SERVICE), "utf8").split("\n");
+    const src = lines[RECEIVER_LINE - 1]!;
+    expect(src).toContain("_ = Student.Length;");
+    //      ... and that it really is ALONE, which is the property the control
+    //      depends on and which `toContain` alone does NOT gate. A second
+    //      `Student` on this line would keep the row alive whatever the rule
+    //      did, silently disarming M4; this reddens instead. Structural, in
+    //      the same spirit as G39's `indexOf` ordering check.
+    expect(src.split("Student").length - 1).toBe(1);
+    //      ... and that the COLLIDING MEMBER this case depends on is still
+    //      declared. Without it `Student.Length` is a bare entity-named
+    //      receiver with no colliding member — i.e. exactly the static-member
+    //      access on an entity TYPE that round 1 wrongly pinned and round 2
+    //      removed. G38 would stay green while pinning the documented
+    //      limitation's wrong answer all over again. Round 3.
+    expect(lines[COLLIDING_MEMBER_LINE - 1]).toContain("public string Student { get; set; }");
+    //   2. `Student` is matchable at all in this graph, on other lines.
+    expect(refs.filter((r) => r.entity === "Student").length).toBeGreaterThan(0);
+  });
+
+  it("and the rule spares a `.`-preceded token, which is what keeps dbSetName refs", () => {
+    // `prev != "."` is the conjunct, and it is not decoration. In
+    // `StudentsController.cs:23` the `Students` token has `prev == "."` AND
+    // `next == "."`; drop the conjunct (M5) and this dbSetName ref dies along
+    // with five other tests. No new fixture row was added for it — the
+    // occurrence was already there.
+    expect(refs.filter((r) => r.file === STUDENTS && r.line === 23 && r.via === "dbSetName"))
+      .toEqual([
+        { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName" },
+      ]);
+  });
+});
+
+describe("G39: D-Hb-10 — refs inside an expression-bodied method body", () => {
+  it("`Terse.Roster`'s expression body contributes, past a statement lambda's own `;`", () => {
+    // Gap 2. Nothing anywhere gated D-Hb-10 before this: the suite was 464
+    // green both with and without the fix, and a suite that is green both
+    // ways is not a gate.
+    //
+    // This one row is reddened by TWO different mutants, which is why the
+    // shape was chosen over a plain `=> _db.Courses`:
+    //   M1 revert the `=>` branch to `body: []`  -> no ref at all
+    //   M6 drop the `depth <= 0` conjunct        -> the scan stops at the
+    //      lambda's inner `;` and `Course` falls outside the captured body
+    expect(refs.filter((r) => r.type === "Terse")).toEqual([
+      { entity: "Course", file: SERVICE, line: TERSE_LINE, type: "Terse", method: "Roster", via: "entityName" },
+    ]);
+
+    // The source control: the mention really is after an inner `;`, and it is
+    // really in an expression body. Without this the test would still pass if
+    // someone "simplified" the fixture line into a block body, quietly
+    // disarming M6.
+    const lines = readFileSync(join(MINI_EFCORE_REFS, SERVICE), "utf8").split("\n");
+    const src = lines[TERSE_LINE - 1]!;
+    expect(src).toContain("=>");
+    expect(src.indexOf(";")).toBeLessThan(src.indexOf("Course"));
+  });
+});
+
+describe("G40: the receiver rule drops BEFORE the dedupe key is claimed", () => {
+  it("a dropped receiver does not suppress a genuine ref sharing its line", () => {
+    // M10, added in review round 2. `plan.md` calls this "not a style point;
+    // it changes output" — and round 1 shipped it with no mutant at all, so
+    // moving the `continue` below `seen.add` left the whole suite green.
+    //
+    // `Receiver.Pair` holds two `Student` entityName mentions on ONE line:
+    // `Student.Length` (a bare receiver, dropped) then `Student other` (a
+    // genuine type mention, kept). The dedupe key is
+    // `entity|file|line|type|method|via` and excludes token position, so the
+    // two are indistinguishable to it. Drop first and the key is never
+    // claimed; drop second and the receiver claims it and the genuine
+    // mention dedupes away to nothing.
+    expect(refs.filter((r) => r.type === "Receiver" && r.method === "Pair")).toEqual([
+      { entity: "Student", file: SERVICE, line: PAIR_LINE, type: "Receiver", method: "Pair", via: "entityName" },
+    ]);
+
+    // The structural control. This gate is worth nothing unless the line
+    // really does carry BOTH mentions, in that order — a later tidy-up that
+    // split them onto two lines would leave the assertion above green while
+    // gating nothing at all.
+    const src = readFileSync(join(MINI_EFCORE_REFS, SERVICE), "utf8").split("\n")[PAIR_LINE - 1]!;
+    expect(src.split("Student").length - 1).toBe(2);
+    expect(src.indexOf("Student.Length")).toBeLessThan(src.indexOf("Student other"));
   });
 });

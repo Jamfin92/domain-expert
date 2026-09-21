@@ -334,9 +334,55 @@ function parseBody(
         continue;
       }
       if (tokens[k]?.text === "=>") {
-        while (k < to && tokens[k]!.text !== ";") k++;
+        // D-Hb-10. This branch used to push `body: []`, so every reference
+        // inside an expression body was invisible to the ref walker and to
+        // `entityConfigs`. The scan is the same depth-tracked idiom the
+        // expression-bodied PROPERTY branch below already uses — deliberately
+        // duplicated rather than extracted into a shared helper, which would
+        // be a refactor this phase does not carry.
+        //
+        // Depth tracking is DEFENSIVE, measured, not a fix for an observed
+        // corpus failure: on every real input in the corpus the old
+        // first-`;` terminator and this scan produce identical output. The
+        // shape it exists for is an expression body holding a statement
+        // lambda or block literal that contains a `;` — no corpus repo has
+        // one today; `mini-efcore-refs` has a manufactured case, and
+        // `structure.test.ts` has three.
+        const start = k + 1;
+        let scan = start;
+        let depth = 0;
+        while (scan < to) {
+          const t = tokens[scan]!.text;
+          if (t === "(" || t === "[" || t === "{") depth++;
+          if (t === ")" || t === "]" || t === "}") depth--;
+          if (t === ";" && depth <= 0) break;
+          scan++;
+        }
+        if (scan < to) {
+          methods.push({
+            name: memberName,
+            modifiers,
+            body: tokens.slice(start, scan),
+            line: declLine,
+          });
+          i = scan + 1;
+          continue;
+        }
+        // Terminator not found, and this fallback is the part that prevents a
+        // real failure rather than a hypothetical one. On malformed input an
+        // unbalanced `(` wedges the counter above, the scan runs to `to`, and
+        // resuming at `scan + 1` lands past the whole class body — measured
+        // to lose a following property AND a following method, silently.
+        // So: warn (rule 3 — warn, never guess), keep the old `body: []`, and
+        // resume from the first `;` ignoring depth, which is exactly the
+        // pre-D-Hb-10 behaviour.
+        warnings.push(
+          `${file}:${declLine}: expression body for method ${memberName} not terminated`,
+        );
         methods.push({ name: memberName, modifiers, body: [], line: declLine });
-        i = k + 1;
+        let fallback = start;
+        while (fallback < to && tokens[fallback]!.text !== ";") fallback++;
+        i = fallback + 1;
         continue;
       }
       i = k + 1;

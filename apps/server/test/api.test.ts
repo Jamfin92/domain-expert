@@ -209,7 +209,7 @@ describe("entity refs", () => {
     expect(res.body.entity).toBe("Course");
     expect(res.body.via).toBe(null);
     expect(res.body.known).toBe(true);
-    expect(res.body.refs.length).toBe(11);
+    expect(res.body.refs.length).toBe(12);
     expect(res.body.refs[0]).toEqual({
       entity: "Course",
       file: "Controllers/CoursesController.cs",
@@ -271,7 +271,7 @@ describe("entity refs", () => {
     // Control, same run: a valid via on the same request is a 200.
     const ok = await request(app).get(`/api/repos/${id}/refs`).query({ entity: "Course", via: "entityName" });
     expect(ok.status).toBe(200);
-    expect(ok.body.refs.length).toBe(10);
+    expect(ok.body.refs.length).toBe(11);
   });
 
   // G35
