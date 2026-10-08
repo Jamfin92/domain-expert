@@ -17,6 +17,8 @@ import {
 } from "@/lib/api";
 import { EntityDiagram } from "@/components/EntityDiagram";
 import { EntityCity } from "@/components/EntityCity";
+import { EntitySearch } from "@/components/EntitySearch";
+import { Flow } from "@/views/Flow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -213,6 +215,7 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [layout3d, setLayout3d] = useState<Layout3D | null>(null);
   const [dim, setDim] = useState<"2d" | "3d">("2d");
+  const [tab, setTab] = useState<"overview" | "flow">("overview");
   const [graph, setGraph] = useState<EntityGraph | null>(null);
   const [bank, setBank] = useState<Bank | null>(null);
   const [selftestOk, setSelftestOk] = useState<boolean | null>(null);
@@ -227,6 +230,7 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
     setLayout(null);
     setLayout3d(null);
     setDim("2d");
+    setTab("overview");
     setSelected(null);
     setSections([]);
     setError(null);
@@ -298,6 +302,38 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
        ends up mostly empty space. */
     <div className="flex flex-col gap-4 lg:flex-row">
       <section className="flex min-w-0 flex-1 flex-col gap-4">
+        <div data-psq="view-tabs" role="group" aria-label="View" className="flex gap-1">
+          <Button
+            variant={tab === "overview" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2 text-xs"
+            data-psq="tab-overview"
+            aria-pressed={tab === "overview"}
+            onClick={() => setTab("overview")}
+          >
+            Overview
+          </Button>
+          <Button
+            variant={tab === "flow" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 px-2 text-xs"
+            data-psq="tab-flow"
+            aria-pressed={tab === "flow"}
+            disabled={graph === null}
+            onClick={() => setTab("flow")}
+          >
+            Flow
+          </Button>
+        </div>
+        {tab === "flow" && graph ? (
+          <Flow
+            graph={graph}
+            repoPath={repo.path}
+            selectedEntity={selected}
+            onSelectEntity={setSelected}
+          />
+        ) : null}
+        {tab === "overview" ? (
         <Card className="gap-0 overflow-hidden py-0">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <span className="flex items-center gap-2 text-sm font-semibold">
@@ -368,6 +404,7 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
             )}
           </CardContent>
         </Card>
+        ) : null}
 
         <div className="grid gap-4 sm:grid-cols-3">
           <Stat icon={Table2} label="Entities" value={repo.entities} />
@@ -391,6 +428,13 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
       </section>
 
       <aside className="flex w-full flex-col gap-4 lg:w-[19rem] lg:shrink-0">
+        <EntitySearch
+          repoId={repo.id}
+          repoPath={repo.path}
+          selected={selected}
+          onSelect={setSelected}
+        />
+
         <Card className="gap-3 py-4">
           <CardHeader className="px-4">
             <CardTitle className="text-sm">Take a quiz</CardTitle>
@@ -474,6 +518,17 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
                 <p className="truncate font-mono text-[11px] text-muted-foreground" title={entity.file}>
                   {entity.file}
                 </p>
+                {tab === "flow" ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5 text-xs"
+                    data-psq="show-in-graph"
+                    onClick={() => setTab("overview")}
+                  >
+                    Show in graph
+                  </Button>
+                ) : null}
                 <Separator />
                 <ul className="max-h-56 space-y-0.5 overflow-y-auto pr-1 text-xs">
                   {entity.properties

@@ -127,6 +127,7 @@ export interface EntityGraph {
   repo: string; provider: string; contextName: string | null;
   entities: Entity[]; relations: Relation[]; warnings: string[];
   clientCalls: ClientCall[]; components: UiComponent[];
+  routes: Route[]; entityRefs: EntityRef[];
 }
 
 export interface ShapeField {
@@ -148,8 +149,32 @@ export interface Shape {
   /** Present only when the shape is paired; null otherwise. */
   drift: Drift | null;
 }
+/**
+ * The method that serves a route. CLIENT-ONLY today: `@psq/schema`'s Route has
+ * no `handler` yet (it is being added for .NET), and test/web-schema-drift.test.ts
+ * pins only `EntityGraph`'s top-level fields, so this is not pinned. Optional
+ * because an older server, or a stack psq cannot read handlers for, omits it.
+ */
+export interface RouteHandler {
+  type: string; method: string; file: string; line: number;
+}
 export interface Route {
   method: string; path: string; file: string; line: number;
+  handler?: RouteHandler;
+}
+export interface EntityRef {
+  entity: string; file: string; line: number; type: string; method: string;
+  via: "entityName" | "dbSetName";
+}
+export interface EntitySearchHit {
+  name: string; tableName: string; namespace: string | null; file: string;
+  reasons: Array<{ field: string; matched: string; property: string | null }>;
+}
+export interface EntityRefsResult {
+  entity: string; via: string | null;
+  /** false = the repo has no such entity; distinct from known with zero refs. */
+  known: boolean;
+  refs: EntityRef[];
 }
 
 class ApiError extends Error {}
@@ -247,6 +272,14 @@ export const api = {
     call<{ closed: boolean }>(`/api/repos/${id}`, { method: "DELETE" }),
 
   graph: (id: string) => call<{ graph: EntityGraph }>(`/api/repos/${id}/graph`),
+
+  search: (id: string, q: string) =>
+    call<{ query: string; searched: string[]; hits: EntitySearchHit[] }>(
+      `/api/repos/${id}/search?q=${encodeURIComponent(q)}`,
+    ),
+
+  refs: (id: string, entity: string) =>
+    call<EntityRefsResult>(`/api/repos/${id}/refs?entity=${encodeURIComponent(entity)}`),
 
   layout: (id: string) => call<{ layout: Layout }>(`/api/repos/${id}/layout`),
   layout3d: (id: string) => call<{ layout3d: Layout3D }>(`/api/repos/${id}/layout3d`),
