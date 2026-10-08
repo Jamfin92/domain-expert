@@ -163,6 +163,22 @@ export const Route = z.object({
   path: z.string(),
   file: z.string(),
   line: z.number().int().nonnegative(),
+  /**
+   * The code the route dispatches to, when the reader can name it. Only the
+   * .NET attribute-route reader sets it today; the Express reader leaves it
+   * off. `type` and `method` are the class and method names exactly as an
+   * `EntityRef` spells them, so a route joins to the entities its handler
+   * mentions by `(handler.type, handler.method)`. `handler.line` is the
+   * method's declaration; `Route.line` is the attribute that declares the route.
+   */
+  handler: z
+    .object({
+      type: z.string(),
+      method: z.string(),
+      file: z.string(),
+      line: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 export type Route = z.infer<typeof Route>;
 

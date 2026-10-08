@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Component, ClientCall, Entity, EntityGraph, Shape } from "@psq/schema";
+import type { Component, ClientCall, Entity, EntityGraph, Route, Shape } from "@psq/schema";
 import { mergeGraphs, nodeRootFor } from "../src/merge.js";
 
 // Imported directly rather than through `../src/index.js`: `merge` is an
@@ -344,5 +344,56 @@ describe("G20: mergeGraphs carries entityRefs through from the .NET side", () =>
       "some/deep/client",
     );
     expect(merged.entityRefs[0]!.file).toBe("Controllers/StudentsController.cs");
+  });
+});
+
+describe("mergeGraphs: client calls are matched to .NET routes", () => {
+  const route = (method: string, path: string): Route => ({
+    method, path, file: "Controllers/XController.cs", line: 9,
+    handler: { type: "XController", method: "Get", file: "Controllers/XController.cs", line: 10 },
+  });
+  const apiCall = (method: string, path: string, matches: string | null = null): ClientCall => ({
+    method, path, file: "src/api.ts", line: 3, enclosing: null, matches, components: [],
+  });
+
+  it("matches a TS call to a .NET route across {id:int}, casing and the root prefix", () => {
+    const g = mergeGraphs(
+      graph({ routes: [route("GET", "/api/Widgets/{id:int}"), route("POST", "/api/Widgets")] }),
+      graph({
+        provider: "sqlite-ddl",
+        clientCalls: [apiCall("GET", "/api/widgets/*"), apiCall("POST", "/api/widgets"), apiCall("PUT", "/api/widgets")],
+      }),
+      "client",
+    );
+    expect(g.clientCalls.map((c) => c.matches)).toEqual([
+      "GET /api/Widgets/{id:int}",
+      "POST /api/Widgets",
+      null,
+    ]);
+  });
+
+  it("never overrides a match the node reader already made", () => {
+    const g = mergeGraphs(
+      graph({ routes: [route("GET", "/api/x")] }),
+      graph({ clientCalls: [apiCall("GET", "/api/x", "GET /api/x (express)")] }),
+      "",
+    );
+    expect(g.clientCalls[0]!.matches).toBe("GET /api/x (express)");
+  });
+
+  it("leaves a call unmatched, with a warning naming both, when two routes fit", () => {
+    const g = mergeGraphs(
+      graph({ routes: [route("GET", "/a/{x}"), route("GET", "/a/{y:int}")] }),
+      graph({ clientCalls: [apiCall("GET", "/a/*")] }),
+      "",
+    );
+    expect(g.clientCalls[0]!.matches).toBeNull();
+    expect(g.warnings.some((w) => /could match GET \/a\/\{x\} or GET \/a\/\{y:int\}/.test(w))).toBe(true);
+  });
+
+  it("carries the .NET routes through with their handlers, unmodified", () => {
+    const r = route("GET", "/a");
+    const g = mergeGraphs(graph({ routes: [r] }), graph({}), "client");
+    expect(g.routes).toEqual([r]);
   });
 });

@@ -5,6 +5,7 @@ import type {
 import { parseCSharp, type FileParse, type PropertyDecl, type TypeDecl } from "./csharp/structure.js";
 import { entityConfigs, enumMemberArg, lambdaMembers, type EntityConfig } from "./csharp/fluent.js";
 import { collectEntityRefs } from "./csharp/entity-refs.js";
+import { readAspNetRoutes, scanUnattributedRouting } from "./csharp/routes.js";
 import { repoRelative, walk } from "./files.js";
 import { csharpShapes } from "./csharp/shapes.js";
 import { pairShapes } from "./pair.js";
@@ -268,9 +269,12 @@ export function extractDotnet(
   const parses: FileParse[] = [];
   for (const f of files) {
     try {
-      const p = parseCSharp(readFileSync(f, "utf8"), repoRelative(repoRoot, f));
+      const src = readFileSync(f, "utf8");
+      const rel = repoRelative(repoRoot, f);
+      const p = parseCSharp(src, rel);
       parses.push(p);
       warnings.push(...p.warnings);
+      warnings.push(...scanUnattributedRouting(src, rel));
     } catch (err) {
       warnings.push(`${repoRelative(repoRoot, f)}: parse failed (${String(err)})`);
     }
@@ -287,11 +291,14 @@ export function extractDotnet(
     }
   }
 
+  const { routes, warnings: routeWarnings } = readAspNetRoutes(parses);
+  warnings.push(...routeWarnings);
+
   const contexts = findContexts(parses);
   if (contexts.length === 0) {
     return {
       kind: "entity", repo: repoRoot, provider: "efcore", contextName: null,
-      entities: [], relations: [], shapes: [], routes: [], clientCalls: [], components: [],
+      entities: [], relations: [], shapes: [], routes, clientCalls: [], components: [],
       entityRefs: [], warnings,
     };
   }
@@ -637,7 +644,8 @@ export function extractDotnet(
     entities: entities.sort((a, b) => a.name.localeCompare(b.name)),
     relations: relations.sort((a, b) => a.id.localeCompare(b.id)),
     shapes: shapes.sort((a, b) => a.name.localeCompare(b.name)),
-    routes: [],
+    // Already sorted by `readAspNetRoutes`, with code-unit comparisons.
+    routes,
     clientCalls: [],
     components: [],
     // Already sorted by `collectEntityRefs`, with code-unit comparisons. The

@@ -13,6 +13,8 @@ export interface AttributeRef {
   name: string;
   /** Raw argument tokens, e.g. ["20"] for [MaxLength(20)]. */
   args: string[];
+  /** 1-based line of the attribute's name. */
+  line: number;
 }
 
 export interface PropertyDecl {
@@ -34,6 +36,7 @@ export interface MethodDecl {
   /** Tokens strictly inside the outermost body braces. */
   body: Token[];
   line: number;
+  attributes: AttributeRef[];
 }
 
 export interface TypeDecl {
@@ -47,6 +50,7 @@ export interface TypeDecl {
   properties: PropertyDecl[];
   methods: MethodDecl[];
   line: number;
+  attributes: AttributeRef[];
 }
 
 export interface FileParse {
@@ -226,7 +230,7 @@ function readAttributes(tokens: Token[], i: number): { attrs: AttributeRef[]; ne
           k = argClose + 1;
         }
       }
-      attrs.push({ name, args });
+      attrs.push({ name, args, line: nameTok.line });
       if (k < close && tokens[k]!.text === ",") k++;
     }
     n = close + 1;
@@ -329,6 +333,7 @@ function parseBody(
           modifiers,
           body: tokens.slice(k + 1, close),
           line: declLine,
+          attributes: attrs,
         });
         i = close + 1;
         continue;
@@ -364,6 +369,7 @@ function parseBody(
             modifiers,
             body: tokens.slice(start, scan),
             line: declLine,
+            attributes: attrs,
           });
           i = scan + 1;
           continue;
@@ -379,7 +385,7 @@ function parseBody(
         warnings.push(
           `${file}:${declLine}: expression body for method ${memberName} not terminated`,
         );
-        methods.push({ name: memberName, modifiers, body: [], line: declLine });
+        methods.push({ name: memberName, modifiers, body: [], line: declLine, attributes: attrs });
         let fallback = start;
         while (fallback < to && tokens[fallback]!.text !== ";") fallback++;
         i = fallback + 1;
@@ -499,7 +505,7 @@ export function parseCSharp(src: string, file: string): FileParse {
     }
 
     // attributes then modifiers then a type keyword
-    const { attrs: _attrs, next: afterAttrs } = readAttributes(tokens, i);
+    const { attrs: typeAttrs, next: afterAttrs } = readAttributes(tokens, i);
     let j = afterAttrs;
     const modifiers: string[] = [];
     while (j < tokens.length && MODIFIERS.has(tokens[j]!.text)) {
@@ -581,6 +587,7 @@ export function parseCSharp(src: string, file: string): FileParse {
           properties: [...positional.filter((prop) => !declared.includes(prop.name)), ...properties],
           methods,
           line,
+          attributes: typeAttrs,
         });
         i = close + 1;
         continue;
@@ -600,7 +607,7 @@ export function parseCSharp(src: string, file: string): FileParse {
       }
       types.push({
         name, keyword, modifiers, bases, namespace: fileNamespace,
-        properties: positional, methods: [], line,
+        properties: positional, methods: [], line, attributes: typeAttrs,
       });
       i = k + 1;
       continue;

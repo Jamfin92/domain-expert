@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ClientCall, Component, EntityGraph, Entity, Route, Shape } from "@psq/schema";
+import { linkCalls } from "./node/clients.js";
 
 /**
  * Joining a .NET graph and a TypeScript graph into one.
@@ -143,11 +144,10 @@ export function mergeGraphs(
   // deterministically which twin survives (rule 7 on top of rule 3).
   const shapes = [...dotnet.shapes, ...nodeShapes].sort(byNameThenFile);
 
-  // Concat, not re-sort: the .NET reader contributes none of these three
-  // (`dotnet.ts` hardcodes routes/clientCalls/components empty), so a concat
-  // preserves the node reader's own order exactly and the merged graph reads
-  // identically to `extractNode` on the same client. Re-sorting would differ
-  // from it for no gain.
+  // Concat, not re-sort: the .NET reader contributes routes only (clientCalls
+  // and components are always empty there), so a concat keeps each reader's own
+  // order and the node-side calls read identically to `extractNode` on the same
+  // client. Re-sorting would differ from it for no gain.
   const routes = [...dotnet.routes, ...nodeRoutes];
   const clientCalls = [...dotnet.clientCalls, ...nodeCalls];
   const components = [...dotnet.components, ...nodeComponents];
@@ -165,6 +165,17 @@ export function mergeGraphs(
   );
 
   const mergeWarnings: string[] = [];
+
+  // The TypeScript reader linked its calls against the TypeScript side's own
+  // routes only. A call it left unmatched may hit a .NET route; the C# path
+  // syntax (`{id:int}`) and case-insensitivity are the matcher's `aspnet` mode.
+  // Calls already matched are not revisited, so this never overrides the node
+  // reader's decision.
+  if (dotnet.routes.length > 0) {
+    linkCalls(dotnet.routes, nodeCalls.filter((c) => c.matches === null), mergeWarnings, {
+      aspnet: true,
+    });
+  }
 
   // `invariants()` reads only entities and relations and catches a name
   // COLLISION; it cannot see this. An EF `Customer` beside a DDL `customers`

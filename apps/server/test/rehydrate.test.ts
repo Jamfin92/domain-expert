@@ -561,10 +561,11 @@ describe("G23: the extractor bump", () => {
     // be gated by a test that merely mirrors it. These two are the gate:
     //   - the bound below reddens when `EXTRACTOR_VERSION` is reverted (M8);
     //   - the `extractor: 2` patch is the behavioural half, proving that an
-    //     envelope written by version 2 really does re-extract under 3.
-    // H-e raised both from 1 to 2 with the 2 -> 3 bump. Raise them again on
-    // the next bump, or the gate silently stops gating.
-    expect(EXTRACTOR_VERSION).toBeGreaterThan(2);
+    //     envelope written by version 3 really does re-extract under 4.
+    // H-e raised both from 1 to 2 with the 2 -> 3 bump; H-d raised them to 3
+    // with the 3 -> 4 bump. Raise them again on the next bump, or the gate
+    // silently stops gating.
+    expect(EXTRACTOR_VERSION).toBeGreaterThan(3);
 
     const state = tmp("state");
     const stale = copyOf(MINI_EFCORE_REFS);
@@ -575,7 +576,7 @@ describe("G23: the extractor bump", () => {
     const currentId = seeder.open(current).id;
     seeder.closeAll();
 
-    patch(state, staleId, { extractor: 2 });
+    patch(state, staleId, { extractor: 3 });
 
     calls.extractWithDigest = 0;
     const w = ws(state);

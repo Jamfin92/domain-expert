@@ -50,9 +50,26 @@ function literalPath(node: ts.Expression): string | null {
   return null;
 }
 
-/** `:params` become `*` so a route agrees with a call whose hole sits there. */
-function normaliseRoutePath(path: string): string {
-  return path.replace(/:[^/]+/g, "*");
+/**
+ * `:params` (Express) and `{params}` (ASP.NET, including constraints such as
+ * `{id:int}`, `{id?}` and `{*rest}`) become `*` so a route agrees with a call
+ * whose hole sits there. Braces are scanned with a depth counter because a
+ * constraint may itself contain braces: `{code:regex(^\d{3}$)}`.
+ */
+export function normaliseRoutePath(path: string, aspnet = false): string {
+  // Braces are ASP.NET syntax only. In an Express 5 path `{/:id}` is an
+  // optional group, so rewriting it would change what node routes match.
+  if (!aspnet) return path.replace(/:[^/]+/g, "*");
+  let out = "";
+  let depth = 0;
+  for (const c of path) {
+    if (c === "{") {
+      if (depth === 0) out += "*";
+      depth++;
+    } else if (c === "}" && depth > 0) depth--;
+    else if (depth === 0) out += c;
+  }
+  return out.replace(/:[^/]+/g, "*");
 }
 
 /**
@@ -227,10 +244,17 @@ export function linkCalls(
   routes: readonly Route[],
   calls: ClientCall[],
   warnings: string[],
+  opts: { aspnet?: boolean } = {},
 ): ClientCall[] {
+  // `aspnet`: `{param}` syntax, and case-insensitive paths. ASP.NET routing is
+  // case-insensitive and `[controller]` substitutes the class name as written,
+  // so `/api/Courses` must meet a client's `/api/courses`. Opt-in: the Express
+  // default (exact, `:param` only) is unchanged.
+  const aspnet = opts.aspnet === true;
+  const fold = (s: string): string => (aspnet ? s.toLowerCase() : s);
   for (const call of calls) {
     const candidates = routes.filter(
-      (r) => r.method === call.method && normaliseRoutePath(r.path) === call.path,
+      (r) => r.method === call.method && fold(normaliseRoutePath(r.path, aspnet)) === fold(call.path),
     );
     if (candidates.length === 1) {
       const route = candidates[0]!;
