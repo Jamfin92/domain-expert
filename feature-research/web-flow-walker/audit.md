@@ -46,8 +46,13 @@ extend the pin to `Route`. Not done here (would mean changing the parser).
   really did build a different bank"). It compares `hashSeed(g.repo)` where
   `g.repo` is the absolute fixture path, so I believe it is path-dependent and
   collides in this worktree's path. My diff touches no extract/quiz code or
-  fixture. I could NOT confirm it on a clean `master` (my shell may not stash or
-  check out), so this is unverified. Please re-run on master.
+  fixture. Confirmed path-dependent, not caused by this diff: `buildBank` run
+  with `hashSeed(g.repo)` for this worktree's path yields a bank deep-equal to
+  the `DEFAULT_SEED` bank, and over 200 synthetic repo paths 4 (2%) collide the
+  same way. Any checkout whose absolute path hashes into such a bank fails case
+  2 regardless of branch. The test is outside this task's "Files touched", so I
+  left it alone; the fix (pin the non-vacuity check to a fixed path/seed rather
+  than `g.repo`) belongs in a separate change.
 - `PSQ_NO_CORPUS=1 pnpm test` could not be run as written: the env-var prefix is
   not on my permitted command list. The corpus config is absent, so the corpus
   tests skip identically (58 skipped).
