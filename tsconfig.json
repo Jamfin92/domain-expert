@@ -4,6 +4,7 @@
     "packages/*/src/**/*.ts",
     "apps/cli/src/**/*.ts",
     "apps/server/src/**/*.ts",
+    "apps/mcp/src/**/*.ts",
     "packages/*/test/**/*.ts",
     "apps/*/test/**/*.ts",
     "test/**/*.ts"

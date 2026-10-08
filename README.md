@@ -86,6 +86,14 @@ psq works out what kind of project it is looking at from what is on disk — a
 source means the Node reader, and neither means an empty graph with a warning
 that says what was looked for.
 
+## Agent access (MCP)
+
+`apps/mcp` is a stdio [MCP](https://modelcontextprotocol.io) server that lets
+Claude Code or Claude Desktop ask psq about a repo — areas, routes, client-call
+wiring, where an entity is mentioned, what psq could not see — instead of
+guessing. Every answer is read from the graph and cites `file:line`. Setup and
+an example conversation are in [`apps/mcp/README.md`](apps/mcp/README.md).
+
 ## The app
 
 ```bash
