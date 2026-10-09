@@ -108,6 +108,7 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
       );
     const bare = withHandler.length - bearing.length;
     const flows = cap(bearing, LIMIT.flowRoutes);
+    if (bearing.length === 0) out.push("- no handler mentions an entity directly");
     for (const r of flows.items) {
       const h = r.handler!;
       const ents = cap(entsOf(r), LIMIT.flowEntities);
