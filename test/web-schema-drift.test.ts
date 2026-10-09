@@ -17,14 +17,14 @@ import { EntityGraph } from "@psq/schema";
  * can import `@psq/schema` while leaving that app's dependency rule intact. It
  * reads the client file as TEXT, never as a module.
  *
- * The four schema-only fields are an explicit ALLOWLIST, not a "should be
+ * The two schema-only fields are an explicit ALLOWLIST, not a "should be
  * identical" pin: the gap is real and deliberate today, so the assertion is
- * that the gap is exactly these four. It reddens when the gap widens (a new
+ * that the gap is exactly these two. It reddens when the gap widens (a new
  * schema field the client never learns about) AND when it narrows (a field
  * mirrored in the client without shrinking this list on purpose).
  *
  * Parser tolerance, measured rather than assumed. Tolerant of (still parses to
- * the same 8): field reordering, one field per line, line comments, JSDoc
+ * the same 10): field reordering, one field per line, line comments, JSDoc
  * blocks inside the body, multi-line union types, `?:` optional fields, a
  * missing final semicolon. FALSE RED on: the opening brace on its own line,
  * TWO spaces before the brace, commas used as member separators (valid TS —
@@ -60,14 +60,16 @@ const WEB_FIELDS = [
   "components",
   "contextName",
   "entities",
+  "entityRefs",
   "provider",
   "relations",
   "repo",
+  "routes",
   "warnings",
 ].sort();
 
 /** Schema fields the client deliberately does not mirror. */
-const NOT_MIRRORED = ["entityRefs", "kind", "routes", "shapes"].sort();
+const NOT_MIRRORED = ["kind", "shapes"].sort();
 
 const MARKER = "export interface EntityGraph {";
 
@@ -157,7 +159,7 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     // The guard above passes vacuously on a body with zero segments (an empty
     // or unfound interface), so it is paired with a check that the parse found
     // something. This clause is a DIAGNOSTIC AID, not the detection mechanism:
-    // `toEqual` against an 8-element pinned list already fails on an empty
+    // `toEqual` against a 10-element pinned list already fails on an empty
     // parse. Its value is the message — "empty list" reads differently from
     // "list with an extra name", which is what tells an empty parse (M2) apart
     // from a deliberately mirrored field (M3).
@@ -165,7 +167,7 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     expect(webFields).toEqual(WEB_FIELDS);
   });
 
-  it("3. the fields the client does not mirror are exactly the known four", () => {
+  it("3. the fields the client does not mirror are exactly the known two", () => {
     const schemaOnly = Object.keys(EntityGraph.shape)
       .filter((k) => !webFields.includes(k))
       .sort();

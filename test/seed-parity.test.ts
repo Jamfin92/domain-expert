@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { extract } from "@psq/extract";
@@ -60,7 +60,13 @@ describe("seed parity", () => {
   it("2. the old repo-path default really did build a different bank", () => {
     // Non-vacuity for case 1. If these are equal the fixture no longer
     // discriminates and case 1 proves nothing — that is a finding, not a skip.
-    expect(buildBank(g, seeded, hashSeed(g.repo))).not.toEqual(
+    // The old default hashed `g.repo`, an absolute path, so which bank it built
+    // depended on where the checkout lives; some checkout paths hash into a bank
+    // equal to DEFAULT_SEED's. Hash the repo-relative path so the comparison
+    // is the same in every checkout.
+    const repoPath = relative(repoRoot, g.repo);
+    expect(repoPath).not.toMatch(/^\.\.|^\//);
+    expect(buildBank(g, seeded, hashSeed(repoPath))).not.toEqual(
       buildBank(g, seeded, DEFAULT_SEED),
     );
   });
