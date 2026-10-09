@@ -46,8 +46,8 @@ describe("a full-stack React fixture", () => {
 
   it("reads the express half as routes, never as client calls", () => {
     expect(g.routes).toEqual([
-      { method: "POST", path: "/api/admin/cards", file: "server.ts", line: 25 },
-      { method: "GET", path: "/api/cards", file: "server.ts", line: 30 },
+      { method: "POST", path: "/api/admin/cards", file: "server.ts", line: 25, handler: { type: "server", method: "<inline>", file: "server.ts", line: 25 } },
+      { method: "GET", path: "/api/cards", file: "server.ts", line: 30, handler: { type: "server", method: "<inline>", file: "server.ts", line: 30 } },
     ]);
     // Positive control on the every(): an empty list would satisfy it.
     expect(g.clientCalls.length).toBeGreaterThan(0);

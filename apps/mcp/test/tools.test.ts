@@ -160,13 +160,19 @@ describe("routes", () => {
     expect(all.total).toBe(2);
     const admin = tools.routes.run(ctx, { prefix: "/api/admin" }) as Json;
     expect(admin.routes).toEqual([
-      { method: "POST", path: "/api/admin/cards", cite: "server.ts:25", calledByClient: true },
+      {
+        method: "POST", path: "/api/admin/cards", cite: "server.ts:25", calledByClient: true,
+        handler: { type: "server", method: "<inline>", file: "server.ts", line: 25 },
+        handlerCite: "server.ts:25",
+      },
     ]);
   });
 
   it("passes through a handler when the graph has one, and works without", () => {
     const id = openReact();
     const repo = ctx.workspace.get(id)!;
+    // the fixture's inline handlers are real; drop them to test the no-handler path
+    for (const r of repo.graph.routes) delete r.handler;
     expect((tools.routes.run(ctx, {}) as Json).routes[0]).not.toHaveProperty("handler");
     (repo.graph.routes[0] as Json).handler = { type: "CardsController", method: "Post", file: "Api/Cards.cs", line: 12 };
     const first = (tools.routes.run(ctx, {}) as Json).routes[0];
@@ -435,7 +441,8 @@ describe("flow", () => {
   });
 
   it("has no Flow section when no route has a handler", () => {
-    openReact();
+    const id = openReact();
+    for (const r of ctx.workspace.get(id)!.graph.routes) delete r.handler;
     expect(tools.brief.run(ctx, {}) as string).not.toContain("## Flow");
   });
 });

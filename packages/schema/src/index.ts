@@ -164,9 +164,16 @@ export const Route = z.object({
   file: z.string(),
   line: z.number().int().nonnegative(),
   /**
-   * The code the route dispatches to, when the reader can name it. Only the
-   * .NET attribute-route reader sets it today; the Express reader leaves it
-   * off. `type` and `method` are the class and method names exactly as an
+   * The code the route dispatches to, when the reader can name it. Both the
+   * .NET attribute-route reader and the Express reader set it. Express: the
+   * handler is the last argument of the registration call. A reference
+   * resolves to its single declaration (`type` = enclosing class, the
+   * variable holding an object literal, or — for a plain function — the
+   * module file basename without extension). An INLINE function has
+   * `method: "<inline>"`, `type` = the module file basename without
+   * extension, and `file`/`line` equal to the route's own. An unresolvable
+   * handler (wrapper call, `.bind`, array, overload) leaves it off.
+   * `type` and `method` are the class and method names exactly as an
    * `EntityRef` spells them, so a route joins to the entities its handler
    * mentions by `(handler.type, handler.method)`. `handler.line` is the
    * method's declaration; `Route.line` is the attribute that declares the route.

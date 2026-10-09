@@ -192,7 +192,7 @@ export function extractNode(repoRoot: string): EntityGraph {
 
   const { entities, relations } = readSchema(collectDdl(repoRoot, sources, warnings), warnings);
   const shapes = pairShapes(entities, readShapes(repoRoot, checker, sources, warnings), warnings);
-  const routes = readRoutes(repoRoot, sources, warnings);
+  const routes = readRoutes(repoRoot, checker, sources, warnings);
   const callNodes = new Map<ClientCall, ts.CallExpression>();
   const clientCalls = linkCalls(
     routes,

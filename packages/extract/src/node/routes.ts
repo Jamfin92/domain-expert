@@ -1,6 +1,7 @@
 import ts from "typescript";
 import type { Route } from "@psq/schema";
 import { isTestFile, repoRelative } from "../files.js";
+import { resolveHandler } from "./handlers.js";
 
 /**
  * The express surface, extracted as facts.
@@ -73,6 +74,7 @@ function receivers(source: ts.SourceFile): Set<string> {
 
 export function readRoutes(
   root: string,
+  checker: ts.TypeChecker,
   sources: readonly ts.SourceFile[],
   warnings: string[],
 ): Route[] {
@@ -97,7 +99,10 @@ export function readRoutes(
           const first = node.arguments[0]!;
           const { line } = source.getLineAndCharacterOfPosition(node.getStart());
           if (ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first)) {
-            out.push({ method: method.toUpperCase(), path: first.text, file: rel, line: line + 1 });
+            const route: Route = { method: method.toUpperCase(), path: first.text, file: rel, line: line + 1 };
+            const handler = resolveHandler(root, checker, source, rel, line + 1, node.arguments);
+            if (handler) route.handler = handler;
+            out.push(route);
           } else if (ts.isRegularExpressionLiteral(first)) {
             warnings.push(`${rel}:${line + 1}: ${method.toUpperCase()} route matched by a regular expression; no path recorded`);
           }
