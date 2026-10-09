@@ -9,6 +9,7 @@ export {
 } from "./layout3d.js";
 export { searchEntities, MATCH_FIELDS } from "./search.js";
 export { refsFor } from "./refs.js";
+export { areasFor, areaSegment, type Area, type AreaBasis, type AreaEdge, type AreaHandler, type AreasResult } from "./areas.js";
 import type { EntityGraph, Relation } from "@psq/schema";
 
 /**
