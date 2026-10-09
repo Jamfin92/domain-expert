@@ -30,6 +30,14 @@ export interface PropertyDecl {
   initializer: string | null;
 }
 
+/** A parameter or field as declared: just enough to type a receiver. */
+export interface TypedName {
+  name: string;
+  /** Type exactly as written. */
+  type: string;
+  line: number;
+}
+
 export interface MethodDecl {
   name: string;
   modifiers: string[];
@@ -37,6 +45,18 @@ export interface MethodDecl {
   body: Token[];
   line: number;
   attributes: AttributeRef[];
+  /** Declared parameters, in order. Empty when the list was not readable. */
+  params: TypedName[];
+}
+
+/**
+ * A method with no body: an interface member or an abstract/extern method.
+ * Kept apart from `methods` on purpose — `methods` feeds the route and
+ * entity-ref readers, which must not see bodiless members.
+ */
+export interface SignatureDecl {
+  name: string;
+  line: number;
 }
 
 export interface TypeDecl {
@@ -49,6 +69,10 @@ export interface TypeDecl {
   namespace: string | null;
   properties: PropertyDecl[];
   methods: MethodDecl[];
+  /** Bodiless methods (interface members, abstract methods). */
+  signatures: SignatureDecl[];
+  /** Fields, as declared. Events and multi-declarator tails are not listed. */
+  fields: TypedName[];
   line: number;
   attributes: AttributeRef[];
 }
@@ -245,9 +269,18 @@ function parseBody(
   to: number,
   warnings: string[],
   file: string,
-): { properties: PropertyDecl[]; methods: MethodDecl[] } {
+): {
+  properties: PropertyDecl[];
+  methods: MethodDecl[];
+  signatures: SignatureDecl[];
+  fields: TypedName[];
+} {
   const properties: PropertyDecl[] = [];
   const methods: MethodDecl[] = [];
+  const signatures: SignatureDecl[] = [];
+  const fields: TypedName[] = [];
+  const typed = (ps: PropertyDecl[]): TypedName[] =>
+    ps.map((p) => ({ name: p.name, type: p.type, line: p.line }));
   let i = from;
 
   while (i < to) {
@@ -334,6 +367,7 @@ function parseBody(
           body: tokens.slice(k + 1, close),
           line: declLine,
           attributes: attrs,
+          params: typed(parseParameters(tokens, j, parClose)),
         });
         i = close + 1;
         continue;
@@ -370,6 +404,7 @@ function parseBody(
             body: tokens.slice(start, scan),
             line: declLine,
             attributes: attrs,
+            params: typed(parseParameters(tokens, j, parClose)),
           });
           i = scan + 1;
           continue;
@@ -385,12 +420,20 @@ function parseBody(
         warnings.push(
           `${file}:${declLine}: expression body for method ${memberName} not terminated`,
         );
-        methods.push({ name: memberName, modifiers, body: [], line: declLine, attributes: attrs });
+        methods.push({
+          name: memberName,
+          modifiers,
+          body: [],
+          line: declLine,
+          attributes: attrs,
+          params: typed(parseParameters(tokens, j, parClose)),
+        });
         let fallback = start;
         while (fallback < to && tokens[fallback]!.text !== ";") fallback++;
         i = fallback + 1;
         continue;
       }
+      if (tokens[k]?.text === ";") signatures.push({ name: memberName, line: declLine });
       i = k + 1;
       continue;
     }
@@ -460,12 +503,15 @@ function parseBody(
     }
 
     // field or event — walk to the statement end
+    if (typeText !== "event" && [";", "=", ","].includes(tokens[j]?.text ?? "")) {
+      fields.push({ name: memberName, type: typeText, line: declLine });
+    }
     let k = j;
     while (k < to && tokens[k]!.text !== ";") k++;
     i = k + 1;
   }
 
-  return { properties, methods };
+  return { properties, methods, signatures, fields };
 }
 
 /** Parse one C# file into the structures psq consumes. */
@@ -573,9 +619,9 @@ export function parseCSharp(src: string, file: string): FileParse {
           warnings.push(`${file}:${line}: unbalanced body for type ${name}`);
           break;
         }
-        const { properties, methods } =
+        const { properties, methods, signatures, fields } =
           keyword === "enum"
-            ? { properties: [], methods: [] }
+            ? { properties: [], methods: [], signatures: [], fields: [] }
             : parseBody(tokens, k + 1, close, warnings, file);
         const declared = properties.map((prop) => prop.name);
         types.push({
@@ -586,6 +632,8 @@ export function parseCSharp(src: string, file: string): FileParse {
           namespace: fileNamespace,
           properties: [...positional.filter((prop) => !declared.includes(prop.name)), ...properties],
           methods,
+          signatures,
+          fields,
           line,
           attributes: typeAttrs,
         });
@@ -607,7 +655,8 @@ export function parseCSharp(src: string, file: string): FileParse {
       }
       types.push({
         name, keyword, modifiers, bases, namespace: fileNamespace,
-        properties: positional, methods: [], line, attributes: typeAttrs,
+        properties: positional, methods: [], signatures: [], fields: [],
+        line, attributes: typeAttrs,
       });
       i = k + 1;
       continue;

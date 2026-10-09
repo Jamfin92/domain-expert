@@ -224,6 +224,9 @@ export function mergeGraphs(
     components,
     // C# side only; `extractNode` always produces `[]`.
     entityRefs: dotnet.entityRefs,
+    // Likewise C# only. Absent stays absent: the key is not set to undefined.
+    ...(dotnet.calls !== undefined ? { calls: dotnet.calls } : {}),
+    ...(dotnet.unresolvedCalls !== undefined ? { unresolvedCalls: dotnet.unresolvedCalls } : {}),
     warnings: [...dotnet.warnings, ...nodeWarnings, ...rootWarnings, ...mergeWarnings],
   };
 }

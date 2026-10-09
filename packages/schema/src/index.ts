@@ -357,6 +357,47 @@ export const EntityRef = z.object({
 });
 export type EntityRef = z.infer<typeof EntityRef>;
 
+/** A method as a call-graph node: the class and method names exactly as an `EntityRef` spells them. */
+export const CallSite = z.object({
+  type: z.string(),
+  method: z.string(),
+  file: z.string(),
+  /** 1-based line of the method's declaration (the interface member, for an interface). */
+  line: z.number().int().nonnegative(),
+});
+export type CallSite = z.infer<typeof CallSite>;
+
+/**
+ * One call from a C# method to another repo-declared method (flow).
+ *
+ * Resolved syntactically and conservatively; an unresolvable call is never
+ * guessed, only counted (`EntityGraph.unresolvedCalls`). Overloads are NOT
+ * told apart: a node is `type` + `method` name, so every overload of `Save`
+ * is one node and `to.line` is the first overload's declaration.
+ *
+ * A call through an interface yields an edge to the interface member AND one to
+ * each repo implementer that declares the method; when there are several
+ * implementers those edges carry `ambiguous: true` (any one may run).
+ */
+export const Call = z.object({
+  from: CallSite,
+  to: CallSite,
+  /** 1-based line of the call site, inside `from.file`. */
+  line: z.number().int().nonnegative(),
+  ambiguous: z.boolean().optional(),
+});
+export type Call = z.infer<typeof Call>;
+
+/** How many calls in a method body no rule could resolve to a repo method. */
+export const UnresolvedCalls = z.object({
+  type: z.string(),
+  method: z.string(),
+  file: z.string(),
+  line: z.number().int().nonnegative(),
+  count: z.number().int().positive(),
+});
+export type UnresolvedCalls = z.infer<typeof UnresolvedCalls>;
+
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
   repo: z.string(),
@@ -388,6 +429,17 @@ export const EntityGraph = z.object({
    * forever instead of re-extracting.
    */
   entityRefs: z.array(EntityRef).default([]),
+  /**
+   * Method-to-method calls inside the repo's C# (flow). Optional so providers
+   * that cannot read calls (Node, DDL) stay valid and old envelopes still parse.
+   */
+  calls: z.array(Call).optional(),
+  /**
+   * Methods with at least one call no rule resolved. Mostly framework calls
+   * (`Ok(`, `ToList(`), so read it as "how much of this body psq cannot follow",
+   * not as a defect count.
+   */
+  unresolvedCalls: z.array(UnresolvedCalls).optional(),
   /** Non-fatal parse problems. Never silently dropped. */
   warnings: z.array(z.string()),
 });

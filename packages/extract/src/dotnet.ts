@@ -5,6 +5,7 @@ import type {
 import { parseCSharp, type FileParse, type PropertyDecl, type TypeDecl } from "./csharp/structure.js";
 import { entityConfigs, enumMemberArg, lambdaMembers, type EntityConfig } from "./csharp/fluent.js";
 import { collectEntityRefs } from "./csharp/entity-refs.js";
+import { collectCalls } from "./csharp/calls.js";
 import { readAspNetRoutes, scanUnattributedRouting } from "./csharp/routes.js";
 import { repoRelative, walk } from "./files.js";
 import { csharpShapes } from "./csharp/shapes.js";
@@ -291,6 +292,9 @@ export function extractDotnet(
     }
   }
 
+  // The method call graph needs no DbContext, so a repo without one still gets it.
+  const { calls, unresolved: unresolvedCalls } = collectCalls(parses);
+
   const { routes, warnings: routeWarnings } = readAspNetRoutes(parses);
   warnings.push(...routeWarnings);
 
@@ -299,7 +303,7 @@ export function extractDotnet(
     return {
       kind: "entity", repo: repoRoot, provider: "efcore", contextName: null,
       entities: [], relations: [], shapes: [], routes, clientCalls: [], components: [],
-      entityRefs: [], warnings,
+      entityRefs: [], calls, unresolvedCalls, warnings,
     };
   }
   if (contexts.length > 1) {
@@ -651,6 +655,9 @@ export function extractDotnet(
     // Already sorted by `collectEntityRefs`, with code-unit comparisons. The
     // three `localeCompare` sorts above are the neighbour this must not copy.
     entityRefs,
+    // Already sorted by `collectCalls`, with code-unit comparisons.
+    calls,
+    unresolvedCalls,
     warnings,
   };
 }
