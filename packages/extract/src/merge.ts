@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ClientCall, Component, EntityGraph, Entity, Route, Shape } from "@psq/schema";
-import { linkCalls } from "./node/clients.js";
+import { basePrefixOf, linkCalls, setBasePrefix } from "./node/clients.js";
 
 /**
  * Joining a .NET graph and a TypeScript graph into one.
@@ -132,6 +132,12 @@ export function mergeGraphs(
     file: at(c.file),
     components: c.components.map(at),
   }));
+  // The base prefix is side-table state keyed on the call object, so the copy
+  // above would silently drop it.
+  nodeCalls.forEach((c, i) => {
+    const base = basePrefixOf(node.clientCalls[i]!);
+    if (base !== undefined) setBasePrefix(c, base);
+  });
 
   const entities = [...dotnet.entities, ...nodeEntities].sort(byNameThenFile);
   const relations = [...dotnet.relations, ...node.relations].sort((a, b) =>
