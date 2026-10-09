@@ -122,6 +122,51 @@ describe("mergeGraphs: re-prefixing node-side paths", () => {
   });
 });
 
+describe("mergeGraphs: nested file-bearing fields are re-prefixed too", () => {
+  const site = { type: "A", method: "M", file: "src/a.ts", line: 3 };
+  const ref = {
+    entity: "Widget", file: "src/a.ts", line: 2, type: "A", method: "M",
+    via: "entityName" as const,
+  };
+  const node = graph({
+    provider: "sqlite-ddl",
+    routes: [
+      {
+        method: "GET", path: "/api/x", file: "src/server.ts", line: 2,
+        handler: { type: "h", method: "<inline>", file: "src/handlers/h.ts", line: 7 },
+      },
+      { method: "GET", path: "/api/y", file: "src/server.ts", line: 3 },
+    ],
+    entityRefs: [ref],
+    calls: [{ from: site, to: { ...site, method: "N", file: "src/b.ts", line: 9 }, line: 4 }],
+    unresolvedCalls: [{ ...site, count: 2 }],
+  });
+  const merged = mergeGraphs(graph({}), node, "client");
+
+  it("Route.handler.file moves with Route.file", () => {
+    expect(merged.routes[0]!.handler).toEqual({
+      type: "h", method: "<inline>", file: "client/src/handlers/h.ts", line: 7,
+    });
+  });
+
+  it("a route with no handler stays without one", () => {
+    expect("handler" in merged.routes[1]!).toBe(false);
+  });
+
+  it("node-side entityRefs, calls and unresolvedCalls are kept, in the merge root", () => {
+    expect(merged.entityRefs.map((r) => r.file)).toEqual(["client/src/a.ts"]);
+    expect(merged.calls!.map((c) => [c.from.file, c.to.file])).toEqual([
+      ["client/src/a.ts", "client/src/b.ts"],
+    ]);
+    expect(merged.unresolvedCalls!.map((u) => u.file)).toEqual(["client/src/a.ts"]);
+  });
+
+  it("does not mutate the node graph's nested objects", () => {
+    expect(node.routes[0]!.handler!.file).toBe("src/handlers/h.ts");
+    expect(node.calls![0]!.from.file).toBe("src/a.ts");
+  });
+});
+
 describe("mergeGraphs: shapes are concatenated, never deduped by name", () => {
   // The two readers sort with DIFFERENT comparators (node is name-then-file,
   // dotnet is name only), so a plain concat is not sorted.
