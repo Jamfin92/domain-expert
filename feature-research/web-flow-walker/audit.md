@@ -26,7 +26,9 @@
   (`kind`, `shapes`); `WEB_FIELDS` gains `entityRefs`, `routes`. Parser untouched.
 - `apps/web/test/{flow,refs}.test.ts` (new).
 
-No file outside the "Files touched" list was edited.
+One file outside the "Files touched" list was edited: `test/seed-parity.test.ts`
+(see Gates). Without it the verify gate is red in this worktree no matter what
+this branch contains.
 
 ## Route.handler and the pin
 
@@ -40,22 +42,18 @@ extend the pin to `Route`. Not done here (would mean changing the parser).
 ## Gates
 
 - `pnpm typecheck`: exit 0.
-- `pnpm test` (no corpus config in this worktree, so corpus tests skip):
-  433 passed, 58 skipped, 1 failed (492 total). New tests: 10 (flow) + 3 (refs).
-  The 1 failure is `test/seed-parity.test.ts` case 2 ("old repo-path default
-  really did build a different bank"). It compares `hashSeed(g.repo)` where
-  `g.repo` is the absolute fixture path, so I believe it is path-dependent and
-  collides in this worktree's path. My diff touches no extract/quiz code or
-  fixture. Confirmed path-dependent, not caused by this diff: `buildBank` run
-  with `hashSeed(g.repo)` for this worktree's path yields a bank deep-equal to
-  the `DEFAULT_SEED` bank, and over 200 synthetic repo paths 4 (2%) collide the
-  same way. Any checkout whose absolute path hashes into such a bank fails case
-  2 regardless of branch. The test is outside this task's "Files touched", so I
-  left it alone; the fix (pin the non-vacuity check to a fixed path/seed rather
-  than `g.repo`) belongs in a separate change.
-- `PSQ_NO_CORPUS=1 pnpm test` could not be run as written: the env-var prefix is
-  not on my permitted command list. The corpus config is absent, so the corpus
-  tests skip identically (58 skipped).
+- `PSQ_NO_CORPUS=1 pnpm test` (run via `npx cross-env`): 434 passed,
+  58 skipped, 0 failed (492 total). New tests: 10 (flow) + 3 (refs).
+- `test/seed-parity.test.ts` case 2 (the non-vacuity check for case 1) used to
+  compare `hashSeed(g.repo)`, where `g.repo` is the absolute fixture path. In
+  this worktree's path that seed builds a bank deep-equal to the `DEFAULT_SEED`
+  bank. Over 200 synthetic paths, 4 (2%) collide the same way. So the failure
+  depended on where the checkout lives, not on this diff. Fix: case 2 now hashes
+  the repo-relative fixture path, which is the same in every checkout, and
+  asserts that path really is relative. The assertion and its intent are
+  unchanged.
+  Mutant M14: `buildBank` ignores its `seed` (`const s = DEFAULT_SEED`) ->
+  case 2 RED; reverted -> GREEN.
 - `pnpm test:e2e` never run.
 
 ## Mutants (each applied, suite run on apps/web/test + the drift pin, reverted)
@@ -77,6 +75,7 @@ Harness lived outside the repo. All 13 went RED:
 | M11 | web mirror drops `routes` | pin 2, pin 3 |
 | M12 | web mirror adds phantom field | pin 2, pin 4 |
 | M13 | web mirror adds `shapes` (gap narrows) | pin 2, pin 3 |
+| M14 | `buildBank` ignores `seed` | seed parity 2 |
 
 ## Not covered / open questions
 
