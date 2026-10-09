@@ -78,9 +78,9 @@ describe("reading a Node backend", () => {
 
   it("reads routes registered inside a factory body", () => {
     expect(g.routes).toEqual([
-      { method: "GET", path: "/crews/:callsign", file: "server.ts", line: 14 },
-      { method: "GET", path: "/health", file: "server.ts", line: 10 },
-      { method: "POST", path: "/voyages", file: "server.ts", line: 18 },
+      { method: "GET", path: "/crews/:callsign", file: "server.ts", line: 14, handler: { type: "server", method: "<inline>", file: "server.ts", line: 14 } },
+      { method: "GET", path: "/health", file: "server.ts", line: 10, handler: { type: "server", method: "<inline>", file: "server.ts", line: 10 } },
+      { method: "POST", path: "/voyages", file: "server.ts", line: 18, handler: { type: "server", method: "<inline>", file: "server.ts", line: 18 } },
     ]);
   });
 });

@@ -20,9 +20,9 @@ describe("reading client calls", () => {
 
   it("reads the server half as routes, never as client calls", () => {
     expect(g.routes).toEqual([
-      { method: "GET", path: "/api/items", file: "server.ts", line: 37 },
-      { method: "POST", path: "/api/items", file: "server.ts", line: 45 },
-      { method: "GET", path: "/api/items/:id", file: "server.ts", line: 41 },
+      { method: "GET", path: "/api/items", file: "server.ts", line: 37, handler: { type: "server", method: "<inline>", file: "server.ts", line: 37 } },
+      { method: "POST", path: "/api/items", file: "server.ts", line: 45, handler: { type: "server", method: "<inline>", file: "server.ts", line: 45 } },
+      { method: "GET", path: "/api/items/:id", file: "server.ts", line: 41, handler: { type: "server", method: "<inline>", file: "server.ts", line: 41 } },
       { method: "GET", path: "/health", file: "server.ts", line: 33 },
     ]);
     // The /health registration wraps its handler in a call expression, a
