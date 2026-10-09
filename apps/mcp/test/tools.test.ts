@@ -204,9 +204,10 @@ describe("warnings", () => {
   });
 
   it("only lists client blind spots for a repo with client code", () => {
-    openRefs();
+    const refsId = openRefs();
     expect((tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n")).not.toMatch(/wrapper functions/);
     openReact();
+    expect((tools.warnings.run(ctx, { repo: refsId }) as Json).cannotSee.join("\n")).not.toMatch(/wrapper functions/);
     expect((tools.warnings.run(ctx, { repo: MINI_FULLSTACK_REACT }) as Json).cannotSee.join("\n")).toMatch(/wrapper functions/);
   });
 });
@@ -380,6 +381,34 @@ describe("flow", () => {
     expect(flow[0]).toContain("`GET /api/aaa`");
     expect(flow[1]).toContain("`POST /api/Widgets`");
     expect(flow[0]).toMatch(/, Zed$|Widget, Zed/);
+  });
+
+  it("puts a higher-count route first even when its method+path sort later", () => {
+    const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
+    const g = ctx.workspace.get(id.id)!.graph;
+    const create = g.routes.find((r) => r.handler && r.method === "POST")!;
+    const createRef = g.entityRefs.find((e) => e.type === create.handler!.type && e.method === create.handler!.method && e.file === create.handler!.file)!;
+    g.entityRefs.push({ ...createRef, entity: "Zed" }, { ...createRef, entity: "Yank" });
+    const list = g.routes.find((r) => r.handler && r.handler.method === "List")!;
+    g.routes.push({ ...create, method: "POST", path: "/api/zzz" });
+    g.routes.push({ ...list, method: "GET", path: "/api/aaa" });
+    const b = tools.brief.run(ctx, {}) as string;
+    const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call")).split("\n");
+    const idx = (m: string, p: string): number => flow.findIndex((l) => l.includes(`\`${m} ${p}\``) && l.includes("→"));
+    const zzz = idx("POST", "/api/zzz");
+    const aaa = idx("GET", "/api/aaa");
+    expect(zzz).toBeGreaterThan(-1);
+    expect(aaa).toBeGreaterThan(-1);
+    expect(zzz).toBeLessThan(aaa);
+  });
+
+  it("says no handler mentions an entity directly when none do", () => {
+    const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
+    const g = ctx.workspace.get(id.id)!.graph;
+    g.entityRefs = [];
+    const b = tools.brief.run(ctx, {}) as string;
+    const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call"));
+    expect(flow).toContain("no handler mentions an entity directly");
   });
 
   it("caps the flow list and says so", () => {
