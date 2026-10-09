@@ -109,7 +109,7 @@ describe("areasFor: partition", () => {
     expect(r.unassigned.routes).toEqual(["GET /api", "GET /api/v1/:id"]);
   });
 
-  it("homes components by directory name, else by most calls, else unassigned", () => {
+  it("homes components by most calls, else directory name, else unassigned", () => {
     const by = Object.fromEntries(r.areas.map((a) => [a.key, a.components]));
     expect(by.courses).toEqual(["web/courses/List.tsx#List"]);
     // EnrollPage: 2 calls to enroll beat 1 to courses
@@ -133,6 +133,54 @@ describe("areasFor: partition", () => {
       components: [...base.components].reverse(),
     });
     expect(areasFor(flipped)).toEqual(r);
+  });
+});
+
+describe("areasFor: component placement precedence", () => {
+  const comp = (file: string, name = "C") => ({ key: `${file}#${name}`, name, file, line: 1 });
+  const g = (components: ReturnType<typeof comp>[], calls: ReturnType<typeof call>[]) =>
+    graph({
+      routes: [route("GET", "/api/courses"), route("GET", "/api/orders"), route("GET", "/api/users")],
+      components,
+      clientCalls: calls,
+    });
+  const homeOf = (r: ReturnType<typeof areasFor>, key: string) =>
+    r.areas.find((a) => a.components.includes(key));
+
+  it("calls win over a folder name that disagrees", () => {
+    const c = comp("web/courses/Page.tsx");
+    const r = areasFor(g([c], [call("GET /api/orders", [c.key]), call("GET /api/orders", [c.key])]));
+    const a = homeOf(r, c.key)!;
+    expect(a.key).toBe("orders");
+    expect(a.placedBy).toEqual({ [c.key]: "calls" });
+  });
+
+  it("calls tie is broken alphabetically by area key", () => {
+    const c = comp("web/Page.tsx");
+    const r = areasFor(g([c], [call("GET /api/users", [c.key]), call("GET /api/orders", [c.key])]));
+    expect(homeOf(r, c.key)!.key).toBe("orders");
+  });
+
+  it("with no matched calls, the component's own directory places it as `folder`", () => {
+    const c = comp("web/courses/Page.tsx");
+    const a = homeOf(areasFor(g([c], [call(null, [c.key])])), c.key)!;
+    expect(a.key).toBe("courses");
+    expect(a.placedBy).toEqual({ [c.key]: "folder" });
+  });
+
+  it("the parent directory also places it, and the nearer of the two wins", () => {
+    const p = comp("web/courses/parts/Row.tsx", "P");
+    const n = comp("web/courses/orders/Row.tsx", "N");
+    const r = areasFor(g([p, n], []));
+    expect(homeOf(r, p.key)!.key).toBe("courses");
+    expect(homeOf(r, n.key)!.key).toBe("orders");
+  });
+
+  it("a folder three levels up does not place it", () => {
+    const c = comp("web/courses/a/b/Page.tsx");
+    const r = areasFor(g([c], []));
+    expect(homeOf(r, c.key)).toBeUndefined();
+    expect(r.unassigned.components).toEqual([c.key]);
   });
 });
 

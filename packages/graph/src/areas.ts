@@ -12,10 +12,10 @@ import type { EntityGraph } from "@psq/schema";
  *  2. A route with no such segment but with a handler belongs to
  *     `dir:<handler directory>`. basis `handler-dir`. Otherwise it is unassigned.
  *  3. A handler rides its route's area.
- *  4. A component's home is an area whose key equals a directory segment of the
- *     component's file (the last such segment wins); failing that, the area of
- *     most of its matched client calls (ties: alphabetical key); failing that,
- *     unassigned.
+ *  4. A component's home is the area of most of its matched client calls (ties:
+ *     alphabetical key), placedBy `calls`; failing that, an area whose key equals
+ *     the component file's own directory name or its parent's (the nearer wins),
+ *     placedBy `folder`; failing that, unassigned. Folders further up never match.
  *  5. An entity is touched by an area when an `EntityRef` joins one of its
  *     handlers on (type, method, file). Touched by two or more areas it is
  *     shared. Its owner is the area with the most refs (ties: alphabetical key).
@@ -28,6 +28,7 @@ import type { EntityGraph } from "@psq/schema";
  */
 
 export type AreaBasis = "route" | "handler-dir";
+export type Placement = "calls" | "folder";
 
 export interface AreaHandler {
   type: string;
@@ -44,6 +45,8 @@ export interface Area {
   handlers: AreaHandler[];
   /** Component keys homed here. */
   components: string[];
+  /** Component key -> the rule that placed it here. Keys equal `components`. */
+  placedBy: Record<string, Placement>;
   /** Every entity a handler here mentions. */
   entities: string[];
   /** The subset of `entities` also touched by another area. */
@@ -97,13 +100,14 @@ export function areasFor(graph: EntityGraph): AreasResult {
     routes: Set<string>;
     handlers: Map<string, AreaHandler>;
     components: Set<string>;
+    placedBy: Record<string, Placement>;
     refCount: Map<string, number>;
   }
   const accs = new Map<string, Acc>();
   const acc = (key: string, label: string, basis: AreaBasis): Acc => {
     let a = accs.get(key);
     if (!a) {
-      a = { key, label, basis, routes: new Set(), handlers: new Map(), components: new Set(), refCount: new Map() };
+      a = { key, label, basis, routes: new Set(), handlers: new Map(), components: new Set(), placedBy: {}, refCount: new Map() };
       accs.set(key, a);
     }
     return a;
@@ -186,7 +190,7 @@ export function areasFor(graph: EntityGraph): AreasResult {
   }
 
   // 4: components
-    const callsByComp = new Map<string, Map<string, string[]>>(); // comp -> area -> raw routes
+  const callsByComp = new Map<string, Map<string, string[]>>(); // comp -> area -> raw routes
   for (const c of graph.clientCalls) {
     if (c.matches === null) continue;
     const area = routeArea.get(c.matches);
@@ -202,21 +206,31 @@ export function areasFor(graph: EntityGraph): AreasResult {
   const unComponents: string[] = [];
   const compHome = new Map<string, string>();
   for (const c of [...graph.components].sort((x, y) => cmp(x.key, y.key))) {
-    const segs = dirOf(c.file).split("/").map((s) => s.toLowerCase());
     let home: string | undefined;
-    for (const s of segs) if (accs.get(s)?.basis === "route") home = s;
+    let by: Placement | undefined;
+    let n = 0;
+    for (const [area, l] of [...(callsByComp.get(c.key) ?? [])].sort((x, y) => cmp(x[0], y[0]))) {
+      if (l.length > n) {
+        home = area;
+        n = l.length;
+        by = "calls";
+      }
+    }
     if (home === undefined) {
-      let n = 0;
-      for (const [area, l] of [...(callsByComp.get(c.key) ?? [])].sort((x, y) => cmp(x[0], y[0]))) {
-        if (l.length > n) {
-          home = area;
-          n = l.length;
+      // Only the file's own directory or its parent: a folder further up says
+      // where the app keeps its pages, not what this component is about.
+      const segs = dirOf(c.file).split("/").map((s) => s.toLowerCase());
+      for (const s of segs.slice(-2)) {
+        if (accs.get(s)?.basis === "route") {
+          home = s;
+          by = "folder";
         }
       }
     }
     if (home === undefined) unComponents.push(c.key);
     else {
       accs.get(home)!.components.add(c.key);
+      accs.get(home)!.placedBy[c.key] = by!;
       compHome.set(c.key, home);
     }
   }
@@ -241,6 +255,7 @@ export function areasFor(graph: EntityGraph): AreasResult {
         routes: [...a.routes].sort(cmp),
         handlers: [...a.handlers.values()].sort(byHandler),
         components: [...a.components].sort(cmp),
+        placedBy: Object.fromEntries(Object.entries(a.placedBy).sort((x, y) => cmp(x[0], y[0]))),
         entities,
         sharedEntities: entities.filter((e) => touchedBy.get(e)!.size > 1),
       };

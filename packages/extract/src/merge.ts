@@ -105,9 +105,10 @@ function byNameThenFile(a: { name: string; file: string }, b: { name: string; fi
  * `prefix` is the node root's path relative to the merge root ("" when they
  * are the same directory). Every node-side path is re-prefixed by it. Miss one
  * field and a `DefKey` stops resolving, so the list is exhaustive by
- * construction: `Entity.file`, `Shape.file`, `Route.file`, `ClientCall.file`,
- * `Component.file`, `Component.key` (the key embeds the path) and every string
- * in `ClientCall.components` (they are `Component.key`s).
+ * construction: `Entity.file`, `Shape.file`, `Route.file`, `Route.handler.file`,
+ * `ClientCall.file`, `Component.file`, `Component.key` (the key embeds the
+ * path), every string in `ClientCall.components` (they are `Component.key`s),
+ * and `file` on `EntityRef`, `Call.from`/`Call.to` and `UnresolvedCalls`.
  *
  * Pure over its inputs. Neither argument is mutated.
  */
@@ -121,7 +122,18 @@ export function mergeGraphs(
 
   const nodeEntities: Entity[] = node.entities.map((e) => ({ ...e, file: at(e.file) }));
   const nodeShapes: Shape[] = node.shapes.map((s) => ({ ...s, file: at(s.file) }));
-  const nodeRoutes: Route[] = node.routes.map((r) => ({ ...r, file: at(r.file) }));
+  const nodeRoutes: Route[] = node.routes.map((r) => ({
+    ...r,
+    file: at(r.file),
+    ...(r.handler ? { handler: { ...r.handler, file: at(r.handler.file) } } : {}),
+  }));
+  // The node reader produces none of these today (`extractNode` always returns
+  // `[]` / absent), but the merge must not silently drop what it is handed, and
+  // anything it keeps must be in the merged coordinate system.
+  const nodeRefs = node.entityRefs.map((e) => ({ ...e, file: at(e.file) }));
+  const site = <T extends { file: string }>(s: T): T => ({ ...s, file: at(s.file) });
+  const nodeCallEdges = node.calls?.map((c) => ({ ...c, from: site(c.from), to: site(c.to) }));
+  const nodeUnresolved = node.unresolvedCalls?.map(site);
   const nodeComponents: Component[] = node.components.map((c) => ({
     ...c,
     key: at(c.key),
@@ -223,10 +235,14 @@ export function mergeGraphs(
     clientCalls,
     components,
     // C# side only; `extractNode` always produces `[]`.
-    entityRefs: dotnet.entityRefs,
+    entityRefs: [...dotnet.entityRefs, ...nodeRefs],
     // Likewise C# only. Absent stays absent: the key is not set to undefined.
-    ...(dotnet.calls !== undefined ? { calls: dotnet.calls } : {}),
-    ...(dotnet.unresolvedCalls !== undefined ? { unresolvedCalls: dotnet.unresolvedCalls } : {}),
+    ...(dotnet.calls !== undefined || nodeCallEdges !== undefined
+      ? { calls: [...(dotnet.calls ?? []), ...(nodeCallEdges ?? [])] }
+      : {}),
+    ...(dotnet.unresolvedCalls !== undefined || nodeUnresolved !== undefined
+      ? { unresolvedCalls: [...(dotnet.unresolvedCalls ?? []), ...(nodeUnresolved ?? [])] }
+      : {}),
     warnings: [...dotnet.warnings, ...nodeWarnings, ...rootWarnings, ...mergeWarnings],
   };
 }
