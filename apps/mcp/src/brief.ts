@@ -1,6 +1,7 @@
-import { degrees, orphans } from "@psq/graph";
+import { degrees, orphans, routeFlow, DEFAULT_FLOW_DEPTH } from "@psq/graph";
 import type { Workspace, OpenRepo } from "../../server/src/workspace.js";
 import { blindSpots, cap, cite, cmp, handlerOf, methodKey, segmentOf } from "./common.js";
+import { INLINE, areasView, reachedEntities, unresolvedTotal, type Reached } from "./flow.js";
 
 /**
  * The domain brief: one markdown document an agent reads before discussing a
@@ -14,10 +15,26 @@ export const INSTRUCTION =
 const LIMIT = {
   entities: 60, routes: 60, components: 30, hot: 10, warnings: 20,
   districts: 30, districtMembers: 15, callsPerComponent: 10,
-  flowRoutes: 15, flowEntities: 8,
+  flowRoutes: 15, flowEntities: 8, areas: 20, areaRoutes: 4, areaEntities: 8, areaEdges: 15, areaEvidence: 2,
 } as const;
 
+/** The brief stays under this many characters; the caps shrink until it does. */
+export const BRIEF_BUDGET = 20_000;
+const SCALES = [1, 0.5, 0.25, 0.1] as const;
+
 export function renderBrief(ws: Workspace, repo: OpenRepo): string {
+  let out = "";
+  for (const scale of SCALES) {
+    out = renderAt(ws, repo, scale);
+    if (out.length <= BRIEF_BUDGET) break;
+  }
+  return out;
+}
+
+function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
+  const L = Object.fromEntries(
+    Object.entries(LIMIT).map(([k, v]) => [k, Math.max(1, Math.floor(v * scale))]),
+  ) as Record<keyof typeof LIMIT, number>;
   const g = repo.graph;
   const l3 = ws.layout3dOf(repo.id)!;
   const out: string[] = [];
@@ -26,6 +43,9 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   };
 
   out.push(`# Domain brief: ${ws.summarize(repo).name}`, "", `> ${INSTRUCTION}`, "");
+  if (scale < 1) {
+    out.push(`> Lists are cut to ${Math.round(scale * 100)}% of their usual length to keep this brief under ${BRIEF_BUDGET} characters; use the tools for the full lists.`, "");
+  }
   out.push(
     `Provider \`${g.provider}\`${g.contextName ? `, context \`${g.contextName}\`` : ""}: ` +
       `${g.entities.length} entities, ${g.relations.length} relations, ${g.routes.length} routes, ` +
@@ -38,9 +58,9 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   out.push(`## Areas (districts by \`${l3.districtBasis}\`)`, "");
   const members = new Map<string, string[]>();
   for (const n of l3.nodes) members.set(n.district, [...(members.get(n.district) ?? []), n.name]);
-  const districts = cap(l3.districts, LIMIT.districts);
+  const districts = cap(l3.districts, L.districts);
   for (const d of districts.items) {
-    const m = cap(members.get(d.name) ?? [], LIMIT.districtMembers);
+    const m = cap(members.get(d.name) ?? [], L.districtMembers);
     out.push(
       `- **${d.name}** (${(members.get(d.name) ?? []).length}): ${m.items.join(", ")}` +
         (m.omitted > 0 ? `, … ${m.omitted} more` : ""),
@@ -52,7 +72,7 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   // Entities
   out.push("## Entities and relations", "");
   const sorted = [...g.entities].sort((a, b) => cmp(a.name, b.name));
-  const shownEntities = cap(sorted, LIMIT.entities);
+  const shownEntities = cap(sorted, L.entities);
   for (const e of shownEntities.items) {
     const fk = g.relations.filter((r) => r.dependent === e.name);
     const inbound = g.relations.filter((r) => r.principal === e.name);
@@ -71,7 +91,7 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   // Routes
   out.push("## Routes", "");
   if (g.routes.length === 0) out.push("- none found");
-  const routes = cap(g.routes, LIMIT.routes);
+  const routes = cap(g.routes, L.routes);
   const byGroup = new Map<string, number>();
   for (const r of g.routes) byGroup.set(segmentOf(r.path), (byGroup.get(segmentOf(r.path)) ?? 0) + 1);
   if (g.routes.length > 0) {
@@ -87,44 +107,59 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   more(routes.omitted, "routes");
   out.push("");
 
-  // Flow: route -> handler -> entities the handler mentions
+  // Flow: route -> handler -> entities reached through resolved calls
   const withHandler = g.routes.filter((r) => r.handler);
   if (withHandler.length > 0) {
-    out.push("## Flow (route → handler → entities mentioned in the handler body)", "");
-    const touched = new Map<string, Set<string>>();
-    for (const r of g.entityRefs) {
-      const k = methodKey(r);
-      touched.set(k, (touched.get(k) ?? new Set<string>()).add(r.entity));
-    }
-    // Routes whose handler touches entities come first (most entities first,
-    // then method+path so the order is stable); the rest are counted, not listed.
-    const entsOf = (r: (typeof withHandler)[number]): string[] =>
-      [...(touched.get(methodKey(r.handler!)) ?? [])].sort(cmp);
-    const bearing = withHandler
-      .filter((r) => entsOf(r).length > 0)
+    out.push(`## Flow (route → handler → entities reached through resolved calls, depth ≤ ${DEFAULT_FLOW_DEPTH})`, "");
+    const flows = withHandler.map((r) => {
+      const f = routeFlow(g, r)!;
+      return { r, f, reached: reachedEntities(f) };
+    });
+    // Routes reaching entities come first (most entities first, then method+path
+    // so the order is stable); the rest are counted, not listed.
+    const bearing = flows
+      .filter((x) => x.reached.length > 0)
       .sort(
         (a, b) =>
-          entsOf(b).length - entsOf(a).length || cmp(`${a.method} ${a.path}`, `${b.method} ${b.path}`),
+          b.reached.length - a.reached.length || cmp(`${a.r.method} ${a.r.path}`, `${b.r.method} ${b.r.path}`),
       );
-    const bare = withHandler.length - bearing.length;
-    const flows = cap(bearing, LIMIT.flowRoutes);
-    if (bearing.length === 0) out.push("- no handler mentions an entity directly");
-    for (const r of flows.items) {
+    const bare = flows.filter((x) => x.reached.length === 0);
+    const shownFlows = cap(bearing, L.flowRoutes);
+    const render = (e: Reached): string =>
+      e.depth === 0 ? e.entity : `${e.entity} (depth ${e.depth} via ${e.via}${e.ambiguous ? ", ambiguous" : ""})`;
+    if (bearing.length === 0) out.push("- no handler reaches an entity psq can see");
+    for (const { r, f, reached } of shownFlows.items) {
       const h = r.handler!;
-      const ents = cap(entsOf(r), LIMIT.flowEntities);
+      const ents = cap(reached, L.flowEntities);
       out.push(
         `- \`${r.method} ${r.path}\` → ${h.type}.${h.method} (${cite(h.file, h.line)}): ` +
-          ents.items.join(", ") + (ents.omitted > 0 ? `, … ${ents.omitted} more` : ""),
+          ents.items.map(render).join(", ") + (ents.omitted > 0 ? `, … ${ents.omitted} more` : "") +
+          (f.truncated ? ` [stopped at depth ${f.maxDepth}]` : ""),
       );
     }
-    more(flows.omitted, "routes with handlers");
-    if (bare > 0) {
+    more(shownFlows.omitted, "routes with handlers");
+    const inline = bare.filter((x) => x.r.handler!.method === INLINE).length;
+    const named = bare.length - inline;
+    if (named > 0) {
       out.push(
-        `- ${bare} more routes with handlers touching no entity directly — they likely delegate to ` +
-          "services, which psq does not follow yet",
+        `- ${named} more routes with named handlers reach no entity psq can see (calls psq cannot resolve are not followed)`,
       );
     }
-    out.push("- entities are mentioned by name in the handler body only; calls into services are not followed");
+    if (inline > 0) {
+      out.push(
+        `- ${inline} more routes have inline handlers: psq reads no calls inside an inline handler, so what they reach is unknown`,
+      );
+    }
+    if (g.calls !== undefined) {
+      const un = unresolvedTotal(g);
+      out.push(
+        "- calls are resolved syntactically (DI fields typed by repo interfaces, this/static calls); " +
+          `${un} calls in ${(g.unresolvedCalls ?? []).length} methods are unresolved and not followed; ` +
+          "overloads are not distinguished; \"ambiguous\" marks a path through an interface with several implementers",
+      );
+    } else {
+      out.push("- this graph carries no call edges: entities are those mentioned by name in the handler body only");
+    }
     out.push("");
   }
 
@@ -138,12 +173,12 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   }
   const comps = cap(
     [...callsBy.keys()].sort(cmp),
-    LIMIT.components,
+    L.components,
   );
   for (const key of comps.items) {
     const comp = byKey.get(key);
     out.push(`- **${comp?.name ?? key}** (${comp ? cite(comp.file, comp.line) : key})`);
-    const calls = cap(callsBy.get(key) ?? [], LIMIT.callsPerComponent);
+    const calls = cap(callsBy.get(key) ?? [], L.callsPerComponent);
     for (const c of calls.items) {
       out.push(`  - \`${c.method} ${c.path}\` (${cite(c.file, c.line)}) → ${c.matches ?? "no matching route"}`);
     }
@@ -161,6 +196,52 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   }
   out.push("");
 
+  // Feature areas: route-derived, and how one leads into the next
+  const av = areasView(g) as {
+    areas: Array<{
+      key: string; basis: string; routeCount: number; routes: string[]; components: string[];
+      entities: string[]; entityCount: number; sharedEntities: string[];
+    }>;
+    edges: Array<{
+      kind: string; from: string; to: string; evidenceCount: number;
+      evidence: Array<{ text: string; cites: string[] }>;
+    }>;
+    unassigned: { counts: { routes: number; components: number; entities: number } };
+  };
+  if (av.areas.length > 0) {
+    out.push("## Feature areas (from route paths) and how they lead into each other", "");
+    const areaList = cap(av.areas, L.areas);
+    for (const a of areaList.items) {
+      const rs = cap(a.routes, L.areaRoutes);
+      const es = cap(a.entities, L.areaEntities);
+      out.push(
+        `- **${a.key}** (${a.basis}): ${a.routeCount} route${a.routeCount === 1 ? "" : "s"}` +
+          (rs.items.length ? ` (${rs.items.map((x) => `\`${x}\``).join(", ")}${rs.omitted ? `, … ${rs.omitted} more` : ""})` : "") +
+          `; entities: ${es.items.length ? es.items.join(", ") + (es.omitted ? `, … ${es.omitted} more` : "") : "none mentioned directly"}` +
+          (a.sharedEntities.length ? `; shared with another area: ${a.sharedEntities.join(", ")}` : "") +
+          (a.components.length ? `; components: ${a.components.length}` : ""),
+      );
+    }
+    more(areaList.omitted, "areas");
+    const edgeList = cap(av.edges, L.areaEdges);
+    if (av.edges.length === 0) out.push("- no cross-area edges psq can see");
+    for (const e of edgeList.items) {
+      const ev = cap(e.evidence, L.areaEvidence);
+      out.push(
+        `- **${e.from}** → **${e.to}** (${e.kind}): ` +
+          ev.items.map((x) => `${x.text}${x.cites.length ? ` (${x.cites.join(", ")})` : ""}`).join("; ") +
+          (e.evidenceCount > ev.items.length ? `; … ${e.evidenceCount - ev.items.length} more` : ""),
+      );
+    }
+    more(edgeList.omitted, "cross-area edges");
+    const u = av.unassigned.counts;
+    if (u.routes + u.components > 0) {
+      out.push(`- unassigned to any area: ${u.routes} routes, ${u.components} components`);
+    }
+    out.push("- an area's entities are those its handlers mention directly by name; the Flow section follows calls");
+    out.push("");
+  }
+
   // Hot spots
   out.push("## Hot spots", "");
   const refCount = new Map<string, number>();
@@ -175,7 +256,7 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
     methodTouch.set(key, cur);
   }
   out.push("Most-mentioned entities (mentions by name, not call sites):");
-  const topEntities = [...refCount].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).slice(0, LIMIT.hot);
+  const topEntities = [...refCount].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).slice(0, L.hot);
   if (topEntities.length === 0) out.push("- no entity refs");
   for (const [name, n] of topEntities) {
     const e = g.entities.find((x) => x.name === name);
@@ -185,7 +266,7 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   const topMethods = [...methodTouch]
     .filter(([, v]) => v.entities.size >= 2)
     .sort((a, b) => b[1].entities.size - a[1].entities.size || cmp(a[0], b[0]))
-    .slice(0, LIMIT.hot);
+    .slice(0, L.hot);
   if (topMethods.length === 0) out.push("- none");
   for (const [, v] of topMethods) {
     out.push(
@@ -193,7 +274,7 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
     );
   }
   out.push("", "Most-connected entities by relations:");
-  const deg = degrees(g).filter((d) => d.degree > 0).slice(0, LIMIT.hot);
+  const deg = degrees(g).filter((d) => d.degree > 0).slice(0, L.hot);
   if (deg.length === 0) out.push("- none");
   for (const d of deg) out.push(`- ${d.entity}: ${d.degree} relations`);
   const lone = orphans(g);
@@ -202,7 +283,7 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
 
   // Blind spots
   out.push("## Warnings and what psq cannot see", "");
-  const warn = cap(g.warnings, LIMIT.warnings);
+  const warn = cap(g.warnings, L.warnings);
   if (g.warnings.length === 0) out.push("- extraction produced no warnings");
   for (const w of warn.items) out.push(`- warning: ${w}`);
   more(warn.omitted, "warnings");

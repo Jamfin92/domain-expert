@@ -46,6 +46,12 @@ export function blindSpots(g: EntityGraph): string[] {
       "Constructor bodies, comments and #if blocks are not scanned for entity refs.",
     );
   }
+  if (g.calls !== undefined) {
+    out.push(
+      "Calls are resolved syntactically (DI fields typed by repo interfaces, this/static calls); " +
+        "unresolved calls are counted, not followed, and overloads are not distinguished.",
+    );
+  }
   if (isDotnet(g)) {
     out.push(
       "psq reads ASP.NET ATTRIBUTE routes only. Conventional routing (MapControllerRoute) and " +

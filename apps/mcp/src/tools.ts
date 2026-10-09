@@ -8,6 +8,7 @@ import type { Route } from "@psq/schema";
 // layout, mermaid) is the existing store of opened repos and is reused as-is.
 import { Workspace, type OpenRepo } from "../../server/src/workspace.js";
 import { renderBrief } from "./brief.js";
+import { areasView, findFlow, flowView } from "./flow.js";
 import { cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots } from "./common.js";
 
 /**
@@ -379,8 +380,41 @@ export const tools = {
     (ctx, { repo: ref }) => mermaid(resolveRepo(ctx, ref).graph),
   ),
 
+  flow: def(
+    "Follow a route (or a handler Type.method) through the method calls psq resolved, hop by hop: " +
+      "file:line of each method, the call-site line, the entities each method mentions, ambiguous edges " +
+      "(interface with several implementers) and unresolved-call counts. `truncated` means maxDepth " +
+      "(default 4) or the node cap stopped the walk.",
+    {
+      repo: repoArg,
+      route: z.string().optional().describe('"METHOD /path" (or just the path when unique)'),
+      handler: z.object({ type: z.string(), method: z.string() }).optional(),
+      maxDepth: z.number().int().min(0).max(10).optional(),
+    },
+    (ctx, { repo: ref, route, handler, maxDepth }) => {
+      const repo = resolveRepo(ctx, ref);
+      const t = findFlow(repo.graph, { route, handler, maxDepth });
+      if (!t.ok) throw new Error(t.error);
+      return flowView(repo.graph, t.flow, {
+        repo: repo.id,
+        route: t.route && route !== undefined ? { method: t.route.method, path: t.route.path, cite: cite(t.route.file, t.route.line) } : null,
+      });
+    },
+  ),
+
+  areas: def(
+    "Feature areas (route-derived) with their routes, components and entities, the entities shared " +
+      "between areas, what is unassigned, and the cross-area edges (how one section leads into the next) " +
+      "with citations. Capped; see `truncated`.",
+    { repo: repoArg },
+    (ctx, { repo: ref }) => {
+      const repo = resolveRepo(ctx, ref);
+      return { repo: repo.id, ...areasView(repo.graph) };
+    },
+  ),
+
   brief: def(
-    "A markdown domain brief (areas, entities, routes, wiring, hot spots, blind spots) to ground a discussion.",
+    "A markdown domain brief (areas, entities, routes, call-following flow, wiring, hot spots, blind spots) to ground a discussion.",
     { repo: repoArg },
     (ctx, { repo: ref }) => renderBrief(ctx.workspace, resolveRepo(ctx, ref)),
   ),

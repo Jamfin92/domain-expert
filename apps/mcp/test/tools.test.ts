@@ -373,7 +373,7 @@ describe("flow", () => {
     const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call"));
     expect(flow).toMatch(/`POST \/api\/Widgets` → WidgetsController\.Create/);
     expect(flow).not.toContain("/bare");
-    expect(flow).toContain(`${20 + before - flow.split("\n").filter((l) => /^- `[A-Z]+ /.test(l)).length} more routes with handlers touching no entity directly — they likely delegate to services, which psq does not follow yet`);
+    expect(flow).toContain(`${20 + before - flow.split("\n").filter((l) => /^- `[A-Z]+ /.test(l)).length} more routes with named handlers reach no entity psq can see`);
   });
 
   it("orders entity-bearing routes by entity count desc, then method and path", () => {
@@ -408,13 +408,13 @@ describe("flow", () => {
     expect(zzz).toBeLessThan(aaa);
   });
 
-  it("says no handler mentions an entity directly when none do", () => {
+  it("says no handler reaches an entity when none do", () => {
     const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
     const g = ctx.workspace.get(id.id)!.graph;
     g.entityRefs = [];
     const b = tools.brief.run(ctx, {}) as string;
     const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call"));
-    expect(flow).toContain("no handler mentions an entity directly");
+    expect(flow).toContain("no handler reaches an entity psq can see");
   });
 
   it("caps the flow list and says so", () => {
