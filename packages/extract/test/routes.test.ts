@@ -50,9 +50,58 @@ describe("readAspNetRoutes", () => {
     expect(r.routes.map((x) => x.path)).toEqual(["/Load"]);
   });
 
-  it("gives a bare verb on a class with no route the root path", () => {
-    const r = routesOf(`public class XController { [HttpPost] public int A() => 1; }`);
-    expect(r.routes.map((x) => `${x.method} ${x.path}`)).toEqual(["POST /"]);
+  it("warns, and emits no route, for a bare verb on a class with no [Route]", () => {
+    // conventionally routed in ASP.NET: there is no attribute route to read
+    const r = routesOf(`
+      public class HomeController : Controller {
+        [HttpGet] public int Index() => 1;
+        [HttpPost] public int Save() => 1;
+      }`);
+    expect(r.routes).toEqual([]);
+    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings[0]).toMatch(/^C\.cs:\d+: .*HomeController\.Index.*conventional/);
+    expect(r.warnings[1]).toMatch(/^C\.cs:\d+: .*HomeController\.Save.*conventional/);
+  });
+
+  it("still routes a templated verb, and a bare verb under a class [Route], on the same class", () => {
+    const r = routesOf(`
+      public class XController { [HttpGet("a")] public int A() => 1; }
+      [Route("r")] public class YController { [HttpGet] public int B() => 1; }`);
+    expect(r.warnings).toEqual([]);
+    expect(r.routes.map((x) => `${x.method} ${x.path}`)).toEqual(["GET /a", "GET /r"]);
+  });
+
+  it("emits both selectors for a bare verb plus a templated verb", () => {
+    const r = routesOf(`
+      [Route("r")] public class XController {
+        [HttpGet] [HttpPost("b")] public int A() => 1;
+      }`);
+    expect(r.warnings).toEqual([]);
+    expect(r.routes.map((x) => `${x.method} ${x.path}`).sort()).toEqual(["GET /r", "POST /r/b"]);
+  });
+
+  it("reads a templated verb together with [Route] as two routes", () => {
+    const r = routesOf(`
+      [Route("r")] public class XController {
+        [HttpGet("a")] [Route("b")] public int A() => 1;
+      }`);
+    expect(r.warnings).toEqual([]);
+    expect(r.routes.map((x) => `${x.method} ${x.path}`).sort()).toEqual(["GET /r/a", "GET /r/b"]);
+  });
+
+  it("silently skips a [NonController] class", () => {
+    const r = routesOf(`
+      [NonController] public class XController { [HttpGet("a")] public int A() => 1; }`);
+    expect(r).toEqual({ routes: [], warnings: [] });
+  });
+
+  it("warns when a controller inherits actions from a non-abstract base controller", () => {
+    const r = routesOf(`
+      [Route("base")] public class BaseController : ControllerBase { [HttpGet("x")] public int A() => 1; }
+      [Route("kid")] public class KidController : BaseController { [HttpGet("y")] public int B() => 1; }`);
+    expect(r.routes.map((x) => x.path).sort()).toEqual(["/base/x", "/kid/y"]);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toMatch(/^C\.cs:\d+: .*KidController.*BaseController.*inherited actions are not read/);
   });
 
   it("reads HttpHead and HttpOptions", () => {

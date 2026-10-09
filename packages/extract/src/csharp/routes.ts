@@ -188,6 +188,7 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
   for (const parse of parses) {
     for (const t of parse.types) {
       if (t.keyword !== "class" || t.modifiers.includes("static")) continue;
+      if (classAttrs(t).some((a) => attrKey(a) === "NonController")) continue;
       if (!isController(t)) continue;
 
       const attrs = classAttrs(t);
@@ -212,6 +213,20 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
       if (attrs.some((a) => attrKey(a) === "Area")) {
         warnings.push(`${loc}: controller ${t.name} is in an area ([Area]); area routes are not read`);
         continue;
+      }
+      const inheritsActions = (c: TypeDecl, depth = 0): TypeDecl | null => {
+        if (depth > 6) return null;
+        const base = localBase(c);
+        if (!base) return null;
+        if (!base.modifiers.includes("abstract") && base.methods.some(actionish)) return base;
+        return inheritsActions(base, depth + 1);
+      };
+      const actionBase = inheritsActions(t);
+      if (actionBase) {
+        warnings.push(
+          `${loc}: controller ${t.name} derives from ${actionBase.name}, which declares actions; ` +
+            "inherited actions are not read",
+        );
       }
       if (routeAttrs.length === 0) {
         const from = inheritedRoute(t);
@@ -287,13 +302,19 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
           if (tpl.kind === "unreadable") {
             warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has a template that is not a plain string literal; route not read`);
             bad = true;
-          } else if (bareVerbs.length === 0) {
+          } else if (verbAttrs.length === 0) {
             warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has [Route] and no HTTP method attribute, so it accepts every verb; route not read`);
             bad = true;
-          } else selectors.push({ verbs: bareVerbs, template: tpl.kind === "literal" ? tpl.value : "", line: a.line });
+          } else {
+            // [Route] is its own attribute route; the method's verb attributes constrain it.
+            const verbs = bareVerbs.length > 0 ? bareVerbs : [...new Set(verbAttrs.map((v) => VERBS[attrKey(v)]!))];
+            selectors.push({ verbs, template: tpl.kind === "literal" ? tpl.value : "", line: a.line });
+          }
         }
         if (bad) continue;
-        if (selectors.length === 0 && methodRoutes.length === 0 && bareVerbs.length > 0) {
+        // A verb attribute with no template routes at the class route, unless a
+        // [Route] on the method already took the bare verbs.
+        if (methodRoutes.length === 0 && bareVerbs.length > 0) {
           selectors.push({ verbs: bareVerbs, template: null, line: bareLine });
         }
 
@@ -310,6 +331,13 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
 
         for (const cls of classTemplates) {
           for (const sel of selectors) {
+            if (cls === null && sel.template === null) {
+              warnings.push(
+                `${parse.file}:${sel.line}: ${t.name}.${m.name} has an HTTP method attribute with no ` +
+                  "template on a controller with no [Route]; it is conventionally routed, so no attribute route was read",
+              );
+              continue;
+            }
             const combined = combineTemplates(cls, sel.template);
             const sub = substitute(combined, {
               controller: controllerName,
