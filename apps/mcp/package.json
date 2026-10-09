@@ -1,0 +1,19 @@
+{
+  "name": "@psq/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "psq-mcp": "./src/index.ts"
+  },
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@psq/extract": "workspace:*",
+    "@psq/graph": "workspace:*",
+    "@psq/schema": "workspace:*",
+    "zod": "^3.25.76"
+  }
+}
