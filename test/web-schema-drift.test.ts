@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { EntityGraph } from "@psq/schema";
+import { EntityGraph, Route } from "@psq/schema";
 
 /**
  * A drift pin between the wire schema and the hand-written client mirror.
@@ -17,7 +17,10 @@ import { EntityGraph } from "@psq/schema";
  * can import `@psq/schema` while leaving that app's dependency rule intact. It
  * reads the client file as TEXT, never as a module.
  *
- * The two schema-only fields are an explicit ALLOWLIST, not a "should be
+ * `Route` and `RouteHandler` are pinned the same way with no allowlist (cases
+ * 5-6): `handler` is mirrored, so the gap there is zero both ways.
+ *
+ * The two schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
  * identical" pin: the gap is real and deliberate today, so the assertion is
  * that the gap is exactly these two. It reddens when the gap widens (a new
  * schema field the client never learns about) AND when it narrows (a field
@@ -71,7 +74,14 @@ const WEB_FIELDS = [
 /** Schema fields the client deliberately does not mirror. */
 const NOT_MIRRORED = ["kind", "shapes"].sort();
 
-const MARKER = "export interface EntityGraph {";
+const ENTITY_GRAPH_MARKER = "export interface EntityGraph {";
+const ROUTE_MARKER = "export interface Route {";
+const HANDLER_MARKER = "export interface RouteHandler {";
+
+/** Field names declared by `Route` in `@psq/schema` / the web client. */
+const ROUTE_FIELDS = ["file", "handler", "line", "method", "path"].sort();
+/** Field names of `Route.handler` in `@psq/schema` / `RouteHandler` in the web client. */
+const HANDLER_FIELDS = ["file", "line", "method", "type"].sort();
 
 interface ParsedInterface {
   /** Members whose name the matcher recognised, sorted. */
@@ -103,14 +113,14 @@ interface ParsedInterface {
  * silently-dropped `readonly phantomField: string;` invents one — all three
  * would leave every other assertion here green.
  */
-function parseWebEntityGraphFields(source: string): ParsedInterface {
-  const markerCount = source.split(MARKER).length - 1;
-  const open = source.indexOf(MARKER);
+function parseWebEntityGraphFields(source: string, marker = ENTITY_GRAPH_MARKER): ParsedInterface {
+  const markerCount = source.split(marker).length - 1;
+  const open = source.indexOf(marker);
   if (open === -1) return { fields: [], unparsed: [], markerCount };
   const close = source.indexOf("}", open);
   if (close === -1) return { fields: [], unparsed: [], markerCount };
   const body = source
-    .slice(open + MARKER.length, close)
+    .slice(open + marker.length, close)
     // strip block and line comments so a commented-out field is not counted
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\/\/[^\n]*/g, "");
@@ -144,7 +154,7 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     // here green. Exactly one occurrence, or the parse is not authoritative.
     expect(
       markerCount,
-      `expected exactly one \`${MARKER}\` in apps/web/src/lib/api.ts; ` +
+      `expected exactly one \`${ENTITY_GRAPH_MARKER}\` in apps/web/src/lib/api.ts; ` +
         "more than one means a SECOND declaration of the interface exists, and " +
         "TypeScript declaration merging puts its members on the same type while " +
         "this parse reads only the first block — the parse is no longer " +
@@ -177,5 +187,29 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
   it("4. the client mirrors no field the server never sends", () => {
     const schemaKeys = Object.keys(EntityGraph.shape);
     expect(webFields.filter((f) => !schemaKeys.includes(f))).toEqual([]);
+  });
+
+  // Route and Route.handler are mirrored in full: unlike EntityGraph there is
+  // no allowlist, the gap is zero in both directions. Same parser, same
+  // single-declaration and nothing-unparsed guards.
+  const source = readFileSync(API_TS, "utf8");
+  const handlerShape = (Route.shape.handler as unknown as {
+    unwrap(): { shape: Record<string, unknown> };
+  }).unwrap().shape;
+
+  it("5. the web Route mirrors @psq/schema's Route exactly", () => {
+    expect(Object.keys(Route.shape).sort()).toEqual(ROUTE_FIELDS);
+    const p = parseWebEntityGraphFields(source, ROUTE_MARKER);
+    expect(p.markerCount).toBe(1);
+    expect(p.unparsed).toEqual([]);
+    expect(p.fields).toEqual(ROUTE_FIELDS);
+  });
+
+  it("6. the web RouteHandler mirrors @psq/schema's Route.handler exactly", () => {
+    expect(Object.keys(handlerShape).sort()).toEqual(HANDLER_FIELDS);
+    const p = parseWebEntityGraphFields(source, HANDLER_MARKER);
+    expect(p.markerCount).toBe(1);
+    expect(p.unparsed).toEqual([]);
+    expect(p.fields).toEqual(HANDLER_FIELDS);
   });
 });
