@@ -80,13 +80,31 @@ describe("readAspNetRoutes", () => {
     expect(r.routes.map((x) => `${x.method} ${x.path}`).sort()).toEqual(["GET /r", "POST /r/b"]);
   });
 
-  it("reads a templated verb together with [Route] as two routes", () => {
+  it("gives a [Route] beside only a templated verb no verb: warns, keeps the verb route", () => {
     const r = routesOf(`
       [Route("r")] public class XController {
         [HttpGet("a")] [Route("b")] public int A() => 1;
       }`);
+    expect(r.routes.map((x) => `${x.method} ${x.path}`)).toEqual(["GET /r/a"]);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toMatch(/^C\.cs:3: .*XController\.A.*\[Route\].*no HTTP-method restriction/);
+  });
+
+  it("lends a template-less verb to [Route]", () => {
+    const r = routesOf(`
+      [Route("r")] public class XController {
+        [HttpGet] [Route("b")] public int A() => 1;
+      }`);
     expect(r.warnings).toEqual([]);
-    expect(r.routes.map((x) => `${x.method} ${x.path}`).sort()).toEqual(["GET /r/a", "GET /r/b"]);
+    expect(r.routes.map((x) => `${x.method} ${x.path}`)).toEqual(["GET /r/b"]);
+  });
+
+  it("skips a class deriving from a repo-local [NonController] base", () => {
+    const r = routesOf(`
+      [NonController] public class BaseController { }
+      public class MidController : BaseController { }
+      [Route("k")] public class KidController : MidController { [HttpGet("a")] public int A() => 1; }`);
+    expect(r).toEqual({ routes: [], warnings: [] });
   });
 
   it("silently skips a [NonController] class", () => {
