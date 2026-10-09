@@ -36,7 +36,7 @@ describe("open_repo", () => {
       warnings: 0,
       districtBasis: "single",
     });
-    expect(ctx.defaultRepo).toBe(s.id);
+    expect(resolveRepo(ctx).id).toBe(s.id);
   });
 
   it("refuses a path that does not exist", () => {
@@ -207,7 +207,6 @@ describe("warnings", () => {
     openRefs();
     expect((tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n")).not.toMatch(/wrapper functions/);
     openReact();
-    expect((tools.warnings.run(ctx, { repo: ctx.defaultRepo }) as Json).cannotSee.join("\n")).not.toMatch(/wrapper functions/);
     expect((tools.warnings.run(ctx, { repo: MINI_FULLSTACK_REACT }) as Json).cannotSee.join("\n")).toMatch(/wrapper functions/);
   });
 });
@@ -353,16 +352,57 @@ describe("flow", () => {
     const b = tools.brief.run(ctx, {}) as string;
     const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call"));
     expect(flow).toMatch(/`POST \/api\/Widgets` → WidgetsController\.Create \(.+\.cs:\d+\): Widget\n/i);
-    expect(flow).toMatch(/WidgetsController\.Update \(.+\): no entity mentioned/);
+    expect(flow).not.toContain("no entity mentioned");
+  });
+
+  it("lists entity-bearing routes first even when many entity-less routes precede them", () => {
+    const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
+    const g = ctx.workspace.get(id.id)!.graph;
+    const bare = g.routes.find((r) => r.handler && !g.entityRefs.some((e) => e.type === r.handler!.type && e.method === r.handler!.method && e.file === r.handler!.file))!;
+    expect(bare).toBeDefined();
+    const before = g.routes.filter((r) => r.handler).length;
+    g.routes.unshift(...Array.from({ length: 20 }, (_, i) => ({ ...bare, path: `/bare${i}` })));
+    const b = tools.brief.run(ctx, {}) as string;
+    const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call"));
+    expect(flow).toMatch(/`POST \/api\/Widgets` → WidgetsController\.Create/);
+    expect(flow).not.toContain("/bare");
+    expect(flow).toContain(`${20 + before - flow.split("\n").filter((l) => /^- `[A-Z]+ /.test(l)).length} more routes with handlers touching no entity directly — they likely delegate to services, which psq does not follow yet`);
+  });
+
+  it("orders entity-bearing routes by entity count desc, then method and path", () => {
+    const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
+    const g = ctx.workspace.get(id.id)!.graph;
+    const base = g.routes.find((r) => r.handler && r.method === "POST")!;
+    const h = base.handler!;
+    g.entityRefs.push({ ...g.entityRefs.find((e) => e.file === h.file && e.type === h.type && e.method === h.method)!, entity: "Zed" });
+    g.routes.push({ ...base, method: "GET", path: "/api/aaa" });
+    const flow = (tools.brief.run(ctx, {}) as string).split("\n").filter((l) => /^- `[A-Z]+ .*` →/.test(l) && l.includes(h.method + " ("));
+    expect(flow[0]).toContain("`GET /api/aaa`");
+    expect(flow[1]).toContain("`POST /api/Widgets`");
+    expect(flow[0]).toMatch(/, Zed$|Widget, Zed/);
   });
 
   it("caps the flow list and says so", () => {
     const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
     const g = ctx.workspace.get(id.id)!.graph;
-    const base = g.routes.find((r) => r.handler)!;
+    const base = g.routes.find((r) => r.handler && g.entityRefs.some((e) => e.type === r.handler!.type && e.method === r.handler!.method && e.file === r.handler!.file))!;
     for (let i = 0; i < 30; i++) g.routes.push({ ...base, path: `/extra${i}` });
     const b = tools.brief.run(ctx, {}) as string;
     expect(b).toMatch(/… \d+ more routes with handlers not shown/);
+  });
+
+  it("caps the entities shown per route and says how many it dropped", () => {
+    const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
+    const g = ctx.workspace.get(id.id)!.graph;
+    const h = g.routes.find((r) => r.method === "POST" && r.handler)!.handler!;
+    const ref = g.entityRefs.find((e) => e.file === h.file && e.type === h.type && e.method === h.method)!;
+    for (let i = 0; i < 12; i++) g.entityRefs.push({ ...ref, entity: `Extra${String(i).padStart(2, "0")}` });
+    const b = tools.brief.run(ctx, {}) as string;
+    const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call"));
+    const line = flow.split("\n").find((l) => l.startsWith("- `POST /api/Widgets`"))!;
+    // Widget + Extra00..Extra11 = 13 distinct entities, 8 shown.
+    expect(line).toMatch(/, … 5 more$/);
+    expect(line).not.toContain("Extra11");
   });
 
   it("has no Flow section when no route has a handler", () => {
@@ -383,6 +423,20 @@ describe("several repos open", () => {
 });
 
 describe("brief caps", () => {
+  it("caps areas and the members listed per area, saying how many were dropped", () => {
+    const id = openRefs();
+    // The layout is recomputed on every call, so pin one that is big enough to cut.
+    const l3 = ctx.workspace.layout3dOf(id)!;
+    const d0 = l3.districts[0]!;
+    for (let i = 0; i < 35; i++) l3.districts.push({ ...d0, name: `area${String(i).padStart(2, "0")}` });
+    for (let i = 0; i < 20; i++) l3.nodes.push({ ...l3.nodes[0]!, name: `Member${i}`, district: d0.name });
+    ctx.workspace.layout3dOf = () => l3;
+    const b = tools.brief.run(ctx, {}) as string;
+    const areas = b.slice(b.indexOf("## Areas"), b.indexOf("## Entities"));
+    expect(areas).toContain("- … 6 more areas not shown");
+    expect(areas).toMatch(/\*\*all\*\* \(22\): .*, … 7 more\n/);
+  });
+
   it("caps calls per component, saying how many were dropped", () => {
     const id = openReact();
     const g = ctx.workspace.get(id)!.graph;

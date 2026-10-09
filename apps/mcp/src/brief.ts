@@ -96,18 +96,33 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
       const k = methodKey(r);
       touched.set(k, (touched.get(k) ?? new Set<string>()).add(r.entity));
     }
-    const flows = cap(withHandler, LIMIT.flowRoutes);
+    // Routes whose handler touches entities come first (most entities first,
+    // then method+path so the order is stable); the rest are counted, not listed.
+    const entsOf = (r: (typeof withHandler)[number]): string[] =>
+      [...(touched.get(methodKey(r.handler!)) ?? [])].sort(cmp);
+    const bearing = withHandler
+      .filter((r) => entsOf(r).length > 0)
+      .sort(
+        (a, b) =>
+          entsOf(b).length - entsOf(a).length || cmp(`${a.method} ${a.path}`, `${b.method} ${b.path}`),
+      );
+    const bare = withHandler.length - bearing.length;
+    const flows = cap(bearing, LIMIT.flowRoutes);
     for (const r of flows.items) {
       const h = r.handler!;
-      const ents = cap([...(touched.get(methodKey(h)) ?? [])].sort(cmp), LIMIT.flowEntities);
+      const ents = cap(entsOf(r), LIMIT.flowEntities);
       out.push(
         `- \`${r.method} ${r.path}\` → ${h.type}.${h.method} (${cite(h.file, h.line)}): ` +
-          (ents.items.length
-            ? ents.items.join(", ") + (ents.omitted > 0 ? `, … ${ents.omitted} more` : "")
-            : "no entity mentioned"),
+          ents.items.join(", ") + (ents.omitted > 0 ? `, … ${ents.omitted} more` : ""),
       );
     }
     more(flows.omitted, "routes with handlers");
+    if (bare > 0) {
+      out.push(
+        `- ${bare} more routes with handlers touching no entity directly — they likely delegate to ` +
+          "services, which psq does not follow yet",
+      );
+    }
     out.push("- entities are mentioned by name in the handler body only; calls into services are not followed");
     out.push("");
   }

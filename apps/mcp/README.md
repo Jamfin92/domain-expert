@@ -16,7 +16,7 @@ checkout, after `pnpm install`:
 pnpm exec tsx apps/mcp/src/index.ts --repo <path-to-your-app>
 ```
 
-`--repo` is optional; it opens that repo at startup and opens it at startup. A tool that omits `repo` uses it
+`--repo` is optional; it opens that repo at startup. A tool that omits `repo` uses it
 only while it is the sole open repo. Without it, call `open_repo` first. stdout carries the protocol, so
 logs go to stderr.
 

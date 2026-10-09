@@ -47,3 +47,8 @@ filter, so plain `pnpm test` was run; corpus tests skip because
   entity refs is treated as not .NET.
 - Flow joins only the handler's own body; calls into services are not followed
   (stated in the brief).
+- Flow join key: a route's handler is joined to entityRefs on file+type+method
+  (`methodKey`), which is stricter than type+method. Both keys gave the same
+  result on the reviewed .NET corpus repo (repoA-style anonymised; see
+  feature-research/mcp-server-fixes-2/audit.md).
+- The areas-cap gap above is closed in mcp-server-fixes-2.
