@@ -23,7 +23,6 @@ async function main(): Promise<void> {
   const repo = repoFlag(process.argv.slice(2));
   if (repo !== undefined) {
     const opened = ctx.workspace.open(repo);
-    ctx.defaultRepo = opened.id;
     console.error(`psq-mcp: opened ${opened.id} (${opened.graph.entities.length} entities)`);
   }
   const server = createServer(ctx);

@@ -22,8 +22,6 @@ import { cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots } from "./c
 
 export interface Ctx {
   workspace: Workspace;
-  /** Id of the repo opened by `--repo`, used when a tool omits `repo`. */
-  defaultRepo?: string;
 }
 
 export const CAP = {
@@ -39,7 +37,7 @@ export const CAP = {
   calls: 200,
 } as const;
 
-/** `repo` is an open repo id, or a path to open. Omitted: the default, or the only open repo. */
+/** `repo` is an open repo id, or a path to open. Omitted: the only open repo. */
 export function resolveRepo(ctx: Ctx, ref?: string): OpenRepo {
   const ws = ctx.workspace;
   if (ref === undefined || ref === "") {
@@ -111,9 +109,7 @@ export const tools = {
     "Open a repo (extract its graph) and return its id and summary counts. Call this first.",
     { path: z.string().describe("Path to the repo root") },
     (ctx, { path }) => {
-      const repo = ctx.workspace.open(path);
-      ctx.defaultRepo ??= repo.id;
-      return summaryOf(ctx.workspace, repo);
+      return summaryOf(ctx.workspace, ctx.workspace.open(path));
     },
   ),
 
