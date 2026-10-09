@@ -171,3 +171,49 @@ export function entitiesOfHandler(
     ),
   }));
 }
+
+/** Every route carrying `key`. Two routes can share a method and path (different files). */
+export function routesForKey(routes: Route[], key: string): Route[] {
+  return routes.filter((r) => routeKey(r) === key);
+}
+
+/** The distinct handlers of `routes`, in input order. Routes without one contribute nothing. */
+export function handlersOfRoutes(routes: Route[]): RouteHandler[] {
+  const seen = new Set<string>();
+  const out: RouteHandler[] = [];
+  for (const r of routes) {
+    const h = r.handler;
+    if (!h) continue;
+    const id = `${h.file}:${h.line}:${h.type}.${h.method}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(h);
+  }
+  return out;
+}
+
+/**
+ * `entitiesOfHandler` over several handlers: entities merged by name, refs
+ * deduped by location. `null` when there is no handler at all (unknown, not
+ * empty).
+ */
+export function entitiesOfHandlers(
+  handlers: RouteHandler[],
+  refs: EntityRef[],
+): EntityTouch[] | null {
+  if (handlers.length === 0) return null;
+  const byEntity = new Map<string, Map<string, EntityRef>>();
+  for (const h of handlers) {
+    for (const t of entitiesOfHandler(h, refs) ?? []) {
+      let bucket = byEntity.get(t.entity);
+      if (!bucket) byEntity.set(t.entity, (bucket = new Map()));
+      for (const r of t.refs) bucket.set(`${r.file}:${r.line}`, r);
+    }
+  }
+  return [...byEntity.keys()].sort(cmp).map((entity) => ({
+    entity,
+    refs: [...(byEntity.get(entity) as Map<string, EntityRef>).values()].sort(
+      (a, b) => cmp(a.file, b.file) || a.line - b.line,
+    ),
+  }));
+}

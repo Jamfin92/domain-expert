@@ -150,10 +150,11 @@ export interface Shape {
   drift: Drift | null;
 }
 /**
- * The method that serves a route. CLIENT-ONLY today: `@psq/schema`'s Route has
- * no `handler` yet (it is being added for .NET), and test/web-schema-drift.test.ts
- * pins only `EntityGraph`'s top-level fields, so this is not pinned. Optional
- * because an older server, or a stack psq cannot read handlers for, omits it.
+ * The method that serves a route; mirrors `Route.handler` in `@psq/schema`.
+ * test/web-schema-drift.test.ts pins this interface and `Route` against the
+ * schema. Optional on `Route` because the Express reader, and any older server,
+ * omits it. Kept as a named interface (not inlined) so the drift parser, which
+ * is brace-depth-naive, can read `Route`.
  */
 export interface RouteHandler {
   type: string; method: string; file: string; line: number;

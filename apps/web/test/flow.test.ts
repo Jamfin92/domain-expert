@@ -4,6 +4,9 @@ import {
   callsOfComponent,
   componentAreas,
   entitiesOfHandler,
+  entitiesOfHandlers,
+  handlersOfRoutes,
+  routesForKey,
   firstSegment,
   reachOfRoute,
   resolveRoutes,
@@ -130,5 +133,39 @@ describe("entitiesOfHandler", () => {
   it("an absent handler is null (unknown), distinct from [] (known, mentions nothing)", () => {
     expect(entitiesOfHandler(undefined, refs)).toBeNull();
     expect(entitiesOfHandler({ type: "SController", method: "Nope", file: "f", line: 1 }, refs)).toEqual([]);
+  });
+});
+
+describe("routes sharing METHOD+path", () => {
+  const h1 = { type: "AController", method: "Sync", file: "C/A.cs", line: 55 };
+  const h2 = { type: "BService", method: "Sync", file: "S/B.cs", line: 55 };
+  const rs = [
+    route("POST", "/dup", { file: "C/A.cs", line: 54, handler: h1 }),
+    route("GET", "/dup", { file: "C/A.cs", line: 60 }),
+    route("POST", "/dup", { file: "S/B.cs", line: 54, handler: h2 }),
+  ];
+
+  it("routesForKey returns every route with the key, not the first", () => {
+    expect(routesForKey(rs, "POST /dup").map((r) => r.file)).toEqual(["C/A.cs", "S/B.cs"]);
+    expect(routesForKey(rs, "PUT /dup")).toEqual([]);
+  });
+
+  it("handlersOfRoutes lists all distinct handlers, skipping handler-less routes", () => {
+    expect(handlersOfRoutes(routesForKey(rs, "POST /dup"))).toEqual([h1, h2]);
+    expect(handlersOfRoutes([rs[0] as Route, rs[0] as Route])).toEqual([h1]);
+    expect(handlersOfRoutes(routesForKey(rs, "GET /dup"))).toEqual([]);
+  });
+
+  it("entitiesOfHandlers merges across handlers, null only when none is known", () => {
+    const refs = [
+      ref({ entity: "Student", type: "AController", method: "Sync", file: "C/A.cs", line: 56 }),
+      ref({ entity: "Course", type: "BService", method: "Sync", file: "S/B.cs", line: 57 }),
+      ref({ entity: "Student", type: "BService", method: "Sync", file: "S/B.cs", line: 58 }),
+    ];
+    const t = entitiesOfHandlers([h1, h2], refs);
+    expect(t?.map((x) => x.entity)).toEqual(["Course", "Student"]);
+    expect(t?.[1]?.refs.map((r) => r.line)).toEqual([56, 58]);
+    expect(entitiesOfHandlers([h1, h1], refs)?.[0]?.refs).toHaveLength(1);
+    expect(entitiesOfHandlers([], refs)).toBeNull();
   });
 });

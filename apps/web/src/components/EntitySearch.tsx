@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { api, type EntityRefsResult, type EntitySearchHit } from "@/lib/api";
+import { onHitClick } from "@/lib/lookup";
 import { refsState, type RefsState } from "@/lib/refs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -52,7 +53,9 @@ export function EntitySearch({ repoId, repoPath, selected, onSelect }: Props): R
       api
         .search(repoId, query)
         .then((r) => {
-          if (!cancelled) setHits(r.hits);
+          if (cancelled) return;
+          setHits(r.hits);
+          setError(null);
         })
         .catch((e: unknown) => {
           if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -74,7 +77,9 @@ export function EntitySearch({ repoId, repoPath, selected, onSelect }: Props): R
     api
       .refs(repoId, target)
       .then((r) => {
-        if (!cancelled) setRefs(r);
+        if (cancelled) return;
+        setRefs(r);
+        setError(null);
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -126,7 +131,11 @@ export function EntitySearch({ repoId, repoPath, selected, onSelect }: Props): R
                   type="button"
                   data-psq="search-hit"
                   className="flex w-full items-baseline justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-accent/50"
-                  onClick={() => onSelect(h.name)}
+                  onClick={() => {
+                    const c = onHitClick(h.name, selected, target);
+                    if (c.setTarget !== null) setTarget(c.setTarget);
+                    onSelect(c.select);
+                  }}
                 >
                   <span className="font-mono font-semibold">{h.name}</span>
                   <span className="truncate text-[10px] text-muted-foreground">

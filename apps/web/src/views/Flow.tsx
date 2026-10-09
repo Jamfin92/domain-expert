@@ -5,10 +5,12 @@ import {
   buildReverseIndex,
   callsOfComponent,
   componentAreas,
-  entitiesOfHandler,
+  entitiesOfHandlers,
+  handlersOfRoutes,
   reachOfRoute,
   routeAreas,
   routeKey,
+  routesForKey,
 } from "@/lib/flow";
 import { componentLabel } from "@/lib/client-calls";
 import { desktop, isDesktop } from "@/lib/desktop";
@@ -92,7 +94,8 @@ export function Flow({ graph, repoPath, selectedEntity, onSelectEntity }: Props)
   const index = useMemo(() => buildReverseIndex(calls, components), [calls, components]);
 
   const selComponent = sel?.kind === "component" ? components.find((c) => c.key === sel.key) : undefined;
-  const selRoute = sel?.kind === "route" ? routes.find((r) => routeKey(r) === sel.key) : undefined;
+  const selRoutes = sel?.kind === "route" ? routesForKey(routes, sel.key) : [];
+  const selRoute = selRoutes[0];
 
   const goRoute = (r: Route): void => setSel({ kind: "route", key: routeKey(r) });
   const goComponent = (c: UiComponent): void => setSel({ kind: "component", key: c.key });
@@ -175,7 +178,7 @@ export function Flow({ graph, repoPath, selectedEntity, onSelectEntity }: Props)
             />
           ) : selRoute ? (
             <RouteFlow
-              route={selRoute}
+              routes={selRoutes}
               graph={graph}
               reach={reachOfRoute(selRoute, index)}
               refs={refs}
@@ -264,7 +267,7 @@ function CallLine({ call, repoPath }: { call: ClientCall; repoPath: string }): R
 }
 
 function RouteFlow({
-  route,
+  routes,
   graph,
   reach,
   refs,
@@ -273,7 +276,7 @@ function RouteFlow({
   onComponent,
   onEntity,
 }: {
-  route: Route;
+  routes: Route[];
   graph: EntityGraph;
   reach: { calls: ClientCall[]; components: UiComponent[] };
   refs: NonNullable<EntityGraph["entityRefs"]>;
@@ -282,7 +285,10 @@ function RouteFlow({
   onComponent: (c: UiComponent) => void;
   onEntity: (name: string) => void;
 }): React.ReactElement {
-  const touched = entitiesOfHandler(route.handler, refs);
+  const route = routes[0] as Route;
+  const handlers = handlersOfRoutes(routes);
+  const handlerless = routes.filter((r) => !r.handler).length;
+  const touched = entitiesOfHandlers(handlers, refs);
   const allComponents = graph.components ?? [];
   return (
     <div className="space-y-4">
@@ -291,7 +297,11 @@ function RouteFlow({
           <Badge variant="outline" className="text-[10px]">{route.method}</Badge>
           <span className="font-mono font-semibold">{route.path}</span>
         </div>
-        <Loc file={route.file} line={route.line} repoPath={repoPath} />
+        {routes.map((r) => (
+          <div key={`${r.file}:${r.line}`}>
+            <Loc file={r.file} line={r.line} repoPath={repoPath} />
+          </div>
+        ))}
       </div>
 
       <section data-psq="flow-callers" className="space-y-1">
@@ -326,10 +336,20 @@ function RouteFlow({
 
       <section data-psq="flow-handler" className="space-y-1">
         <h3 className="text-xs font-semibold">Handler</h3>
-        {route.handler ? (
-          <div className="space-y-0.5 text-xs">
-            <div className="font-mono">{route.handler.type}.{route.handler.method}</div>
-            <Loc file={route.handler.file} line={route.handler.line} repoPath={repoPath} />
+        {handlers.length > 0 ? (
+          <div className="space-y-1 text-xs">
+            {handlers.map((h) => (
+              <div key={`${h.file}:${h.line}`} className="space-y-0.5">
+                <div className="font-mono">{h.type}.{h.method}</div>
+                <Loc file={h.file} line={h.line} repoPath={repoPath} />
+              </div>
+            ))}
+            {handlerless > 0 ? (
+              <p className="text-muted-foreground">
+                {handlerless} more route{handlerless === 1 ? "" : "s"} with this key
+                {handlerless === 1 ? " has" : " have"} no handler psq can see.
+              </p>
+            ) : null}
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">

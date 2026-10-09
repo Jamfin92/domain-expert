@@ -57,13 +57,19 @@ describe("seed parity", () => {
     expect(buildBank(g, seeded)).toEqual(buildBank(g, seeded, DEFAULT_SEED));
   });
 
-  it("2. the old repo-path default really did build a different bank", () => {
+  it("2. a non-default seed builds a different bank from DEFAULT_SEED", () => {
     // Non-vacuity for case 1. If these are equal the fixture no longer
     // discriminates and case 1 proves nothing — that is a finding, not a skip.
     // The old default hashed `g.repo`, an absolute path, so which bank it built
     // depended on where the checkout lives; some checkout paths hash into a bank
-    // equal to DEFAULT_SEED's. Hash the repo-relative path so the comparison
-    // is the same in every checkout.
+    // equal to DEFAULT_SEED's. To be the same in every checkout this hashes the
+    // repo-RELATIVE path instead.
+    //
+    // MEASURED RESIDUAL: that makes this a test of "some other seed differs",
+    // not of the old default. The absolute-path-hash default is no longer
+    // exercised, and roughly 2% of checkout paths hash into a bank equal to
+    // DEFAULT_SEED's, so a `seed ?? hashSeed(graph.repo)` regression would pass
+    // case 1 silently in those checkouts.
     const repoPath = relative(repoRoot, g.repo);
     expect(repoPath).not.toMatch(/^\.\.|^\//);
     expect(buildBank(g, seeded, hashSeed(repoPath))).not.toEqual(
