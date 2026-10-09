@@ -10,10 +10,19 @@ export function cap<T>(items: readonly T[], n: number): { items: T[]; omitted: n
 export const cite = (file: string, line?: number): string =>
   line === undefined ? file : `${file}:${line}`;
 
-/** The optional `handler` another task adds to Route, read without depending on it. */
-export type RouteHandler = { type?: string; method?: string; file?: string; line?: number };
-export const handlerOf = (r: Route): RouteHandler | undefined =>
-  (r as Route & { handler?: RouteHandler }).handler;
+export const handlerOf = (r: Route): Route["handler"] => r.handler;
+
+/**
+ * Identity of a method: the same `Type.method` in two files is two methods
+ * (`Dup.Sync` in a controller and a service). NUL cannot occur in a path.
+ */
+export const methodKey = (r: { file: string; type: string; method: string }): string =>
+  `${r.file}\0${r.type}.${r.method}`;
+
+/** Does this graph describe a .NET API (the attribute-route reader applies)? */
+const isDotnet = (g: EntityGraph): boolean =>
+  g.provider === "efcore" ||
+  (g.provider === "fullstack" && (g.entityRefs.length > 0 || g.routes.some((r) => r.handler)));
 
 /** The first path segment, the unit routes are grouped by. */
 export const segmentOf = (path: string): string => path.split("/").filter(Boolean)[0] ?? "/";
@@ -36,6 +45,24 @@ export function blindSpots(g: EntityGraph): string[] {
         "matched by name only: a same-named class elsewhere is reported as a ref.",
       "Constructor bodies, comments and #if blocks are not scanned for entity refs.",
     );
+  }
+  if (isDotnet(g)) {
+    out.push(
+      "psq reads ASP.NET ATTRIBUTE routes only. Conventional routing (MapControllerRoute) and " +
+        "minimal APIs (MapGet, MapPost, ...) are not read; they surface as warnings.",
+    );
+    if (g.routes.length === 0) {
+      out.push("psq found no attribute routes; the API may still have endpoints psq cannot see.");
+    }
+  }
+  if (g.clientCalls.length > 0) {
+    const matched = g.clientCalls.filter((c) => c.matches !== null).length;
+    if (matched * 2 < g.clientCalls.length) {
+      out.push(
+        `Only ${matched} of ${g.clientCalls.length} client calls match a route psq read: ` +
+          "the server side is mostly invisible to psq (routes it cannot read, or URLs it cannot resolve).",
+      );
+    }
   }
   if (g.clientCalls.length > 0 || g.components.length > 0) {
     out.push(
