@@ -565,8 +565,9 @@ describe("G23: the extractor bump", () => {
     //     version really does re-extract under the current one.
     // H-e raised both from 1 to 2 with the 2 -> 3 bump; H-d raised them to 3
     // with the 3 -> 4 bump; H-d route fixes raised them to 4 with the 4 -> 5
-    // bump. Raise them again on the next bump, or the gate silently stops gating.
-    expect(EXTRACTOR_VERSION).toBeGreaterThan(4);
+    // bump; H-d route fixes 2 raised them to 5 with the 5 -> 6 bump. Raise them again on
+    // the next bump, or the gate silently stops gating.
+    expect(EXTRACTOR_VERSION).toBeGreaterThan(5);
 
     const state = tmp("state");
     const stale = copyOf(MINI_EFCORE_REFS);
@@ -577,7 +578,7 @@ describe("G23: the extractor bump", () => {
     const currentId = seeder.open(current).id;
     seeder.closeAll();
 
-    patch(state, staleId, { extractor: 4 });
+    patch(state, staleId, { extractor: 5 });
 
     calls.extractWithDigest = 0;
     const w = ws(state);

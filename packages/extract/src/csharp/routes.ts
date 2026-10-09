@@ -176,6 +176,14 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
     return base !== null && isController(base, depth + 1);
   };
 
+  /** `[NonController]` is `Inherited = true`: it applies down a repo-local base chain. */
+  const nonController = (t: TypeDecl, depth = 0): boolean => {
+    if (classAttrs(t).some((a) => attrKey(a) === "NonController")) return true;
+    if (depth > 6) return false;
+    const base = localBase(t);
+    return base !== null && nonController(base, depth + 1);
+  };
+
   /** A repo-local ancestor that declares a class `[Route]`, if the class has none itself. */
   const inheritedRoute = (t: TypeDecl, depth = 0): TypeDecl | null => {
     if (depth > 6) return null;
@@ -188,7 +196,7 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
   for (const parse of parses) {
     for (const t of parse.types) {
       if (t.keyword !== "class" || t.modifiers.includes("static")) continue;
-      if (classAttrs(t).some((a) => attrKey(a) === "NonController")) continue;
+      if (nonController(t)) continue;
       if (!isController(t)) continue;
 
       const attrs = classAttrs(t);
@@ -305,10 +313,13 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
           } else if (verbAttrs.length === 0) {
             warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has [Route] and no HTTP method attribute, so it accepts every verb; route not read`);
             bad = true;
+          } else if (bareVerbs.length === 0) {
+            // CreateSelectors: only template-less verb attributes lend their verbs to a
+            // [Route] selector; templated ones are selectors of their own. Route has no
+            // any-verb value, so say so rather than invent a verb.
+            warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has [Route] with no HTTP-method restriction (the method's verb attributes all carry their own template), so it accepts every verb; route not read`);
           } else {
-            // [Route] is its own attribute route; the method's verb attributes constrain it.
-            const verbs = bareVerbs.length > 0 ? bareVerbs : [...new Set(verbAttrs.map((v) => VERBS[attrKey(v)]!))];
-            selectors.push({ verbs, template: tpl.kind === "literal" ? tpl.value : "", line: a.line });
+            selectors.push({ verbs: [...new Set(bareVerbs)], template: tpl.kind === "literal" ? tpl.value : "", line: a.line });
           }
         }
         if (bad) continue;
