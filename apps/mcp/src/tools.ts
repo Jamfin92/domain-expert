@@ -8,7 +8,7 @@ import type { Route } from "@psq/schema";
 // layout, mermaid) is the existing store of opened repos and is reused as-is.
 import { Workspace, type OpenRepo } from "../../server/src/workspace.js";
 import { renderBrief } from "./brief.js";
-import { cap, cite, cmp, handlerOf, segmentOf, blindSpots } from "./common.js";
+import { cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots } from "./common.js";
 
 /**
  * Tool handlers. Pure functions of (context, args) returning JSON-able data,
@@ -43,8 +43,13 @@ export const CAP = {
 export function resolveRepo(ctx: Ctx, ref?: string): OpenRepo {
   const ws = ctx.workspace;
   if (ref === undefined || ref === "") {
-    const id = ctx.defaultRepo ?? (ws.list().length === 1 ? ws.list()[0]!.id : undefined);
-    const found = id === undefined ? undefined : ws.get(id);
+    const open = ws.list();
+    if (open.length > 1) {
+      throw new Error(
+        `${open.length} repos are open (${open.map((r) => r.id).join(", ")}); pass \`repo\` to say which.`,
+      );
+    }
+    const found = open.length === 1 ? ws.get(open[0]!.id) : undefined;
     if (found) return found;
     throw new Error("No repo is selected. Call open_repo with a path first, or pass `repo`.");
   }
@@ -63,7 +68,7 @@ function routeItem(r: Route): Record<string, unknown> {
     method: r.method,
     path: r.path,
     cite: cite(r.file, r.line),
-    ...(h ? { handler: h, handlerCite: h.file ? cite(h.file, h.line) : undefined } : {}),
+    ...(h ? { handler: h, handlerCite: cite(h.file, h.line) } : {}),
   };
 }
 
@@ -241,8 +246,13 @@ export const tools = {
         cite: byName.get(r.dependent)?.file ?? e.file,
       });
       const refs = refsFor(g, name);
-      const methodCounts = new Map<string, number>();
-      for (const r of refs) methodCounts.set(`${r.type}.${r.method}`, (methodCounts.get(`${r.type}.${r.method}`) ?? 0) + 1);
+      const methodCounts = new Map<string, { method: string; file: string; count: number }>();
+      for (const r of refs) {
+        const k = methodKey(r);
+        const cur = methodCounts.get(k) ?? { method: `${r.type}.${r.method}`, file: r.file, count: 0 };
+        cur.count++;
+        methodCounts.set(k, cur);
+      }
       const shapes = g.shapes.filter((s) => s.mirrors === name);
       return {
         name: e.name,
@@ -276,9 +286,9 @@ export const tools = {
           },
           files: new Set(refs.map((r) => r.file)).size,
           topMethods: [...methodCounts.entries()]
-            .sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))
+            .sort((a, b) => b[1].count - a[1].count || cmp(a[0], b[0]))
             .slice(0, 5)
-            .map(([method, count]) => ({ method, count })),
+            .map(([, v]) => ({ method: v.method, file: v.file, count: v.count })),
           note: "Mentions by name, not call sites. Use the refs tool for file:line.",
         },
       };

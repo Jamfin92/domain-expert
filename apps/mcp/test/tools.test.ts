@@ -1,9 +1,13 @@
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../../server/src/workspace.js";
 import { INSTRUCTION } from "../src/brief.js";
 import { cap } from "../src/common.js";
 import { CAP, resolveRepo, tools, type Ctx } from "../src/tools.js";
 import { MINI_EFCORE_REFS, MINI_FULLSTACK_REACT } from "../../../test/fixtures.js";
+
+const MINI_ASPNET_ROUTES = resolve(dirname(fileURLToPath(import.meta.url)), "../../../test/fixtures/mini-aspnet-routes");
 
 let ctx: Ctx;
 beforeEach(() => {
@@ -222,7 +226,7 @@ describe("brief", () => {
     expect(b).toContain(INSTRUCTION);
     expect(b).toContain("Every claim must cite a graph fact (file:line); say \"psq cannot see this\" rather than guess.");
     expect(b).toContain("- Course: 12 mentions");
-    expect(b).toContain("EnrollmentService.Enroll (Services/EnrollmentService.cs:15): 2 — Course, Student");
+    expect(b).toContain("EnrollmentService.Enroll (first mention Services/EnrollmentService.cs:15): 2 — Course, Student");
     expect(b).toContain("**Student** (Models/Student.cs)");
     expect(b).toContain("references Course");
     expect(b).toContain("cannot see:");
@@ -256,5 +260,135 @@ describe("brief", () => {
   it("is deterministic", () => {
     openRefs();
     expect(tools.brief.run(ctx, {})).toBe(tools.brief.run(ctx, {}));
+  });
+});
+
+describe("same-named methods in different files", () => {
+  const DUP = ["Controllers/CoursesController.cs", "Services/EnrollmentService.cs"];
+
+  it("entity.refs.topMethods keeps Dup.Sync in two files as two methods", () => {
+    const id = openRefs();
+    const g = ctx.workspace.get(id)!.graph;
+    g.entityRefs = g.entityRefs.filter((r) => r.type === "Dup");
+    const top = (tools.entity.run(ctx, { name: "Course" }) as Json).refs.topMethods as Json[];
+    const dups = top.filter((m) => m.method === "Dup.Sync");
+    expect(dups.map((m) => m.file).sort()).toEqual(DUP);
+    expect(dups.map((m) => m.count)).toEqual([1, 1]);
+  });
+
+  it("the brief lists each file's method on its own line", () => {
+    const id = openRefs();
+    const g = ctx.workspace.get(id)!.graph;
+    for (const file of DUP) {
+      const base = g.entityRefs.find((r) => r.file === file && r.type === "Dup" && r.method === "Sync")!;
+      expect(base.line).toBe(55);
+      g.entityRefs.push({ ...base, entity: "Student" });
+    }
+    const b = tools.brief.run(ctx, {}) as string;
+    for (const file of DUP) {
+      expect(b).toContain(`- Dup.Sync (first mention ${file}:55): 2 — Course, Student`);
+    }
+  });
+
+  it("the brief lists only methods touching at least two entities", () => {
+    openRefs();
+    const b = tools.brief.run(ctx, {}) as string;
+    const hot = b.slice(b.indexOf("Methods touching"), b.indexOf("Most-connected"));
+    expect(hot).not.toContain("Dup.Sync");
+    expect(hot).toContain("EnrollmentService.Enroll");
+  });
+});
+
+describe("routes on a .NET repo", () => {
+  it("states that only attribute routes are read, and that zero routes is not zero endpoints", () => {
+    openRefs();
+    const spots = (tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n");
+    expect(spots).toMatch(/ATTRIBUTE routes only/);
+    expect(spots).toMatch(/minimal APIs/);
+    expect(spots).toContain("psq found no attribute routes; the API may still have endpoints psq cannot see");
+    const b = tools.brief.run(ctx, {}) as string;
+    expect(b).toContain("cannot see: psq found no attribute routes; the API may still have endpoints psq cannot see");
+  });
+
+  it("does not claim 'no attribute routes' when routes exist", () => {
+    tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES });
+    const spots = (tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n");
+    expect(spots).toMatch(/ATTRIBUTE routes only/);
+    expect(spots).not.toContain("found no attribute routes");
+  });
+
+  it("does not mention attribute routes for a repo that is not .NET", () => {
+    openReact();
+    const spots = (tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n");
+    expect(spots).not.toMatch(/ATTRIBUTE/);
+  });
+
+  it("reports matched/total when most client calls are unmatched", () => {
+    const id = openReact();
+    const g = ctx.workspace.get(id)!.graph;
+    const total = g.clientCalls.length;
+    for (const c of g.clientCalls) c.matches = null;
+    g.clientCalls[0]!.matches = "GET /api/x";
+    const spots = (tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n");
+    expect(spots).toContain(`Only 1 of ${total} client calls match a route`);
+  });
+
+  it("stays quiet when most client calls match", () => {
+    openReact();
+    const spots = (tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n");
+    expect(spots).not.toMatch(/client calls match a route/);
+  });
+});
+
+describe("flow", () => {
+  it("routes carry the handler type.method and its file:line", () => {
+    tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES });
+    const r = (tools.routes.run(ctx, {}) as Json).routes.find((x: Json) => x.handler?.method === "Create");
+    expect(r.handler).toMatchObject({ type: "WidgetsController", method: "Create" });
+    expect(r.handlerCite).toBe(`${r.handler.file}:${r.handler.line}`);
+  });
+
+  it("the brief joins each route's handler to the entities it mentions", () => {
+    tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES });
+    const b = tools.brief.run(ctx, {}) as string;
+    const flow = b.slice(b.indexOf("## Flow"), b.indexOf("## Client-call"));
+    expect(flow).toMatch(/`POST \/api\/Widgets` → WidgetsController\.Create \(.+\.cs:\d+\): Widget\n/i);
+    expect(flow).toMatch(/WidgetsController\.Update \(.+\): no entity mentioned/);
+  });
+
+  it("caps the flow list and says so", () => {
+    const id = tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json;
+    const g = ctx.workspace.get(id.id)!.graph;
+    const base = g.routes.find((r) => r.handler)!;
+    for (let i = 0; i < 30; i++) g.routes.push({ ...base, path: `/extra${i}` });
+    const b = tools.brief.run(ctx, {}) as string;
+    expect(b).toMatch(/… \d+ more routes with handlers not shown/);
+  });
+
+  it("has no Flow section when no route has a handler", () => {
+    openReact();
+    expect(tools.brief.run(ctx, {}) as string).not.toContain("## Flow");
+  });
+});
+
+describe("several repos open", () => {
+  it("requires repo, with a clear error, instead of picking the first", () => {
+    const a = openRefs();
+    const b = openReact();
+    expect(() => resolveRepo(ctx)).toThrow(/2 repos are open.*pass `repo`/);
+    expect(() => tools.routes.run(ctx, {})).toThrow(/pass `repo`/);
+    expect(resolveRepo(ctx, b).id).toBe(b);
+    expect(resolveRepo(ctx, a).id).toBe(a);
+  });
+});
+
+describe("brief caps", () => {
+  it("caps calls per component, saying how many were dropped", () => {
+    const id = openReact();
+    const g = ctx.workspace.get(id)!.graph;
+    const call = g.clientCalls.find((c) => c.components.length > 0)!;
+    for (let i = 0; i < 15; i++) g.clientCalls.push({ ...call, path: `/api/more${i}` });
+    const b = tools.brief.run(ctx, {}) as string;
+    expect(b).toMatch(/ {2}- … \d+ more calls not shown/);
   });
 });

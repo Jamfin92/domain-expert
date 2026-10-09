@@ -1,6 +1,6 @@
 import { degrees, orphans } from "@psq/graph";
 import type { Workspace, OpenRepo } from "../../server/src/workspace.js";
-import { blindSpots, cap, cite, cmp, handlerOf, segmentOf } from "./common.js";
+import { blindSpots, cap, cite, cmp, handlerOf, methodKey, segmentOf } from "./common.js";
 
 /**
  * The domain brief: one markdown document an agent reads before discussing a
@@ -11,7 +11,11 @@ import { blindSpots, cap, cite, cmp, handlerOf, segmentOf } from "./common.js";
 export const INSTRUCTION =
   'Every claim must cite a graph fact (file:line); say "psq cannot see this" rather than guess.';
 
-const LIMIT = { entities: 60, routes: 60, components: 30, hot: 10, warnings: 20 } as const;
+const LIMIT = {
+  entities: 60, routes: 60, components: 30, hot: 10, warnings: 20,
+  districts: 30, districtMembers: 15, callsPerComponent: 10,
+  flowRoutes: 15, flowEntities: 8,
+} as const;
 
 export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   const g = repo.graph;
@@ -34,10 +38,15 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   out.push(`## Areas (districts by \`${l3.districtBasis}\`)`, "");
   const members = new Map<string, string[]>();
   for (const n of l3.nodes) members.set(n.district, [...(members.get(n.district) ?? []), n.name]);
-  for (const d of l3.districts) {
-    const m = members.get(d.name) ?? [];
-    out.push(`- **${d.name}** (${m.length}): ${m.slice(0, 15).join(", ")}${m.length > 15 ? ", …" : ""}`);
+  const districts = cap(l3.districts, LIMIT.districts);
+  for (const d of districts.items) {
+    const m = cap(members.get(d.name) ?? [], LIMIT.districtMembers);
+    out.push(
+      `- **${d.name}** (${(members.get(d.name) ?? []).length}): ${m.items.join(", ")}` +
+        (m.omitted > 0 ? `, … ${m.omitted} more` : ""),
+    );
   }
+  more(districts.omitted, "areas");
   out.push("");
 
   // Entities
@@ -72,11 +81,36 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
     const h = handlerOf(r);
     out.push(
       `- \`${r.method} ${r.path}\` (${cite(r.file, r.line)})` +
-        (h?.file ? ` → ${h.type ?? ""}${h.method ? `.${h.method}` : ""} (${cite(h.file, h.line)})` : ""),
+        (h ? ` → ${h.type}.${h.method} (${cite(h.file, h.line)})` : ""),
     );
   }
   more(routes.omitted, "routes");
   out.push("");
+
+  // Flow: route -> handler -> entities the handler mentions
+  const withHandler = g.routes.filter((r) => r.handler);
+  if (withHandler.length > 0) {
+    out.push("## Flow (route → handler → entities mentioned in the handler body)", "");
+    const touched = new Map<string, Set<string>>();
+    for (const r of g.entityRefs) {
+      const k = methodKey(r);
+      touched.set(k, (touched.get(k) ?? new Set<string>()).add(r.entity));
+    }
+    const flows = cap(withHandler, LIMIT.flowRoutes);
+    for (const r of flows.items) {
+      const h = r.handler!;
+      const ents = cap([...(touched.get(methodKey(h)) ?? [])].sort(cmp), LIMIT.flowEntities);
+      out.push(
+        `- \`${r.method} ${r.path}\` → ${h.type}.${h.method} (${cite(h.file, h.line)}): ` +
+          (ents.items.length
+            ? ents.items.join(", ") + (ents.omitted > 0 ? `, … ${ents.omitted} more` : "")
+            : "no entity mentioned"),
+      );
+    }
+    more(flows.omitted, "routes with handlers");
+    out.push("- entities are mentioned by name in the handler body only; calls into services are not followed");
+    out.push("");
+  }
 
   // Client wiring
   out.push("## Client-call wiring", "");
@@ -93,9 +127,11 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   for (const key of comps.items) {
     const comp = byKey.get(key);
     out.push(`- **${comp?.name ?? key}** (${comp ? cite(comp.file, comp.line) : key})`);
-    for (const c of callsBy.get(key) ?? []) {
+    const calls = cap(callsBy.get(key) ?? [], LIMIT.callsPerComponent);
+    for (const c of calls.items) {
       out.push(`  - \`${c.method} ${c.path}\` (${cite(c.file, c.line)}) → ${c.matches ?? "no matching route"}`);
     }
+    if (calls.omitted > 0) out.push(`  - … ${calls.omitted} more calls not shown (use client_calls)`);
   }
   more(comps.omitted, "components with calls");
   const unmatched = g.clientCalls.filter((c) => c.matches === null);
@@ -112,11 +148,13 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
   // Hot spots
   out.push("## Hot spots", "");
   const refCount = new Map<string, number>();
-  const methodTouch = new Map<string, { entities: Set<string>; file: string; line: number }>();
+  const methodTouch = new Map<string, { name: string; entities: Set<string>; file: string; line: number }>();
   for (const r of g.entityRefs) {
     refCount.set(r.entity, (refCount.get(r.entity) ?? 0) + 1);
-    const key = `${r.type}.${r.method}`;
-    const cur = methodTouch.get(key) ?? { entities: new Set<string>(), file: r.file, line: r.line };
+    const key = methodKey(r);
+    const cur = methodTouch.get(key) ?? {
+      name: `${r.type}.${r.method}`, entities: new Set<string>(), file: r.file, line: r.line,
+    };
     cur.entities.add(r.entity);
     methodTouch.set(key, cur);
   }
@@ -127,13 +165,16 @@ export function renderBrief(ws: Workspace, repo: OpenRepo): string {
     const e = g.entities.find((x) => x.name === name);
     out.push(`- ${name}: ${n} mentions (declared ${e?.file ?? "?"})`);
   }
-  out.push("", "Methods touching the most entities:");
+  out.push("", "Methods touching the most entities (at least 2; line is the first mention, not the declaration):");
   const topMethods = [...methodTouch]
+    .filter(([, v]) => v.entities.size >= 2)
     .sort((a, b) => b[1].entities.size - a[1].entities.size || cmp(a[0], b[0]))
     .slice(0, LIMIT.hot);
   if (topMethods.length === 0) out.push("- none");
-  for (const [m, v] of topMethods) {
-    out.push(`- ${m} (${cite(v.file, v.line)}): ${v.entities.size} — ${[...v.entities].sort(cmp).join(", ")}`);
+  for (const [, v] of topMethods) {
+    out.push(
+      `- ${v.name} (first mention ${cite(v.file, v.line)}): ${v.entities.size} — ${[...v.entities].sort(cmp).join(", ")}`,
+    );
   }
   out.push("", "Most-connected entities by relations:");
   const deg = degrees(g).filter((d) => d.degree > 0).slice(0, LIMIT.hot);

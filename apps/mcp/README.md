@@ -16,8 +16,8 @@ checkout, after `pnpm install`:
 pnpm exec tsx apps/mcp/src/index.ts --repo <path-to-your-app>
 ```
 
-`--repo` is optional; it opens that repo at startup and makes it the default for
-every tool. Without it, call `open_repo` first. stdout carries the protocol, so
+`--repo` is optional; it opens that repo at startup and opens it at startup. A tool that omits `repo` uses it
+only while it is the sole open repo. Without it, call `open_repo` first. stdout carries the protocol, so
 logs go to stderr.
 
 ## Register it
@@ -47,7 +47,7 @@ and may not have your `PATH`. Node 24 or later.
 ## Tools
 
 Every tool takes an optional `repo` (an id from `open_repo`, or a path). It may
-be left out when one repo is open. Lists are capped and say so (`truncated`).
+be left out only when exactly one repo is open; with several open, omitting it is an error. Lists are capped and say so (`truncated`).
 
 | Tool | Returns |
 | --- | --- |

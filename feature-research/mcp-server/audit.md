@@ -2,7 +2,8 @@
 
 ## What changed
 - New `apps/mcp` (`@psq/mcp`, bin `psq-mcp`): stdio MCP server on
-  `@modelcontextprotocol/sdk` (^1.32.1, plus `zod ^3.24.1` which the tool
+  `@modelcontextprotocol/sdk` (^1.32.1, plus `zod ^3.25.76` (the version in
+  `apps/mcp/package.json`) which the tool
   schemas use). Files: `src/tools.ts` (handlers, exported as `tools`),
   `src/brief.ts` (markdown brief), `src/common.ts` (cap/cite/blind spots),
   `src/server.ts` (SDK adapter, `brief` prompt), `src/index.ts` (`--repo`,
