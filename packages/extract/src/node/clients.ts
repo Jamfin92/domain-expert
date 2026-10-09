@@ -28,6 +28,80 @@ import { importsExpress } from "./routes.js";
  */
 
 /**
+ * A base prefix the client carries outside the call's own path: an axios
+ * instance's `baseURL`, or a `const X = "/api"` heading a template literal.
+ * Kept off the schema on purpose: `ClientCall.path` stays the literal text at
+ * the call site. Read only by `linkCalls`, as a second attempt after the
+ * literal path finds nothing. `mergeGraphs` copies calls, so it re-registers
+ * the prefix on each copy.
+ */
+const basePrefixes = new WeakMap<ClientCall, string>();
+export const basePrefixOf = (c: ClientCall): string | undefined => basePrefixes.get(c);
+export const setBasePrefix = (c: ClientCall, prefix: string): void => {
+  if (prefix !== "") basePrefixes.set(c, prefix);
+};
+
+/** A statically readable base, or the source text of one that is not. */
+type Base = { prefix: string } | { unreadable: string };
+
+/** `"/api/"` -> `"/api"`; null when the text cannot head a path (not "" or "/..."). */
+function cleanPrefix(text: string): string | null {
+  if (text !== "" && !text.startsWith("/")) return null;
+  return text.replace(/\/+$/, "");
+}
+
+/** The variable declaration an identifier resolves to, through imports. */
+function variableDeclaration(expr: ts.Expression, checker: ts.TypeChecker): ts.VariableDeclaration | null {
+  if (!ts.isIdentifier(expr)) return null;
+  let sym = checker.getSymbolAtLocation(expr);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  const decl = sym?.valueDeclaration;
+  return decl && ts.isVariableDeclaration(decl) && decl.parent.flags & ts.NodeFlags.Const ? decl : null;
+}
+
+/** A string literal, or an identifier that is a `const` bound to one. */
+function stringValue(expr: ts.Expression, checker: ts.TypeChecker): string | null {
+  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return expr.text;
+  const init = variableDeclaration(expr, checker)?.initializer;
+  if (init && (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init))) return init.text;
+  return null;
+}
+
+/**
+ * The base of `X` in `const X = axios.create({ baseURL })`, or null when `X` is
+ * not such an instance. An object with a spread or a computed key may carry a
+ * baseURL the reader cannot see, so it is unreadable rather than "no base".
+ */
+function instanceBase(receiver: ts.Expression, checker: ts.TypeChecker): Base | null {
+  const init = variableDeclaration(receiver, checker)?.initializer;
+  if (
+    !init ||
+    !ts.isCallExpression(init) ||
+    !ts.isPropertyAccessExpression(init.expression) ||
+    init.expression.name.text !== "create" ||
+    !ts.isIdentifier(init.expression.expression) ||
+    init.expression.expression.text !== "axios"
+  ) {
+    return null;
+  }
+  const config = init.arguments[0];
+  if (config === undefined) return { prefix: "" };
+  if (!ts.isObjectLiteralExpression(config)) return { unreadable: config.getText() };
+  let found: Base = { prefix: "" };
+  for (const prop of config.properties) {
+    if (ts.isSpreadAssignment(prop)) return { unreadable: prop.getText() };
+    const key = prop.name && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) ? prop.name.text : null;
+    if (key === null) return { unreadable: prop.getText() };
+    if (key !== "baseURL") continue;
+    if (!ts.isPropertyAssignment(prop)) return { unreadable: prop.getText() };
+    const text = stringValue(prop.initializer, checker);
+    const prefix = text === null ? null : cleanPrefix(text);
+    found = prefix === null ? { unreadable: prop.initializer.getText() } : { prefix };
+  }
+  return found;
+}
+
+/**
  * Deliberately NOT `METHODS` from routes.ts: that set includes "all", which on
  * the client side would catch `axios.all` (an alias for Promise.all).
  */
@@ -170,15 +244,26 @@ function isRegistration(second: ts.Expression | undefined): boolean {
 export function readClientCalls(
   root: string,
   sources: readonly ts.SourceFile[],
-  _warnings: string[],
+  warnings: string[],
   /**
    * Filled with the AST node of every recorded call, for the attribution
    * pass (`refs.ts`) that runs after matching. The node never enters the
    * schema; `components` on the call is what survives.
    */
   callNodes?: Map<ClientCall, ts.CallExpression>,
+  /** Resolves instance and const bases; without it no base is read. */
+  checker?: ts.TypeChecker,
 ): ClientCall[] {
   const out: ClientCall[] = [];
+  const warnedBases = new Set<string>();
+  const warnBase = (text: string, where: string): void => {
+    if (warnedBases.has(text)) return;
+    warnedBases.add(text);
+    warnings.push(
+      `${where}: client base \`${text}\` is not a statically readable path prefix; ` +
+        "calls through it may be unmatched",
+    );
+  };
 
   for (const source of sources) {
     const rel = repoRelative(root, source.fileName);
@@ -190,7 +275,9 @@ export function readClientCalls(
       if (ts.isCallExpression(node)) {
         const callee = node.expression;
         let method: string | null = null;
+        let viaFetch = false;
         if (ts.isIdentifier(callee) && callee.text === "fetch") {
+          viaFetch = true;
           // fetchMethod is null when the init argument leaves the method
           // unknowable; the call is then skipped, never defaulted to GET.
           method = fetchMethod(node);
@@ -205,9 +292,47 @@ export function readClientCalls(
         }
 
         if (method !== null && node.arguments.length > 0) {
-          const raw = literalPath(node.arguments[0]!);
-          if (raw !== null && raw.startsWith("/")) {
-            const { line } = source.getLineAndCharacterOfPosition(node.getStart());
+          const arg = node.arguments[0]!;
+          const { line } = source.getLineAndCharacterOfPosition(node.getStart());
+          let raw = literalPath(arg);
+          let prefix = "";
+          let readable = true;
+
+          // The receiver's own base, when it is an axios instance.
+          const inst =
+            checker && ts.isPropertyAccessExpression(callee)
+              ? instanceBase(callee.expression, checker)
+              : null;
+          if (inst) {
+            if ("prefix" in inst) prefix = inst.prefix;
+            else warnBase(inst.unreadable, `${rel}:${line + 1}`);
+          }
+
+          // `${BASE}/x`: a template whose head hole is a base.
+          if (
+            checker &&
+            ts.isTemplateExpression(arg) &&
+            arg.head.text === "" &&
+            arg.templateSpans.length > 0
+          ) {
+            const [first, ...others] = arg.templateSpans;
+            const rest = first!.literal.text + others.map((s) => `*${s.literal.text}`).join("");
+            if (rest.startsWith("/")) {
+              const value = stringValue(first!.expression, checker);
+              const head = value === null ? null : cleanPrefix(value);
+              if (head !== null) {
+                raw = rest;
+                prefix += head;
+              } else {
+                // Only a fetch or an instance call is surely a client call;
+                // map.get(`${k}/a`) is not an unread construct.
+                if (viaFetch || inst) warnBase(first!.expression.getText(), `${rel}:${line + 1}`);
+                readable = false;
+              }
+            }
+          }
+
+          if (readable && raw !== null && raw.startsWith("/")) {
             const call: ClientCall = {
               method,
               path: raw.split("?")[0]!,
@@ -219,6 +344,7 @@ export function readClientCalls(
               // is "attribution has not run", not a finding.
               components: [],
             };
+            setBasePrefix(call, prefix);
             out.push(call);
             callNodes?.set(call, node);
           }
@@ -235,8 +361,11 @@ export function readClientCalls(
 /**
  * Decide which route each call hits, storing the decision on the fact — the
  * `pairShapes` split: pairing lives on the graph, drift stays derived.
- * A match needs equal method and equal normalised path; no baseURL inference
- * and no prefix fallback, because guessing is how a fact reader starts lying.
+ * A match needs equal method and equal normalised path. A base prefix is used
+ * only when the client statically declared one (`basePrefixOf`: an axios
+ * `baseURL` literal or a const heading a template) and only AFTER the literal
+ * path found no route; a base that is undeclared or unreadable is never
+ * inferred from the routes, because guessing is how a fact reader starts lying.
  * The only warning: a call whose path matches more than one route, which stays
  * unmatched and names its candidates, exactly as `pairShapes` does.
  */
@@ -253,15 +382,23 @@ export function linkCalls(
   const aspnet = opts.aspnet === true;
   const fold = (s: string): string => (aspnet ? s.toLowerCase() : s);
   for (const call of calls) {
-    const candidates = routes.filter(
-      (r) => r.method === call.method && fold(normaliseRoutePath(r.path, aspnet)) === fold(call.path),
-    );
+    const find = (path: string): Route[] =>
+      routes.filter(
+        (r) => r.method === call.method && fold(normaliseRoutePath(r.path, aspnet)) === fold(path),
+      );
+    let candidates = find(call.path);
+    let shown = call.path;
+    const base = basePrefixOf(call);
+    if (candidates.length === 0 && base !== undefined) {
+      shown = base + call.path;
+      candidates = find(shown);
+    }
     if (candidates.length === 1) {
       const route = candidates[0]!;
       call.matches = `${route.method} ${route.path}`;
     } else if (candidates.length > 1) {
       warnings.push(
-        `${call.file}:${call.line}: ${call.method} ${call.path} could match ${candidates
+        `${call.file}:${call.line}: ${call.method} ${shown} could match ${candidates
           .map((r) => `${r.method} ${r.path}`)
           .join(" or ")}; not matched`,
       );

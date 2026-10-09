@@ -196,7 +196,7 @@ export function extractNode(repoRoot: string): EntityGraph {
   const callNodes = new Map<ClientCall, ts.CallExpression>();
   const clientCalls = linkCalls(
     routes,
-    readClientCalls(repoRoot, sources, warnings, callNodes),
+    readClientCalls(repoRoot, sources, warnings, callNodes, checker),
     warnings,
   );
 
