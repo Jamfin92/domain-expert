@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import request from "supertest";
 import type { Express } from "express";
 import { EntitySearchResult } from "@psq/schema";
 import { createApp } from "../src/app.js";
 import { Workspace } from "../src/workspace.js";
-import { MINI_EFCORE, MINI_EFCORE_REFS, MINI_FULLSTACK_REACT, MINI_NODE } from "../../../test/fixtures.js";
+import { MINI_EFCORE, MINI_EFCORE_REFS, MINI_FULLSTACK, MINI_FULLSTACK_REACT, MINI_NODE } from "../../../test/fixtures.js";
 
 let app: Express;
 let workspace: Workspace;
@@ -293,6 +293,121 @@ describe("entity refs", () => {
     expect(twoEntities.status).toBe(400);
     const twoVias = await request(app).get(`/api/repos/${id}/refs?entity=Course&via=entityName&via=dbSetName`);
     expect(twoVias.status).toBe(400);
+  });
+});
+
+describe("areas and route flow", () => {
+  const ROUTES_FIXTURE = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../test/fixtures/mini-aspnet-routes",
+  );
+  async function openRoutes(): Promise<string> {
+    const res = await request(app).post("/api/repos").send({ path: ROUTES_FIXTURE });
+    expect(res.status).toBe(201);
+    return res.body.repo.id as string;
+  }
+  const flowQ = (id: string, q: Record<string, string>) =>
+    request(app).get(`/api/repos/${id}/flow`).query(q);
+
+  it("serves areasFor verbatim", async () => {
+    const id = await openRoutes();
+    const res = await request(app).get(`/api/repos/${id}/areas`);
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(["areas", "edges", "entityOwner", "unassigned"]);
+    const gadgets = res.body.areas.find((a: { key: string }) => a.key === "gadgets");
+    expect(gadgets.routes).toContain("GET /api/Gadgets/{id}");
+    const widgets = res.body.areas.find((a: { key: string }) => a.key === "widgets");
+    expect(widgets.entities).toEqual(["Widget"]);
+    expect(res.body.entityOwner["Widget"]).toBe("widgets");
+  });
+
+  it("serves the call chain of a route, with the flow's own fields", async () => {
+    const id = await openRoutes();
+    const res = await flowQ(id, { method: "GET", path: "/api/Gadgets/{id}" });
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(["flows", "known", "method", "path"]);
+    expect(res.body.known).toBe(true);
+    expect(res.body.flows).toHaveLength(1);
+    const { route, flow } = res.body.flows[0];
+    expect(route.file).toMatch(/\.cs$/);
+    expect(flow.nodes.map((n: { depth: number }) => n.depth)).toEqual([0, 1, 1, 2, 2, 2, 3]);
+    expect(flow.nodes[0]).toMatchObject({ type: "GadgetsController", method: "Get" });
+    expect(flow.entities).toEqual(["Gadget"]);
+    expect(flow.truncated).toBe(false);
+  });
+
+  it("honours ?depth= and reports truncation", async () => {
+    const id = await openRoutes();
+    const shallow = await flowQ(id, { method: "GET", path: "/api/Gadgets/{id}", depth: "1" });
+    expect(shallow.status).toBe(200);
+    expect(shallow.body.flows[0].flow.nodes.every((n: { depth: number }) => n.depth <= 1)).toBe(true);
+    expect(shallow.body.flows[0].flow.truncated).toBe(true);
+  });
+
+  it("answers an unknown route with 200 and known:false, never 404", async () => {
+    const id = await openRoutes();
+    const res = await flowQ(id, { method: "GET", path: "/nope" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ method: "GET", path: "/nope", known: false, flows: [] });
+    // method is matched exactly, not case-folded
+    const lower = await flowQ(id, { method: "get", path: "/api/Gadgets/{id}" });
+    expect(lower.body.known).toBe(false);
+  });
+
+  it("returns flow:null for a known route with no handler", async () => {
+    const res = await request(app).post("/api/repos").send({ path: MINI_FULLSTACK });
+    expect(res.status).toBe(201);
+    const id = res.body.repo.id as string;
+    const routes = (await request(app).get(`/api/repos/${id}/graph`)).body.graph.routes;
+    const route = routes.find((r: { handler?: unknown }) => r.handler === undefined);
+    expect(route).toBeDefined();
+    const flow = await flowQ(id, { method: route.method, path: route.path });
+    expect(flow.status).toBe(200);
+    expect(flow.body.known).toBe(true);
+    expect(flow.body.flows[0].flow).toBeNull();
+  });
+
+  it("404s for an unopened repo, before validating anything", async () => {
+    const a = await request(app).get("/api/repos/deadbeef/areas");
+    expect(a.status).toBe(404);
+    expect(a.body).toEqual({ error: "That repo is not open." });
+    const f = await request(app).get("/api/repos/deadbeef/flow"); // also missing every param
+    expect(f.status).toBe(404);
+    expect(f.body).toEqual({ error: "That repo is not open." });
+  });
+
+  it("400s on missing, blank, repeated or malformed params without coercing", async () => {
+    const id = await openRoutes();
+    const base = `/api/repos/${id}/flow`;
+    for (const url of [
+      base,
+      `${base}?method=GET`,
+      `${base}?path=/x`,
+      `${base}?method=&path=/x`,
+      `${base}?method=GET&path=%20`,
+      `${base}?method=GET&method=POST&path=/x`,
+      `${base}?method=GET&path=/x&path=/y`,
+      `${base}?method=GET&path=/api/Gadgets/{id}&depth=-1`,
+      `${base}?method=GET&path=/api/Gadgets/{id}&depth=1.5`,
+      `${base}?method=GET&path=/api/Gadgets/{id}&depth=abc`,
+      `${base}?method=GET&path=/api/Gadgets/{id}&depth=21`,
+      `${base}?method=GET&path=/api/Gadgets/{id}&depth=1&depth=2`,
+    ]) {
+      const res = await request(app).get(url);
+      expect(res.status, url).toBe(400);
+    }
+  });
+
+  it("inherits the token gate", async () => {
+    const gated = createApp(new Workspace(() => "2026-01-01T00:00:00.000Z"), { token: "s3cret" });
+    try {
+      for (const p of ["areas", "flow"]) {
+        const res = await request(gated.app).get(`/api/repos/x/${p}`);
+        expect(res.status, p).toBe(401);
+      }
+    } finally {
+      gated.workspace.closeAll();
+    }
   });
 });
 

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import type { ClientCall, EntityGraph, Route, UiComponent } from "@/lib/api";
+import { api, type AreasResult, type ClientCall, type EntityGraph, type RouteFlowResult, type Route, type UiComponent } from "@/lib/api";
+import { areaGroups, flowCaveat, flowRows } from "@/lib/areas";
 import {
   buildReverseIndex,
   callsOfComponent,
@@ -30,6 +31,7 @@ type Selection =
   | { kind: "route"; key: string };
 
 interface Props {
+  repoId: string;
   graph: EntityGraph;
   repoPath: string;
   selectedEntity: string | null;
@@ -82,12 +84,35 @@ function ListButton({
   );
 }
 
-export function Flow({ graph, repoPath, selectedEntity, onSelectEntity }: Props): React.ReactElement {
+export function Flow({ repoId, graph, repoPath, selectedEntity, onSelectEntity }: Props): React.ReactElement {
   const routes = graph.routes ?? [];
   const calls = graph.clientCalls ?? [];
   const components = graph.components ?? [];
   const refs = graph.entityRefs ?? [];
   const [sel, setSel] = useState<Selection | null>(null);
+
+  const [areas, setAreas] = useState<AreasResult | null>(null);
+  const [areasError, setAreasError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setAreas(null);
+    setAreasError(null);
+    api
+      .areas(repoId)
+      .then((r) => {
+        if (!cancelled) setAreas(r);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setAreasError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId]);
+  const groups = useMemo(
+    () => (areas ? areaGroups(areas, routes, components) : null),
+    [areas, routes, components],
+  );
 
   const cAreas = useMemo(() => componentAreas(components), [components]);
   const rAreas = useMemo(() => routeAreas(routes), [routes]);
@@ -117,6 +142,52 @@ export function Flow({ graph, repoPath, selectedEntity, onSelectEntity }: Props)
           <CardTitle className="text-sm">Areas</CardTitle>
         </CardHeader>
         <CardContent className="max-h-[36rem] space-y-3 overflow-y-auto px-3">
+          {groups !== null ? (
+            groups.map((g) => (
+              <div key={g.key} data-psq="area" className="space-y-1">
+                <div className="px-1.5">
+                  <div className="truncate font-mono text-[11px] font-semibold" title={g.label}>{g.label}</div>
+                  {g.shared.length > 0 ? (
+                    <div data-psq="area-shared" className="text-[10px] text-muted-foreground">
+                      shared: {g.shared.map((x) => (x.owner && x.owner !== g.key ? `${x.entity} (owner ${x.owner})` : x.entity)).join(", ")}
+                    </div>
+                  ) : null}
+                  {g.leadsTo.map((l) => (
+                    <div key={l.area} data-psq="area-leads-to" className="text-[10px] text-muted-foreground" title={l.evidence.join("\n")}>
+                      leads to: {l.area} ({l.kinds.join(", ")})
+                    </div>
+                  ))}
+                </div>
+                {g.components.map((c) => (
+                  <ListButton
+                    key={c.key}
+                    psq="flow-component"
+                    active={sel?.kind === "component" && sel.key === c.key}
+                    onClick={() => goComponent(c)}
+                  >
+                    <span className="truncate">{componentLabel(c, components)}</span>
+                  </ListButton>
+                ))}
+                {g.routes.map((r) => (
+                  <ListButton
+                    key={`${routeKey(r)}@${r.file}:${r.line}`}
+                    psq="flow-route"
+                    active={sel?.kind === "route" && sel.key === routeKey(r)}
+                    onClick={() => goRoute(r)}
+                  >
+                    <span className="w-10 shrink-0 font-mono text-[10px] text-muted-foreground">{r.method}</span>
+                    <span className="truncate font-mono">{r.path}</span>
+                  </ListButton>
+                ))}
+              </div>
+            ))
+          ) : (
+            <>
+              {areasError !== null ? (
+                <p className="px-1.5 text-[10px] text-muted-foreground">
+                  Areas unavailable ({areasError}); grouped by directory and path instead.
+                </p>
+              ) : null}
           {cAreas.length > 0 ? (
             <div className="space-y-2">
               <div className="px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -164,6 +235,8 @@ export function Flow({ graph, repoPath, selectedEntity, onSelectEntity }: Props)
               ))}
             </div>
           ) : null}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -178,6 +251,7 @@ export function Flow({ graph, repoPath, selectedEntity, onSelectEntity }: Props)
             />
           ) : selRoute ? (
             <RouteFlow
+              repoId={repoId}
               routes={selRoutes}
               graph={graph}
               reach={reachOfRoute(selRoute, index)}
@@ -267,6 +341,7 @@ function CallLine({ call, repoPath }: { call: ClientCall; repoPath: string }): R
 }
 
 function RouteFlow({
+  repoId,
   routes,
   graph,
   reach,
@@ -276,6 +351,7 @@ function RouteFlow({
   onComponent,
   onEntity,
 }: {
+  repoId: string;
   routes: Route[];
   graph: EntityGraph;
   reach: { calls: ClientCall[]; components: UiComponent[] };
@@ -358,6 +434,8 @@ function RouteFlow({
         )}
       </section>
 
+      <CallChain repoId={repoId} route={route} repoPath={repoPath} />
+
       {touched !== null ? (
         <section data-psq="flow-entities" className="space-y-1">
           <h3 className="text-xs font-semibold">Entities this method mentions</h3>
@@ -393,5 +471,86 @@ function RouteFlow({
         </section>
       ) : null}
     </div>
+  );
+}
+
+function CallChain({
+  repoId,
+  route,
+  repoPath,
+}: {
+  repoId: string;
+  route: Route;
+  repoPath: string;
+}): React.ReactElement | null {
+  const [result, setResult] = useState<RouteFlowResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setResult(null);
+    setError(null);
+    api
+      .flow(repoId, route.method, route.path)
+      .then((r) => {
+        if (!cancelled) setResult(r);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId, route.method, route.path]);
+
+  if (error !== null) {
+    return <p className="text-xs text-muted-foreground">Call chain unavailable ({error}).</p>;
+  }
+  if (result === null) return null;
+  const flows = result.flows.flatMap((f) => (f.flow ? [f.flow] : []));
+  if (flows.length === 0) return null; // no handler: the Handler section already says so
+  return (
+    <section data-psq="flow-chain" className="space-y-2">
+      <h3 className="text-xs font-semibold">Call chain</h3>
+      {flows.map((flow, i) => {
+        const caveat = flowCaveat(flow);
+        return (
+          <div key={i} className="space-y-1">
+            <ul className="space-y-1">
+              {flowRows(flow).map((row) => (
+                <li
+                  key={row.key}
+                  data-psq="flow-hop"
+                  data-depth={row.depth}
+                  style={{ paddingLeft: `${row.depth * 1}rem` }}
+                  className="space-y-0.5 text-xs"
+                >
+                  <div className="flex flex-wrap items-baseline gap-1.5">
+                    <span className="font-mono text-[10px] text-muted-foreground">{row.depth}</span>
+                    <span className="font-mono">{row.label}</span>
+                    {row.ambiguous ? (
+                      <Badge variant="outline" data-psq="flow-ambiguous" className="text-[10px]">ambiguous</Badge>
+                    ) : null}
+                    {row.located ? <Loc file={row.file} line={row.line} repoPath={repoPath} /> : null}
+                  </div>
+                  {row.entities.length > 0 ? (
+                    <div className="pl-4 font-mono text-[10px] text-muted-foreground">
+                      mentions: {row.entities.join(", ")}
+                    </div>
+                  ) : null}
+                  {row.unresolvedCalls > 0 ? (
+                    <div className="pl-4 text-[10px] text-muted-foreground">
+                      {row.unresolvedCalls} call{row.unresolvedCalls === 1 ? "" : "s"} psq could not resolve
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {caveat !== null ? (
+              <p data-psq="flow-caveat" className="text-xs text-muted-foreground">{caveat}</p>
+            ) : null}
+          </div>
+        );
+      })}
+    </section>
   );
 }

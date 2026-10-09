@@ -74,7 +74,8 @@ const WEB_FIELDS = [
 ].sort();
 
 /** Schema fields the client deliberately does not mirror. */
-// `calls` and `unresolvedCalls` are the C# call graph; the client does not draw it yet.
+// `calls` and `unresolvedCalls` are the C# call graph. The Flow view draws it, but from the
+// server's /flow endpoint (`Flow`, mirrored in api.ts), so the client never reads the raw edges.
 const NOT_MIRRORED = ["calls", "kind", "shapes", "unresolvedCalls"].sort();
 
 const ENTITY_GRAPH_MARKER = "export interface EntityGraph {";
