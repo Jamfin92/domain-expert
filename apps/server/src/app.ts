@@ -4,7 +4,7 @@ import express, {
 } from "express";
 import { Workspace } from "./workspace.js";
 import { drift } from "@psq/extract";
-import { refsFor, searchEntities, MATCH_FIELDS } from "@psq/graph";
+import { areasFor, refsFor, routeFlow, searchEntities, MATCH_FIELDS } from "@psq/graph";
 import { RefVia, Section } from "@psq/schema";
 
 /**
@@ -35,6 +35,9 @@ function publicQuestion(q: {
     templated: q.gradeMode === "exec" ? Boolean(q.sqlTemplate) : undefined,
   };
 }
+
+/** Upper bound for `?depth=` on /flow; the walk is breadth-first and deduped, this just keeps input sane. */
+const MAX_FLOW_DEPTH = 20;
 
 function fail(res: Response, status: number, message: string): void {
   res.status(status).json({ error: message });
@@ -252,6 +255,61 @@ export function createApp(
       via,
       known: repo.graph.entities.some((e) => e.name === entity),
       refs: refsFor(repo.graph, entity, { via: via ?? undefined }),
+    });
+  }));
+
+  /** Feature areas, exactly as `areasFor` computes them. */
+  app.get("/api/repos/:id/areas", handler((req, res) => {
+    const repo = workspace.get(String(req.params["id"]));
+    if (!repo) {
+      fail(res, 404, "That repo is not open.");
+      return;
+    }
+    res.json(areasFor(repo.graph));
+  }));
+
+  /**
+   * The call chain behind one route: `routeFlow` for every route carrying the
+   * exact `method` + `path` (two routes can share a key in different files).
+   *
+   * Guard order and param handling copy /refs: repo lookup FIRST (404 beats
+   * 400), no coercion (`?path=a&path=b` is a 400, not "a,b"). An unknown route
+   * is a 200 with `known: false` and no flows — 404 on this surface only ever
+   * means the repo is not open. `flow: null` on a known route means it has no
+   * handler psq can see, which is not the same as a flow that touches nothing.
+   *
+   * `depth` is optional and must be a plain integer 0..MAX_FLOW_DEPTH.
+   */
+  app.get("/api/repos/:id/flow", handler((req, res) => {
+    const repo = workspace.get(String(req.params["id"]));
+    if (!repo) {
+      fail(res, 404, "That repo is not open.");
+      return;
+    }
+    const method = req.query["method"];
+    const path = req.query["path"];
+    if (typeof method !== "string" || method.trim() === "" || typeof path !== "string" || path.trim() === "") {
+      fail(res, 400, "Give a single ?method= and a single ?path=.");
+      return;
+    }
+    const rawDepth = req.query["depth"];
+    let maxDepth: number | undefined;
+    if (rawDepth !== undefined) {
+      if (typeof rawDepth !== "string" || !/^\d{1,2}$/.test(rawDepth) || Number(rawDepth) > MAX_FLOW_DEPTH) {
+        fail(res, 400, `?depth= must be an integer from 0 to ${MAX_FLOW_DEPTH}.`);
+        return;
+      }
+      maxDepth = Number(rawDepth);
+    }
+    const matched = repo.graph.routes.filter((r) => r.method === method && r.path === path);
+    res.json({
+      method,
+      path,
+      known: matched.length > 0,
+      flows: matched.map((r) => ({
+        route: { file: r.file, line: r.line },
+        flow: routeFlow(repo.graph, r, { maxDepth }),
+      })),
     });
   }));
 

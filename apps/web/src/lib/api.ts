@@ -178,6 +178,56 @@ export interface EntityRefsResult {
   refs: EntityRef[];
 }
 
+// Mirrored from packages/graph/src/areas.ts (GET /api/repos/:id/areas).
+export interface AreaHandler { type: string; method: string; file: string }
+export interface Area {
+  key: string; label: string; basis: "route" | "handler-dir";
+  /** Raw "METHOD path" strings. */
+  routes: string[];
+  handlers: AreaHandler[];
+  /** Component keys homed here. */
+  components: string[];
+  entities: string[];
+  /** The subset of `entities` also touched by another area. */
+  sharedEntities: string[];
+}
+export interface AreaEdge {
+  kind: "calls-route" | "touches-entity";
+  from: string; to: string; evidence: string[];
+}
+export interface AreasResult {
+  areas: Area[];
+  unassigned: { routes: string[]; components: string[]; entities: string[] };
+  edges: AreaEdge[];
+  entityOwner: Record<string, string>;
+}
+
+// Mirrored from packages/graph/src/flow.ts (GET /api/repos/:id/flow).
+export interface FlowStart { type: string; method: string; file?: string; line?: number }
+export interface FlowNode {
+  type: string; method: string; file: string; line: number;
+  /** Calls from the start; 0 for the start itself. */
+  depth: number;
+  path: string[];
+  /** The path here crosses an edge with several possible implementers. */
+  ambiguous: boolean;
+  entities: string[];
+  unresolvedCalls: number;
+}
+export interface Flow {
+  start: FlowStart; maxDepth: number; nodes: FlowNode[];
+  entities: string[];
+  /** The depth cap stopped the walk with methods still unreached. */
+  truncated: boolean;
+}
+export interface RouteFlowResult {
+  method: string; path: string;
+  /** false = no route in the repo carries this method and path. */
+  known: boolean;
+  /** One per route with this key. `flow` is null when the route has no handler psq can see. */
+  flows: Array<{ route: { file: string; line: number }; flow: Flow | null }>;
+}
+
 class ApiError extends Error {}
 
 /**
@@ -281,6 +331,13 @@ export const api = {
 
   refs: (id: string, entity: string) =>
     call<EntityRefsResult>(`/api/repos/${id}/refs?entity=${encodeURIComponent(entity)}`),
+
+  areas: (id: string) => call<AreasResult>(`/api/repos/${id}/areas`),
+
+  flow: (id: string, method: string, path: string) =>
+    call<RouteFlowResult>(
+      `/api/repos/${id}/flow?method=${encodeURIComponent(method)}&path=${encodeURIComponent(path)}`,
+    ),
 
   layout: (id: string) => call<{ layout: Layout }>(`/api/repos/${id}/layout`),
   layout3d: (id: string) => call<{ layout3d: Layout3D }>(`/api/repos/${id}/layout3d`),

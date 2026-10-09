@@ -327,6 +327,7 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
         </div>
         {tab === "flow" && graph ? (
           <Flow
+            repoId={repo.id}
             graph={graph}
             repoPath={repo.path}
             selectedEntity={selected}
