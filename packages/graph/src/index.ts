@@ -168,3 +168,4 @@ export function mermaid(g: EntityGraph): string {
   }
   return lines.join("\n");
 }
+export { flowFor, routeFlow, DEFAULT_FLOW_DEPTH, type Flow, type FlowNode, type FlowStart } from "./flow.js";

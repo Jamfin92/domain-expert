@@ -20,9 +20,9 @@ import { EntityGraph, Route } from "@psq/schema";
  * `Route` and `RouteHandler` are pinned the same way with no allowlist (cases
  * 5-6): `handler` is mirrored, so the gap there is zero both ways.
  *
- * The two schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
+ * The four schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
  * identical" pin: the gap is real and deliberate today, so the assertion is
- * that the gap is exactly these two. It reddens when the gap widens (a new
+ * that the gap is exactly these four. It reddens when the gap widens (a new
  * schema field the client never learns about) AND when it narrows (a field
  * mirrored in the client without shrinking this list on purpose).
  *
@@ -43,6 +43,7 @@ const API_TS = resolve(HERE, "../apps/web/src/lib/api.ts");
 
 /** Field names declared by `EntityGraph` in `@psq/schema`. */
 const SCHEMA_FIELDS = [
+  "calls",
   "clientCalls",
   "components",
   "contextName",
@@ -54,6 +55,7 @@ const SCHEMA_FIELDS = [
   "repo",
   "routes",
   "shapes",
+  "unresolvedCalls",
   "warnings",
 ].sort();
 
@@ -72,7 +74,8 @@ const WEB_FIELDS = [
 ].sort();
 
 /** Schema fields the client deliberately does not mirror. */
-const NOT_MIRRORED = ["kind", "shapes"].sort();
+// `calls` and `unresolvedCalls` are the C# call graph; the client does not draw it yet.
+const NOT_MIRRORED = ["calls", "kind", "shapes", "unresolvedCalls"].sort();
 
 const ENTITY_GRAPH_MARKER = "export interface EntityGraph {";
 const ROUTE_MARKER = "export interface Route {";
@@ -177,7 +180,7 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     expect(webFields).toEqual(WEB_FIELDS);
   });
 
-  it("3. the fields the client does not mirror are exactly the known two", () => {
+  it("3. the fields the client does not mirror are exactly the known four", () => {
     const schemaOnly = Object.keys(EntityGraph.shape)
       .filter((k) => !webFields.includes(k))
       .sort();

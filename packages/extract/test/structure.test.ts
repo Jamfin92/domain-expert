@@ -308,3 +308,36 @@ describe("the terminator-not-found fallback on a malformed expression body", () 
     expect(p.warnings[0]).toContain("expression body for method A not terminated");
   });
 });
+
+describe("members the call reader types receivers with", () => {
+  const p = parseCSharp(
+    `interface I { int Do(int x); void Stop(); }
+abstract class A : I {
+  private readonly IDep _d;
+  protected Other o = new Other(), p;
+  event EventHandler Changed;
+  public A(IDep d, int n) : base() { _d = d; }
+  public int Do(int x, string? s = null) => x;
+  public abstract void Stop();
+}`,
+    "T.cs",
+  );
+  const [iface, cls] = p.types;
+
+  it("lists bodiless members apart from methods, so routes and refs never see them", () => {
+    expect(iface!.signatures).toEqual([{ name: "Do", line: 1 }, { name: "Stop", line: 1 }]);
+    expect(iface!.methods).toEqual([]);
+    expect(cls!.signatures).toEqual([{ name: "Stop", line: 8 }]);
+    expect(cls!.methods.map((m) => m.name)).toEqual(["Do"]);
+  });
+
+  it("reads fields (not events) and method parameters", () => {
+    expect(cls!.fields.map((f) => `${f.type} ${f.name}`)).toEqual(["IDep _d", "Other o"]);
+    expect(cls!.methods[0]!.params.map((q) => `${q.type} ${q.name}`)).toEqual(["int x", "string? s"]);
+  });
+
+  it("still reads past a constructor", () => {
+    expect(p.warnings).toEqual([]);
+    expect(cls!.methods).toHaveLength(1);
+  });
+});

@@ -347,6 +347,28 @@ describe("G20: mergeGraphs carries entityRefs through from the .NET side", () =>
   });
 });
 
+describe("mergeGraphs carries the C# call graph through from the .NET side", () => {
+  const site = { type: "A", method: "M", file: "Services/A.cs", line: 3 };
+  const call = { from: site, to: { ...site, method: "N", line: 9 }, line: 4 };
+  const unresolved = { ...site, count: 2 };
+
+  it("holds the .NET side's calls and unresolved counts, unmodified", () => {
+    const merged = mergeGraphs(
+      graph({ contextName: "Ctx", calls: [call], unresolvedCalls: [unresolved] }),
+      graph({ provider: "sqlite-ddl" }),
+      "client",
+    );
+    expect(merged.calls).toEqual([call]);
+    expect(merged.unresolvedCalls).toEqual([unresolved]);
+  });
+
+  it("leaves the keys absent when the .NET side wrote none", () => {
+    const merged = mergeGraphs(graph({}), graph({ provider: "sqlite-ddl" }), "client");
+    expect("calls" in merged).toBe(false);
+    expect("unresolvedCalls" in merged).toBe(false);
+  });
+});
+
 describe("mergeGraphs: client calls are matched to .NET routes", () => {
   const route = (method: string, path: string): Route => ({
     method, path, file: "Controllers/XController.cs", line: 9,

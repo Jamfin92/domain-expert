@@ -19,6 +19,11 @@ type Row = [method: string, path: string, file: string, attr: number, type: stri
 
 const EXPECTED: Row[] = [
   ["GET", "/bad/ok", `${C}/BadController.cs`, 19, "BadController", "Fine", 20],
+  ["GET", "/api/Gadgets/{id}", `${C}/GadgetsController.cs`, 19, "GadgetsController", "Get", 20],
+  ["PUT", "/api/Gadgets/{id}/retire", `${C}/GadgetsController.cs`, 22, "GadgetsController", "Retire", 23],
+  ["GET", "/api/Gadgets/deep", `${C}/GadgetsController.cs`, 29, "GadgetsController", "Deep", 30],
+  ["GET", "/api/Gadgets/calc", `${C}/GadgetsController.cs`, 32, "GadgetsController", "Calc", 33],
+  ["GET", "/api/Gadgets/{id}/opaque", `${C}/GadgetsController.cs`, 39, "GadgetsController", "Opaque", 40],
   ["GET", "/legacy/items", `${C}/LegacyController.cs`, 6, "LegacyController", "Items", 7],
   ["GET", "/m1/x", `${C}/MultiController.cs`, 9, "MultiController", "X", 10],
   ["GET", "/m2/x", `${C}/MultiController.cs`, 9, "MultiController", "X", 10],
