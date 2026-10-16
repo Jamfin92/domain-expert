@@ -187,9 +187,10 @@ describe("searchEntities — determinism", () => {
 
   // H11
   it("handles a graph with no entities at all", () => {
-    // A real 0-entity extraction, not a trimmed graph. `workspace.open` throws
-    // "No entities found" before such a repo can be opened, so this path is
-    // reachable at unit level only — the route is never exercised on it.
+    // A real 0-entity extraction, not a trimmed graph. The HTTP server's
+    // `workspace.open` throws "No entities found" before such a repo can be
+    // opened, so the server route is never exercised on it; the MCP opens it
+    // with `allowEmpty` and its `search_entities` answers `[]` from here.
     const empty = extractDotnet(MINI_EFCORE_EMPTY_CONTEXT);
     expect(empty.entities).toHaveLength(0);
     expect(() => searchEntities(empty, "anything")).not.toThrow();

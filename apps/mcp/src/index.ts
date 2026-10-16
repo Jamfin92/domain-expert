@@ -2,7 +2,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { Workspace } from "../../server/src/workspace.js";
 import { createServer } from "./server.js";
-import type { Ctx } from "./tools.js";
+import { openRepo, type Ctx } from "./tools.js";
 
 /**
  * `psq-mcp [--repo <path>]` — a stdio MCP server. stdout is the protocol, so
@@ -22,7 +22,9 @@ async function main(): Promise<void> {
   const ctx: Ctx = { workspace: new Workspace(undefined, { log: (l) => console.error(l) }) };
   const repo = repoFlag(process.argv.slice(2));
   if (repo !== undefined) {
-    const opened = ctx.workspace.open(repo);
+    // The same open the tools make: a repo with no entities still starts the
+    // server, and its results say `coverage: {entities: "none-found"}`.
+    const opened = openRepo(ctx.workspace, repo);
     console.error(`psq-mcp: opened ${opened.id} (${opened.graph.entities.length} entities)`);
   }
   const server = createServer(ctx);

@@ -143,6 +143,22 @@ export const MINI_FULLSTACK_REACT = resolve(here, "fixtures/mini-fullstack-react
  */
 export const MINI_SOLUTION_TIE = resolve(here, "fixtures/mini-solution-tie");
 
+/**
+ * TypeScript interfaces and a zod object, and nothing else: no CREATE TABLE,
+ * no express, no .NET. psq reads 3 shapes and 0 entities from it, with the
+ * one "No CREATE TABLE statement was found" warning. The only hermetic input
+ * for the MCP's 0-entity path: `Workspace.open` refuses it by default and the
+ * MCP opens it with `allowEmpty`, answering `coverage: {entities: "none-found"}`.
+ *
+ * It sits inside this checkout, so `git rev-parse --show-prefix` is non-empty
+ * on it: the subfolder-of-a-larger-repo case of `repoHead`.
+ *
+ * Carries NO tsconfig and no package.json, like MINI_FULLSTACK_REACT: it
+ * compiles under the root tsconfig's `test/**\/*.ts`, and extraction's
+ * fallback `walk()` program reads it.
+ */
+export const MINI_TYPES_ONLY = resolve(here, "fixtures/mini-types-only");
+
 /** Neither of the above, so psq must say so rather than report an empty repo. */
 export const NOT_A_PROJECT = resolve(here, "fixtures/not-a-project");
 

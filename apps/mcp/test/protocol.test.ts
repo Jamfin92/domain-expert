@@ -4,8 +4,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Workspace } from "../../server/src/workspace.js";
 import { INSTRUCTION } from "../src/brief.js";
 import { createServer } from "../src/server.js";
+import { LIMITS } from "../src/common.js";
 import { tools } from "../src/tools.js";
-import { MINI_EFCORE_REFS } from "../../../test/fixtures.js";
+import { MINI_EFCORE_REFS, MINI_TYPES_ONLY } from "../../../test/fixtures.js";
 
 const workspace = new Workspace();
 afterEach(() => workspace.closeAll());
@@ -29,6 +30,25 @@ describe("psq MCP server over an in-memory transport", () => {
     expect(listed.tools.find((t) => t.name === "refs")?.inputSchema.properties).toHaveProperty("entity");
     const prompts = await client.listPrompts();
     expect(prompts.prompts.map((p) => p.name)).toEqual(["brief"]);
+    // The stop sentence reaches the client, on every tool and on the prompt.
+    for (const t of listed.tools) {
+      expect(t.description, t.name).toContain(` Limit: ${LIMITS[tools[t.name as keyof typeof tools].limit].text}`);
+    }
+    expect(prompts.prompts[0]!.description).toContain(` Limit: ${LIMITS[tools.brief.limit].text}`);
+  });
+
+  it("opens a repo with no entities and answers entity tools as normal results", async () => {
+    const client = await connect();
+    const opened = await client.callTool({ name: "open_repo", arguments: { path: MINI_TYPES_ONLY } });
+    expect(opened.isError).toBeFalsy();
+    const o = JSON.parse(textOf(opened));
+    expect(o.coverage).toEqual({ entities: "none-found" });
+    expect(o.graphDigest).toMatch(/^[0-9a-f]{64}$/);
+    const entity = await client.callTool({ name: "entity", arguments: { name: "Post" } });
+    expect(entity.isError).toBeFalsy();
+    expect(JSON.parse(textOf(entity))).toMatchObject({ error: "no-entities", coverage: { entities: "none-found" } });
+    const prompt = await client.getPrompt({ name: "brief", arguments: {} });
+    expect((prompt.messages[0]!.content as { text: string }).text).toContain("no entities: psq read 3 shapes and no schema");
   });
 
   it("opens a repo and answers entity and refs calls as JSON", async () => {

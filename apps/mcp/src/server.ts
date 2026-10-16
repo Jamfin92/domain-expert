@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Workspace } from "../../server/src/workspace.js";
 import { renderBrief } from "./brief.js";
+import { withLimit } from "./common.js";
 import { resolveRepo, tools, type Ctx } from "./tools.js";
 
 export const SERVER_NAME = "psq";
@@ -33,7 +34,12 @@ export function createServer(ctx: Ctx = { workspace: new Workspace() }): McpServ
   server.registerPrompt(
     "brief",
     {
-      description: "A graph-grounded domain brief to start a discussion about the app.",
+      // The same stop sentence the `brief` tool carries, from the same table.
+      description: withLimit(
+        "A graph-grounded domain brief to start a discussion about the app. Its `> snapshot:` line " +
+          "names the commit, extractor and graphDigest it was read from.",
+        tools.brief.limit,
+      ),
       argsSchema: { repo: z.string().optional().describe("Repo id from open_repo, or a path") },
     },
     ({ repo }) => ({

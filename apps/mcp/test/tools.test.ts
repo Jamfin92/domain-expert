@@ -1,13 +1,15 @@
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { Workspace } from "../../server/src/workspace.js";
 import { INSTRUCTION } from "../src/brief.js";
-import { cap } from "../src/common.js";
-import { CAP, resolveRepo, tools, type Ctx } from "../src/tools.js";
-import { MINI_EFCORE_REFS, MINI_FULLSTACK_REACT } from "../../../test/fixtures.js";
+import { blindSpots, cap, LIMITS } from "../src/common.js";
+import { CAP, resolveRepo, tools, type Ctx, type Next, type ToolName } from "../src/tools.js";
+import { MINI_EFCORE_REFS, MINI_FULLSTACK_REACT, MINI_TYPES_ONLY } from "../../../test/fixtures.js";
 
-const MINI_ASPNET_ROUTES = resolve(dirname(fileURLToPath(import.meta.url)), "../../../test/fixtures/mini-aspnet-routes");
+const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), "../../../test/fixtures");
+const MINI_ASPNET_ROUTES = resolve(FIXTURES, "mini-aspnet-routes");
 
 let ctx: Ctx;
 beforeEach(() => {
@@ -222,6 +224,117 @@ describe("mermaid", () => {
   it("returns erDiagram source", () => {
     openRefs();
     expect(tools.mermaid.run(ctx, {})).toMatch(/^erDiagram\n/);
+  });
+
+  it("carries the graphDigest as a comment on its second line", () => {
+    const { graphDigest } = tools.open_repo.run(ctx, { path: MINI_EFCORE_REFS }) as Json;
+    const lines = (tools.mermaid.run(ctx, {}) as string).split("\n");
+    expect(lines[0]).toBe("erDiagram");
+    expect(lines[1]).toBe(`%% graphDigest ${graphDigest}`);
+    // The rest is @psq/graph's mermaid() unchanged.
+    expect(lines.filter((l) => l.startsWith("%%"))).toHaveLength(1);
+  });
+});
+
+describe("stop conditions", () => {
+  it("every tool description ends with exactly one sentence from the LIMITS table", () => {
+    for (const [name, t] of Object.entries(tools)) {
+      expect(t.description.split(" Limit: "), name).toHaveLength(2);
+      expect(t.description.endsWith(` Limit: ${LIMITS[t.limit].text}`), name).toBe(true);
+    }
+  });
+
+  it("every cannotSee line comes from the same table", () => {
+    for (const path of [MINI_EFCORE_REFS, MINI_FULLSTACK_REACT, MINI_TYPES_ONLY, MINI_ASPNET_ROUTES,
+      resolve(FIXTURES, "mini-fullstack-csharp"), resolve(FIXTURES, "mini-node")]) {
+      const g = ctx.workspace.open(path, { allowEmpty: true }).graph;
+      const allowed = new Set<string>();
+      for (const row of Object.values(LIMITS)) {
+        allowed.add(row.text);
+        const v = "see" in row ? row.see(g) : false;
+        if (typeof v === "string") allowed.add(v);
+      }
+      for (const line of blindSpots(g)) expect(allowed.has(line), line).toBe(true);
+    }
+  });
+
+  it("does not claim raw DDL never declares a foreign key", () => {
+    // ddl.ts marks an explicit FOREIGN KEY `declared`.
+    openReact();
+    const spots = (tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n");
+    expect(spots).toContain("unless the DDL declares a FOREIGN KEY");
+    expect(spots).not.toMatch(/no foreign key is declared/);
+  });
+
+  it("words mirrors:null by provider: not computed cross-stack only in a .NET + TS merge", () => {
+    const cross = blindSpots(ctx.workspace.open(resolve(FIXTURES, "mini-fullstack-csharp")).graph).join("\n");
+    expect(cross).toContain('`mirrors: null` on a TypeScript shape means "not computed" cross-stack');
+    expect(cross).not.toContain("found none whose name and fields both match");
+    const single = blindSpots(ctx.workspace.open(resolve(FIXTURES, "mini-node")).graph).join("\n");
+    expect(single).toContain("found none whose name and fields both match");
+    expect(single).not.toContain("not computed");
+  });
+});
+
+describe("next hints", () => {
+  /** Every `next` must be a call the named tool accepts, and must not fail when made. */
+  function walk(results: Json[]): Next[] {
+    const all: Next[] = results.flatMap((r) => (r.next ?? []) as Next[]);
+    for (const n of all) {
+      expect(Object.keys(tools), JSON.stringify(n)).toContain(n.tool);
+      const parsed = z.object(tools[n.tool].shape).strict().safeParse(n.args);
+      expect(parsed.success, `${n.tool} ${JSON.stringify(n.args)}`).toBe(true);
+      expect(n.why.length).toBeGreaterThan(0);
+      expect(() => (tools[n.tool].run as (c: Ctx, a: unknown) => unknown)(ctx, n.args)).not.toThrow();
+    }
+    return all;
+  }
+  const kinds = new Set<string>();
+  const seen = (from: ToolName, ns: Next[]): void => ns.forEach((n) => kinds.add(`${from}->${n.tool}`));
+
+  it("entity, routes, flow and search_entities emit only valid calls", () => {
+    // efcore with a resolved call: entity -> refs, flow, entity
+    const refsId = openRefs();
+    for (const name of ["Course", "Student"]) seen("entity", walk([tools.entity.run(ctx, { repo: refsId, name })]));
+
+    // attribute routes with handlers: routes -> flow; flow -> flow (depth), entity
+    const aspnet = (tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES }) as Json).id;
+    const routes = tools.routes.run(ctx, { repo: aspnet }) as Json;
+    seen("routes", walk([routes]));
+    for (const n of routes.next.filter((x: Next) => x.tool === "flow")) {
+      seen("flow", walk([tools.flow.run(ctx, { ...n.args, maxDepth: 0 })]));
+      seen("flow", walk([tools.flow.run(ctx, n.args)]));
+    }
+
+    // A cut route list narrows by prefix.
+    const repo = ctx.workspace.get(aspnet)!;
+    const base = repo.graph.routes[0]!;
+    for (let i = 0; i < CAP.routes + 10; i++) repo.graph.routes.push({ ...base, path: `/many/r${i}` });
+    seen("routes", walk([tools.routes.run(ctx, { repo: aspnet })]));
+
+    // A cut search narrows by wholeWord, and each hit points at entity.
+    const r = ctx.workspace.get(refsId)!;
+    const e0 = r.graph.entities[0]!;
+    for (let i = 0; i < CAP.hits + 5; i++) r.graph.entities.push({ ...e0, name: `Widget${i}`, properties: [] });
+    const search = tools.search_entities.run(ctx, { repo: refsId, query: "widget" }) as Json;
+    expect(search.truncated).toBe(true);
+    seen("search_entities", walk([search]));
+
+    // Positive controls: every branch that emits a `next` fired at least once,
+    // so the shape check above is not vacuous.
+    expect([...kinds].sort()).toEqual([
+      "entity->entity", "entity->flow", "entity->refs",
+      "flow->entity", "flow->flow",
+      "routes->flow", "routes->routes",
+      "search_entities->entity", "search_entities->search_entities",
+    ]);
+  });
+
+  it("routes on a repo with no entities does not point at flow", () => {
+    tools.open_repo.run(ctx, { path: MINI_TYPES_ONLY });
+    const repo = resolveRepo(ctx);
+    repo.graph.routes.push({ method: "GET", path: "/x", file: "a.ts", line: 1, handler: { type: "a", method: "b", file: "a.ts", line: 1 } });
+    expect((tools.routes.run(ctx, {}) as Json).next).toEqual([]);
   });
 });
 

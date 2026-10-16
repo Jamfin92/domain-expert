@@ -1,6 +1,8 @@
 import { degrees, orphans, routeFlow, DEFAULT_FLOW_DEPTH } from "@psq/graph";
 import type { Workspace, OpenRepo } from "../../server/src/workspace.js";
-import { blindSpots, cap, cite, cmp, handlerOf, methodKey, segmentOf } from "./common.js";
+import {
+  blindSpots, cap, cite, cmp, handlerOf, headLabel, identityOf, methodKey, segmentOf,
+} from "./common.js";
 import { INLINE, areasView, reachedEntities, unresolvedTotal, type Reached } from "./flow.js";
 
 /**
@@ -42,7 +44,15 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
     if (n > 0) out.push(`- … ${n} more ${what} not shown (use the tools for the full list)`);
   };
 
-  out.push(`# Domain brief: ${ws.summarize(repo).name}`, "", `> ${INSTRUCTION}`, "");
+  const id = identityOf(repo);
+  out.push(
+    `# Domain brief: ${ws.summarize(repo).name}`,
+    "",
+    `> snapshot: ${headLabel(id.repoHead)} · extractor ${id.extractorVersion} · graph ${id.graphDigest}`,
+    "",
+    `> ${INSTRUCTION}`,
+    "",
+  );
   if (scale < 1) {
     out.push(`> Lists are cut to ${Math.round(scale * 100)}% of their usual length to keep this brief under ${BRIEF_BUDGET} characters; use the tools for the full lists.`, "");
   }
@@ -69,8 +79,13 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
   more(districts.omitted, "areas");
   out.push("");
 
-  // Entities
-  out.push("## Entities and relations", "");
+  // Entities. With none, one line instead of an empty section: the absence is
+  // psq's coverage, not a fact about the app (the blind spots say so).
+  if (g.entities.length === 0) {
+    out.push(`no entities: psq read ${g.shapes.length} shapes and no schema`);
+  } else {
+    out.push("## Entities and relations", "");
+  }
   const sorted = [...g.entities].sort((a, b) => cmp(a.name, b.name));
   const shownEntities = cap(sorted, L.entities);
   for (const e of shownEntities.items) {

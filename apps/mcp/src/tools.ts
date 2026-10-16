@@ -9,7 +9,10 @@ import type { Route } from "@psq/schema";
 import { Workspace, type OpenRepo } from "../../server/src/workspace.js";
 import { renderBrief } from "./brief.js";
 import { areasView, findFlow, flowView } from "./flow.js";
-import { cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots } from "./common.js";
+import {
+  cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots, identityOf, withLimit, NO_ENTITIES,
+  type LimitId,
+} from "./common.js";
 
 /**
  * Tool handlers. Pure functions of (context, args) returning JSON-able data,
@@ -38,6 +41,48 @@ export const CAP = {
   calls: 200,
 } as const;
 
+/**
+ * Every MCP open goes through here. `allowEmpty`: an agent can still read the
+ * routes, shapes and client calls of a repo where psq found no schema, so the
+ * MCP opens it and says `coverage: {entities: "none-found"}` instead of
+ * refusing (the HTTP server keeps refusing; its quiz would have nothing to ask).
+ * The identity is taken here, once per open, so `repoHead` is the HEAD at open.
+ */
+export function openRepo(ws: Workspace, path: string): OpenRepo {
+  const repo = ws.open(path, { allowEmpty: true });
+  identityOf(repo);
+  return repo;
+}
+
+/**
+ * A JSON tool result, stamped with the snapshot it was read from and, for a
+ * repo with no entities, the coverage note.
+ */
+function stamp<T extends Record<string, unknown>>(repo: OpenRepo, body: T): T & { graphDigest: string } {
+  return {
+    ...body,
+    ...(repo.graph.entities.length === 0 ? { coverage: NO_ENTITIES } : {}),
+    graphDigest: identityOf(repo).graphDigest,
+  };
+}
+
+/**
+ * The answer an entity-only tool gives on a repo with no entities: a normal
+ * result, not an error, because "psq found no schema" is a fact about the
+ * repo, not a failure of the call.
+ */
+const noEntities = (repo: OpenRepo): Record<string, unknown> | null =>
+  repo.graph.entities.length === 0 ? stamp(repo, { error: "no-entities" }) : null;
+
+/** A follow-up call the answer could not show; `args` validate against `tools[tool].shape`. */
+export interface Next {
+  tool: ToolName;
+  args: Record<string, unknown>;
+  why: string;
+}
+
+const NEXT_CAP = 5;
+
 /** `repo` is an open repo id, or a path to open. Omitted: the only open repo. */
 export function resolveRepo(ctx: Ctx, ref?: string): OpenRepo {
   const ws = ctx.workspace;
@@ -54,7 +99,7 @@ export function resolveRepo(ctx: Ctx, ref?: string): OpenRepo {
   }
   const byId = ws.get(ref);
   if (byId) return byId;
-  if (existsSync(ref) && statSync(ref).isDirectory()) return ws.open(ref);
+  if (existsSync(ref) && statSync(ref).isDirectory()) return openRepo(ws, ref);
   throw new Error(
     `Unknown repo "${ref}". Open ids: ${ws.list().map((r) => r.id).join(", ") || "(none)"}. ` +
       "Call open_repo with a path.",
@@ -94,10 +139,11 @@ function summaryOf(ws: Workspace, repo: OpenRepo): Record<string, unknown> {
 
 function def<S extends z.ZodRawShape>(
   description: string,
+  limit: LimitId,
   shape: S,
   run: (ctx: Ctx, args: z.infer<z.ZodObject<S>>) => unknown,
 ) {
-  return { description, shape, run };
+  return { description: withLimit(description, limit), limit, shape, run };
 }
 
 const repoArg = z
@@ -107,16 +153,23 @@ const repoArg = z
 
 export const tools = {
   open_repo: def(
-    "Open a repo (extract its graph) and return its id and summary counts. Call this first.",
+    "Open a repo (extract its graph) and return its id, summary counts and identity: `repoHead` " +
+      "(git commit and subfolder prefix, null outside git), `extractorVersion`, `graphDigest` (every " +
+      "other result carries it too) and `sourceFingerprint`. A repo with no entities opens; its results " +
+      'say `coverage: {entities: "none-found"}`. Call this first.',
+    "coverage",
     { path: z.string().describe("Path to the repo root") },
     (ctx, { path }) => {
-      return summaryOf(ctx.workspace, ctx.workspace.open(path));
+      const repo = openRepo(ctx.workspace, path);
+      const { repoHead, extractorVersion, sourceFingerprint } = identityOf(repo);
+      return stamp(repo, { ...summaryOf(ctx.workspace, repo), repoHead, extractorVersion, sourceFingerprint });
     },
   ),
 
   overview: def(
     "The areas view: districts (with the basis they were derived from), components with their " +
       "client calls, and routes grouped by first path segment. Capped; see `truncated`.",
+    "grouping",
     { repo: repoArg },
     (ctx, { repo: ref }) => {
       const repo = resolveRepo(ctx, ref);
@@ -173,7 +226,7 @@ export const tools = {
         routeGroups: groupList.omitted,
         routes: omittedRoutes,
       };
-      return {
+      return stamp(repo, {
         repo: repo.id,
         districtBasis: l3.districtBasis,
         districts: districtOut,
@@ -182,13 +235,15 @@ export const tools = {
         truncated: Object.values(omitted).some((n) => n > 0),
         omitted,
         warnings: g.warnings.length,
-      };
+      });
     },
   ),
 
   search_entities: def(
     "Find entities whose name, table name or property name contains the query (case-insensitive). " +
-      "wholeWord=true requires the query to be a whole identifier word (camelCase and _ split words).",
+      "wholeWord=true requires the query to be a whole identifier word (camelCase and _ split words). " +
+      "`next` suggests follow-up calls.",
+    "entitySearch",
     {
       repo: repoArg,
       query: z.string(),
@@ -207,22 +262,43 @@ export const tools = {
           .filter((h) => h.reasons.length > 0);
       }
       const shown = cap(hits, CAP.hits);
-      return {
+      const next: Next[] = [];
+      // No `offset` yet (P3): a cut list can only be narrowed, never paged.
+      if (shown.omitted > 0 && wholeWord !== true) {
+        next.push({
+          tool: "search_entities",
+          args: { repo: repo.id, query, wholeWord: true },
+          why: `${shown.omitted} hits were cut; whole-word matching narrows the list.`,
+        });
+      }
+      for (const h of shown.items.slice(0, NEXT_CAP - next.length)) {
+        next.push({
+          tool: "entity",
+          args: { repo: repo.id, name: h.name },
+          why: "Fields, relations and mirroring shapes of this hit; a search hit shows only why it matched.",
+        });
+      }
+      return stamp(repo, {
         query,
         wholeWord: wholeWord === true,
         searched: [...MATCH_FIELDS],
         total: hits.length,
         truncated: shown.omitted > 0,
         hits: shown.items.map((h) => ({ ...h, cite: h.file })),
-      };
+        next,
+      });
     },
   ),
 
   entity: def(
-    "One entity: fields, relations in and out, shapes that mirror it, and a summary of where it is mentioned.",
+    "One entity: fields, relations in and out, shapes that mirror it, and a summary of where it is " +
+      "mentioned. `next` suggests follow-up calls.",
+    "mirrors",
     { repo: repoArg, name: z.string().describe("Exact entity name") },
     (ctx, { repo: ref, name }) => {
       const repo = resolveRepo(ctx, ref);
+      const empty = noEntities(repo);
+      if (empty) return empty;
       const g = repo.graph;
       const e = g.entities.find((x) => x.name === name);
       if (!e) {
@@ -251,7 +327,42 @@ export const tools = {
         methodCounts.set(k, cur);
       }
       const shapes = g.shapes.filter((s) => s.mirrors === name);
-      return {
+      const topMethods = [...methodCounts.entries()]
+        .sort((a, b) => b[1].count - a[1].count || cmp(a[0], b[0]))
+        .slice(0, 5)
+        .map(([, v]) => ({ method: v.method, file: v.file, count: v.count }));
+
+      const next: Next[] = [];
+      if (refs.length > 0) {
+        next.push({
+          tool: "refs",
+          args: { repo: repo.id, entity: e.name },
+          why: `This answer counts ${refs.length} mentions; refs gives the file:line of each.`,
+        });
+      }
+      // The busiest method's call chain, when the graph can name it uniquely.
+      const top = refs.find((r) => `${r.type}.${r.method}` === topMethods[0]?.method && r.file === topMethods[0]?.file);
+      if (top && findFlow(g, { handler: { type: top.type, method: top.method } }).ok) {
+        next.push({
+          tool: "flow",
+          args: { repo: repo.id, handler: { type: top.type, method: top.method } },
+          why: `${top.type}.${top.method} mentions this entity most; flow follows the calls around it.`,
+        });
+      }
+      const related = [
+        ...new Set(
+          g.relations.flatMap((r) => (r.dependent === name ? [r.principal] : r.principal === name ? [r.dependent] : [])),
+        ),
+      ].sort(cmp);
+      for (const other of related.slice(0, Math.max(0, NEXT_CAP - next.length))) {
+        next.push({
+          tool: "entity",
+          args: { repo: repo.id, name: other },
+          why: "Related entity; this answer shows only the relation, not its fields.",
+        });
+      }
+
+      return stamp(repo, {
         name: e.name,
         namespace: e.namespace,
         tableName: e.tableName,
@@ -282,24 +393,25 @@ export const tools = {
             dbSetName: refs.filter((r) => r.via === "dbSetName").length,
           },
           files: new Set(refs.map((r) => r.file)).size,
-          topMethods: [...methodCounts.entries()]
-            .sort((a, b) => b[1].count - a[1].count || cmp(a[0], b[0]))
-            .slice(0, 5)
-            .map(([, v]) => ({ method: v.method, file: v.file, count: v.count })),
+          topMethods,
           note: "Mentions by name, not call sites. Use the refs tool for file:line.",
         },
-      };
+        next,
+      });
     },
   ),
 
   refs: def(
     "Where an entity is MENTIONED in method bodies (file:line, enclosing type.method). Not call sites.",
+    "refMentions",
     { repo: repoArg, entity: z.string(), via: RefVia.optional() },
     (ctx, { repo: ref, entity, via }) => {
       const repo = resolveRepo(ctx, ref);
+      const empty = noEntities(repo);
+      if (empty) return empty;
       const all = refsFor(repo.graph, entity, { via });
       const shown = cap(all, CAP.refs);
-      return {
+      return stamp(repo, {
         entity,
         via: via ?? null,
         known: repo.graph.entities.some((e) => e.name === entity),
@@ -308,19 +420,55 @@ export const tools = {
         refs: shown.items.map((r) => ({
           cite: cite(r.file, r.line), type: r.type, method: r.method, via: r.via,
         })),
-      };
+      });
     },
   ),
 
   routes: def(
-    "HTTP routes with file:line (and the handler when psq knows it), optionally under a path prefix.",
+    "HTTP routes with file:line (and the handler when psq knows it), optionally under a path prefix. " +
+      "`next` suggests follow-up calls.",
+    "missingRoutes",
     { repo: repoArg, prefix: z.string().optional() },
     (ctx, { repo: ref, prefix }) => {
       const repo = resolveRepo(ctx, ref);
       const all = repo.graph.routes.filter((r) => prefix === undefined || r.path.startsWith(prefix));
       const shown = cap(all, CAP.routes);
       const called = new Set(repo.graph.clientCalls.map((c) => c.matches));
-      return {
+      const next: Next[] = [];
+      if (shown.omitted > 0) {
+        // No `offset` yet (P3): narrow by a longer prefix, largest group first.
+        const groups = new Map<string, number>();
+        for (const r of all) {
+          const seg = r.path.split("/").filter(Boolean);
+          const depth = prefix === undefined ? 0 : prefix.split("/").filter(Boolean).length;
+          if (seg.length <= depth) continue;
+          const p = `/${seg.slice(0, depth + 1).join("/")}`;
+          groups.set(p, (groups.get(p) ?? 0) + 1);
+        }
+        const ranked = [...groups].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]));
+        for (const [p, n] of ranked.slice(0, 2)) {
+          if (p === prefix) continue;
+          next.push({
+            tool: "routes",
+            args: { repo: repo.id, prefix: p },
+            why: `${shown.omitted} routes were cut; ${n} are under ${p}.`,
+          });
+        }
+      }
+      // A route list shows the handler, not what it reaches. Not on a repo with
+      // no entities: flow would only answer `no-entities` there.
+      for (const r of repo.graph.entities.length > 0 ? shown.items : []) {
+        if (next.length >= NEXT_CAP) break;
+        if (!r.handler) continue;
+        const target = `${r.method} ${r.path}`;
+        if (!findFlow(repo.graph, { route: target }).ok) continue;
+        next.push({
+          tool: "flow",
+          args: { repo: repo.id, route: target },
+          why: "The calls and entities this route's handler reaches.",
+        });
+      }
+      return stamp(repo, {
         prefix: prefix ?? null,
         total: all.length,
         truncated: shown.omitted > 0,
@@ -328,12 +476,14 @@ export const tools = {
           ...routeItem(r),
           calledByClient: called.has(`${r.method} ${r.path}`),
         })),
-      };
+        next,
+      });
     },
   ),
 
   client_calls: def(
     "HTTP calls found in client code, with the component they attribute to and the route they matched.",
+    "clientMatch",
     { repo: repoArg, component: z.string().optional().describe("Component key or name") },
     (ctx, { repo: ref, component }) => {
       const repo = resolveRepo(ctx, ref);
@@ -347,7 +497,7 @@ export const tools = {
         (c) => component === undefined || c.components.some((k) => keys.has(k)),
       );
       const shown = cap(all, CAP.calls);
-      return {
+      return stamp(repo, {
         component: component ?? null,
         total: all.length,
         unmatched: all.filter((c) => c.matches === null).length,
@@ -357,34 +507,45 @@ export const tools = {
           method: c.method, path: c.path, cite: cite(c.file, c.line), enclosing: c.enclosing,
           matches: c.matches, components: c.components,
         })),
-      };
+      });
     },
   ),
 
   warnings: def(
     "Extraction warnings plus the standing list of what psq cannot see. Read this before drawing conclusions.",
+    "runtime",
     { repo: repoArg },
     (ctx, { repo: ref }) => {
       const repo = resolveRepo(ctx, ref);
-      return {
+      return stamp(repo, {
         count: repo.graph.warnings.length,
         warnings: repo.graph.warnings,
         cannotSee: blindSpots(repo.graph),
-      };
+      });
     },
   ),
 
   mermaid: def(
-    "Mermaid erDiagram source for the entity graph.",
+    "Mermaid erDiagram source for the entity graph; its second line is a `%% graphDigest` comment.",
+    "ddlRelations",
     { repo: repoArg },
-    (ctx, { repo: ref }) => mermaid(resolveRepo(ctx, ref).graph),
+    (ctx, { repo: ref }) => {
+      const repo = resolveRepo(ctx, ref);
+      // After the `erDiagram` line, not inside `@psq/graph`'s `mermaid()`:
+      // the server shares that function and its output starts `erDiagram\n`.
+      const src = mermaid(repo.graph);
+      const tag = `%% graphDigest ${identityOf(repo).graphDigest}`;
+      const nl = src.indexOf("\n");
+      return nl === -1 ? `${src}\n${tag}\n` : `${src.slice(0, nl + 1)}${tag}\n${src.slice(nl + 1)}`;
+    },
   ),
 
   flow: def(
     "Follow a route (or a handler Type.method) through the method calls psq resolved, hop by hop: " +
       "file:line of each method, the call-site line, the entities each method mentions, ambiguous edges " +
       "(interface with several implementers) and unresolved-call counts. `truncated` means maxDepth " +
-      "(default 4) or the node cap stopped the walk.",
+      "(default 4) or the node cap stopped the walk. `next` suggests follow-up calls.",
+    "calls",
     {
       repo: repoArg,
       route: z.string().optional().describe('"METHOD /path" (or just the path when unique)'),
@@ -393,12 +554,33 @@ export const tools = {
     },
     (ctx, { repo: ref, route, handler, maxDepth }) => {
       const repo = resolveRepo(ctx, ref);
+      const empty = noEntities(repo);
+      if (empty) return empty;
       const t = findFlow(repo.graph, { route, handler, maxDepth });
       if (!t.ok) throw new Error(t.error);
-      return flowView(repo.graph, t.flow, {
+      const view = flowView(repo.graph, t.flow, {
         repo: repo.id,
         route: t.route && route !== undefined ? { method: t.route.method, path: t.route.path, cite: cite(t.route.file, t.route.line) } : null,
       });
+      const next: Next[] = [];
+      const target = route !== undefined ? { route } : handler !== undefined ? { handler } : {};
+      if (t.flow.truncated && t.flow.maxDepth < 10) {
+        next.push({
+          tool: "flow",
+          args: { repo: repo.id, ...target, maxDepth: Math.min(10, t.flow.maxDepth + 2) },
+          why: `maxDepth ${t.flow.maxDepth} stopped the walk; a deeper walk may reach more.`,
+        });
+      }
+      const reached = [...new Set(t.flow.entities)].sort(cmp);
+      for (const name of reached.slice(0, Math.max(0, NEXT_CAP - next.length))) {
+        if (!repo.graph.entities.some((e) => e.name === name)) continue;
+        next.push({
+          tool: "entity",
+          args: { repo: repo.id, name },
+          why: "An entity this flow reaches; the flow shows only that it is mentioned.",
+        });
+      }
+      return stamp(repo, { ...view, next });
     },
   ),
 
@@ -406,15 +588,20 @@ export const tools = {
     "Feature areas (route-derived) with their routes, components and entities, the entities shared " +
       "between areas, what is unassigned, and the cross-area edges (how one section leads into the next) " +
       "with citations. Capped; see `truncated`.",
+    "grouping",
     { repo: repoArg },
     (ctx, { repo: ref }) => {
       const repo = resolveRepo(ctx, ref);
-      return { repo: repo.id, ...areasView(repo.graph) };
+      const empty = noEntities(repo);
+      if (empty) return empty;
+      return stamp(repo, { repo: repo.id, ...areasView(repo.graph) });
     },
   ),
 
   brief: def(
-    "A markdown domain brief (areas, entities, routes, call-following flow, wiring, hot spots, blind spots) to ground a discussion.",
+    "A markdown domain brief (areas, entities, routes, call-following flow, wiring, hot spots, blind spots) " +
+      "to ground a discussion. Its `> snapshot:` line names the commit, extractor and graphDigest.",
+    "runtime",
     { repo: repoArg },
     (ctx, { repo: ref }) => renderBrief(ctx.workspace, resolveRepo(ctx, ref)),
   ),

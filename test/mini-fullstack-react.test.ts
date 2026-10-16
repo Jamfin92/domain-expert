@@ -40,7 +40,8 @@ describe("a full-stack React fixture", () => {
     //
     // The CREATE TABLE literal in the server is not about warnings at all:
     // it is what gives the fixture an entity, without which Workspace.open
-    // throws "No entities found" and the API/e2e cases cannot open it.
+    // throws "No entities found" by default and the API/e2e cases cannot open
+    // it (only the MCP opts in with `allowEmpty`).
     expect(g.warnings).toEqual([]);
   });
 

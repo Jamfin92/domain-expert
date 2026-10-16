@@ -42,6 +42,12 @@ export interface OpenRepo {
    */
   rows: number;
   openedAt: string;
+  /**
+   * The source digest computed before extraction (`extractWithDigest`), the
+   * same value persisted as the envelope's `fingerprint`. Kept on the repo so
+   * a caller can say which bytes this graph was read from.
+   */
+  sourceFingerprint: string;
 }
 
 /**
@@ -303,6 +309,7 @@ export class Workspace {
         seeded,
         seed: env.seed,
         rows: env.rows,
+        sourceFingerprint: env.fingerprint,
         // The STORED timestamp. A repo the user opened on Tuesday did not
         // become a repo they opened at this boot.
         openedAt: env.openedAt,
@@ -363,8 +370,16 @@ export class Workspace {
    * Extract a repo and build its question bank.
    * Throws with a human-readable reason rather than a stack trace, because
    * every one of these lands directly in the UI.
+   *
+   * `allowEmpty` lets a graph with no entities through. Off by default: the
+   * server's quiz has nothing to ask of such a repo, so the HTTP API and
+   * rehydrate keep refusing it. The MCP opts in, because routes, shapes and
+   * client calls are still worth reading when psq found no schema.
    */
-  open(rawPath: string, opts: { seed?: number; rows?: number } = {}): OpenRepo {
+  open(
+    rawPath: string,
+    opts: { seed?: number; rows?: number; allowEmpty?: boolean } = {},
+  ): OpenRepo {
     const path = resolve(rawPath);
     if (!existsSync(path)) throw new Error(`No such directory: ${path}`);
     if (!statSync(path).isDirectory()) throw new Error(`Not a directory: ${path}`);
@@ -384,7 +399,7 @@ export class Workspace {
           problems.map((p) => `  - ${p}`).join("\n"),
       );
     }
-    if (graph.entities.length === 0) {
+    if (graph.entities.length === 0 && opts.allowEmpty !== true) {
       const reason =
         graph.provider === "efcore"
           ? "This looks like a .NET project, but nothing here is reachable from a DbSet."
@@ -413,9 +428,11 @@ export class Workspace {
 
     const repo: OpenRepo = {
       id, path, graph, questions, seeded, seed, rows, openedAt: this.now(),
+      sourceFingerprint: digest,
     };
     this.repos.set(id, repo);
-    this.persist(repo, digest);
+    // An empty graph (allowEmpty) is not saved: rehydrate refuses it, so its envelope would fail on every boot.
+    if (graph.entities.length > 0) this.persist(repo, digest);
     return repo;
   }
 
