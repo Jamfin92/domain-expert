@@ -23,9 +23,14 @@ logs go to stderr.
 A repo where psq finds no entities (no EF Core DbContext, no `CREATE TABLE`)
 still opens here: the MCP calls `Workspace.open(path, {allowEmpty: true})` from
 `--repo`, `open_repo` and an implicit path `repo`. Every result for such a repo
-carries `coverage: {entities: "none-found"}`, which means psq read no schema, not
-that the app stores nothing. The HTTP server does not opt in and keeps refusing
-it with "No entities found", because its quiz would have nothing to ask.
+carries `coverage`: one entry per facet (`entities`, `relations`, `shapes`,
+`routes`, `clientCalls`, `components`, `entityRefs`, `calls`, `pairing`), each
+`{status, readers, roots, filesRead, skipped, reason}`. An `entities` status of
+`none-found` with its reason (e.g. "no CREATE TABLE literal among 2 TypeScript
+files") means psq read no schema, not that the app stores nothing. The HTTP
+server does not opt in and keeps refusing it with "No entities found: <reason>"
+(or, when the read itself was partial, "No entities found in a partial read
+(<what was left out>)"), because its quiz would have nothing to ask.
 
 ## Register it
 
@@ -60,14 +65,14 @@ Twelve tools and one prompt:
 
 | Tool | Returns |
 | --- | --- |
-| `open_repo {path}` | repo id, counts (entities, relations, shapes, routes, clientCalls, components, entityRefs, warnings, districtBasis) and the identity fields below |
-| `overview` | areas: districts (and the basis they were derived from), components with their client calls, routes grouped by first path segment |
+| `open_repo {path}` | repo id, counts (entities, relations, shapes, routes, clientCalls, components, entityRefs, warnings, districtBasis), `providerBasis` (the file counts that decided the provider), `coverage` (per-facet status and reason) and the identity fields below |
+| `overview` | areas: districts (and the basis they were derived from), components with their client calls, routes grouped by first path segment; `coverage` |
 | `search_entities {query, wholeWord?}` | entities matching by name, table or property; `wholeWord` needs a whole identifier word; `next` |
 | `entity {name}` | fields, relations `out` (this entity holds the FK) and `in`, mirroring shapes with drift, a summary of mentions; `next` |
 | `refs {entity, via?}` | where an entity is mentioned: `file:line`, enclosing `Type.method` |
 | `routes {prefix?}` | routes with `file:line`, the handler when psq knows it, and whether any client call matched; `next` |
 | `client_calls {component?}` | client HTTP calls with the component they attribute to and the route they matched |
-| `warnings` | extraction warnings plus `cannotSee`, the standing list of what psq cannot see in this repo |
+| `warnings` | extraction warnings plus `cannotSee`, the standing list of what psq cannot see in this repo; `coverage` |
 | `mermaid` | `erDiagram` source; line 2 is `%% graphDigest <hex>` |
 | `flow {route? \| handler?, maxDepth?}` | a route or handler followed through resolved calls, hop by hop, with the entities each method mentions; `next` |
 | `areas` | route-derived feature areas with their routes, components and entities, shared entities, and cross-area edges |
@@ -77,9 +82,12 @@ Twelve tools and one prompt:
 | --- | --- |
 | `brief {repo?}` | the same markdown brief as the `brief` tool, as a user message |
 
-On a repo with no entities, `entity`, `refs`, `flow` and `areas` answer
-`{error: "no-entities", coverage, graphDigest}` as a normal result (not an MCP
-error); `search_entities` answers an empty `hits` with `coverage`.
+`open_repo`, `overview` and `warnings` always carry the full `coverage` block,
+so a healthy repo's caller can see partial or not-read facets. On a repo with no
+entities every JSON result carries it: `entity`, `refs`, `flow` and `areas`
+answer `{error: "no-entities", coverage, graphDigest}` as a normal result (not an
+MCP error), with the full per-facet block; `search_entities` answers an empty
+`hits` with `coverage`.
 
 ### Identity
 
@@ -114,7 +122,9 @@ invent one.
 
 `brief` renders areas, entities with their relations, routes, client-call wiring,
 hot spots (most-mentioned entities, methods touching the most entities, most
-connected entities) and warnings. It opens and closes with the standing
+connected entities), coverage (one line per facet with its status, readers,
+roots, files read and reason, then the provider basis; never cut) and warnings.
+It opens and closes with the standing
 instruction:
 
 > Every claim must cite a graph fact (file:line); say "psq cannot see this"

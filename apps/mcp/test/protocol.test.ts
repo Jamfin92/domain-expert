@@ -42,13 +42,25 @@ describe("psq MCP server over an in-memory transport", () => {
     const opened = await client.callTool({ name: "open_repo", arguments: { path: MINI_TYPES_ONLY } });
     expect(opened.isError).toBeFalsy();
     const o = JSON.parse(textOf(opened));
-    expect(o.coverage).toEqual({ entities: "none-found" });
+    expect(o.coverage.entities).toMatchObject({ status: "none-found" });
+    expect(Object.keys(o.coverage)).toEqual([
+      "entities", "relations", "shapes", "routes", "clientCalls", "components", "entityRefs", "calls", "pairing",
+    ]);
     expect(o.graphDigest).toMatch(/^[0-9a-f]{64}$/);
     const entity = await client.callTool({ name: "entity", arguments: { name: "Post" } });
     expect(entity.isError).toBeFalsy();
-    expect(JSON.parse(textOf(entity))).toMatchObject({ error: "no-entities", coverage: { entities: "none-found" } });
+    expect(JSON.parse(textOf(entity))).toEqual({
+      error: "no-entities",
+      coverage: expect.objectContaining({
+        entities: expect.objectContaining({ status: "none-found", reason: expect.stringMatching(/CREATE TABLE/) }),
+        shapes: expect.objectContaining({ status: "complete" }),
+      }),
+      graphDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
     const prompt = await client.getPrompt({ name: "brief", arguments: {} });
-    expect((prompt.messages[0]!.content as { text: string }).text).toContain("no entities: psq read 3 shapes and no schema");
+    expect((prompt.messages[0]!.content as { text: string }).text).toContain(
+      "no entities: psq read 3 shapes and no schema (no CREATE TABLE literal among 2 TypeScript files)",
+    );
   });
 
   it("opens a repo and answers entity and refs calls as JSON", async () => {

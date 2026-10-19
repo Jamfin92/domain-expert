@@ -178,7 +178,7 @@ describe("B4/B13: the boot round trip", () => {
     expect(await get(second.port, "/api/health")).toEqual({
       ok: true,
       repos: 1,
-      rehydrate: { state: "done", loaded: 1, failed: 0, missing: 0 },
+      rehydrate: { state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0 },
     });
   }, 120_000);
 });
@@ -207,7 +207,7 @@ describe("B14: DELETE survives a restart", () => {
     expect(await get(second.port, "/api/health")).toEqual({
       ok: true,
       repos: 0,
-      rehydrate: { state: "done", loaded: 0, failed: 0, missing: 0 },
+      rehydrate: { state: "done", loaded: 0, failed: 0, missing: 0, emptied: 0 },
     });
   }, 120_000);
 });
@@ -228,7 +228,7 @@ describe("B25: an unresolvable state directory", () => {
     expect(await get(child.port, "/api/health")).toEqual({
       ok: true,
       repos: 0,
-      rehydrate: { state: "off", loaded: 0, failed: 0, missing: 0 },
+      rehydrate: { state: "off", loaded: 0, failed: 0, missing: 0, emptied: 0 },
     });
 
     const err = child.err.join("");

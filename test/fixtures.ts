@@ -148,7 +148,8 @@ export const MINI_SOLUTION_TIE = resolve(here, "fixtures/mini-solution-tie");
  * no express, no .NET. psq reads 3 shapes and 0 entities from it, with the
  * one "No CREATE TABLE statement was found" warning. The only hermetic input
  * for the MCP's 0-entity path: `Workspace.open` refuses it by default and the
- * MCP opens it with `allowEmpty`, answering `coverage: {entities: "none-found"}`.
+ * MCP opens it with `allowEmpty`; its results carry `coverage` (per-facet
+ * status and reason) instead of a refusal.
  *
  * It sits inside this checkout, so `git rev-parse --show-prefix` is non-empty
  * on it: the subfolder-of-a-larger-repo case of `repoHead`.

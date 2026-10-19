@@ -22,8 +22,8 @@ async function main(): Promise<void> {
   const ctx: Ctx = { workspace: new Workspace(undefined, { log: (l) => console.error(l) }) };
   const repo = repoFlag(process.argv.slice(2));
   if (repo !== undefined) {
-    // The same open the tools make: a repo with no entities still starts the
-    // server, and its results say `coverage: {entities: "none-found"}`.
+    // The same open the tools make: a repo with no entities opens; its results
+    // carry `coverage` (per-facet status and reason) instead of a refusal.
     const opened = openRepo(ctx.workspace, repo);
     console.error(`psq-mcp: opened ${opened.id} (${opened.graph.entities.length} entities)`);
   }

@@ -571,6 +571,41 @@ describe("several repos open", () => {
   });
 });
 
+describe("brief coverage", () => {
+  const FACETS = [
+    "entities", "relations", "shapes", "routes", "clientCalls", "components", "entityRefs", "calls", "pairing",
+  ];
+  const coverageOf = (b: string): string => {
+    expect(b.indexOf("## Hot spots")).toBeGreaterThan(-1);
+    expect(b.indexOf("## Coverage")).toBeGreaterThan(b.indexOf("## Hot spots"));
+    expect(b.indexOf("## Warnings")).toBeGreaterThan(b.indexOf("## Coverage"));
+    return b.slice(b.indexOf("## Coverage"), b.indexOf("## Warnings"));
+  };
+
+  it("brief has a Coverage section between Hot spots and Warnings", () => {
+    tools.open_repo.run(ctx, { path: resolve(FIXTURES, "mini-fullstack-csharp") });
+    const c = coverageOf(tools.brief.run(ctx, {}) as string);
+    const lines = c.split("\n").filter((l) => l.startsWith("- "));
+    expect(lines.slice(0, 9).map((l) => l.slice(2, l.indexOf(":")))).toEqual(FACETS);
+    expect(lines).toHaveLength(10);
+    expect(lines[9]).toMatch(
+      /^- basis: \d+ \.cs \(\d+ under test paths\), \d+ \.csproj \(\d+ under test paths\), \d+ \.ts\/\.tsx \(\d+ under test paths\); package\.json (yes|no); tsconfig\.json (yes|no)$/,
+    );
+    // The merged fullstack facet: only the TS half read client calls, so only its root shows.
+    expect(c).toContain("\n- clientCalls: complete (readers client-calls; roots client; 3 files)\n");
+    // Both halves ran for entities: every list joins with ", ".
+    expect(c).toContain("\n- entities: complete (readers efcore, sqlite-ddl; roots ., client; 7 files)\n");
+  });
+
+  it("ends the entities line with the reason on a repo with no entities", () => {
+    tools.open_repo.run(ctx, { path: MINI_TYPES_ONLY });
+    const c = coverageOf(tools.brief.run(ctx, {}) as string);
+    const entities = c.split("\n").find((l) => l.startsWith("- entities:"))!;
+    expect(entities).toMatch(/ — no CREATE TABLE literal among 2 TypeScript files$/);
+    expect(c).toContain("\n- calls: not-read — no TypeScript reader for method calls\n");
+  });
+});
+
 describe("brief caps", () => {
   it("caps areas and the members listed per area, saying how many were dropped", () => {
     const id = openRefs();

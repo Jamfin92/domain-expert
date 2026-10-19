@@ -10,7 +10,7 @@ import { Workspace, type OpenRepo } from "../../server/src/workspace.js";
 import { renderBrief } from "./brief.js";
 import { areasView, findFlow, flowView } from "./flow.js";
 import {
-  cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots, identityOf, withLimit, NO_ENTITIES,
+  cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots, identityOf, withLimit,
   type LimitId,
 } from "./common.js";
 
@@ -44,8 +44,9 @@ export const CAP = {
 /**
  * Every MCP open goes through here. `allowEmpty`: an agent can still read the
  * routes, shapes and client calls of a repo where psq found no schema, so the
- * MCP opens it and says `coverage: {entities: "none-found"}` instead of
- * refusing (the HTTP server keeps refusing; its quiz would have nothing to ask).
+ * MCP opens it. A repo with no entities opens; its results carry `coverage`
+ * (per-facet status and reason) instead of a refusal (the HTTP server keeps
+ * refusing; its quiz would have nothing to ask).
  * The identity is taken here, once per open, so `repoHead` is the HEAD at open.
  */
 export function openRepo(ws: Workspace, path: string): OpenRepo {
@@ -56,12 +57,13 @@ export function openRepo(ws: Workspace, path: string): OpenRepo {
 
 /**
  * A JSON tool result, stamped with the snapshot it was read from and, for a
- * repo with no entities, the coverage note.
+ * repo with no entities, its full `coverage` block (per-facet status and
+ * reason), so an empty answer says why it is empty.
  */
 function stamp<T extends Record<string, unknown>>(repo: OpenRepo, body: T): T & { graphDigest: string } {
   return {
     ...body,
-    ...(repo.graph.entities.length === 0 ? { coverage: NO_ENTITIES } : {}),
+    ...(repo.graph.entities.length === 0 ? { coverage: repo.graph.coverage } : {}),
     graphDigest: identityOf(repo).graphDigest,
   };
 }
@@ -132,6 +134,7 @@ function summaryOf(ws: Workspace, repo: OpenRepo): Record<string, unknown> {
     entityRefs: g.entityRefs.length,
     warnings: g.warnings.length,
     districtBasis: ws.layout3dOf(repo.id)?.districtBasis ?? "single",
+    providerBasis: g.providerBasis,
   };
 }
 
@@ -155,14 +158,18 @@ export const tools = {
   open_repo: def(
     "Open a repo (extract its graph) and return its id, summary counts and identity: `repoHead` " +
       "(git commit and subfolder prefix, null outside git), `extractorVersion`, `graphDigest` (every " +
-      "other result carries it too) and `sourceFingerprint`. A repo with no entities opens; its results " +
-      'say `coverage: {entities: "none-found"}`. Call this first.',
+      "other result carries it too), `sourceFingerprint`, and `coverage` (per-facet status and " +
+      "reason). A repo with no entities opens; its results carry `coverage` instead of a refusal. " +
+      "Call this first.",
     "coverage",
     { path: z.string().describe("Path to the repo root") },
     (ctx, { path }) => {
       const repo = openRepo(ctx.workspace, path);
       const { repoHead, extractorVersion, sourceFingerprint } = identityOf(repo);
-      return stamp(repo, { ...summaryOf(ctx.workspace, repo), repoHead, extractorVersion, sourceFingerprint });
+      return stamp(repo, {
+        ...summaryOf(ctx.workspace, repo), repoHead, extractorVersion, sourceFingerprint,
+        coverage: repo.graph.coverage,
+      });
     },
   ),
 
@@ -228,6 +235,7 @@ export const tools = {
       };
       return stamp(repo, {
         repo: repo.id,
+        coverage: g.coverage,
         districtBasis: l3.districtBasis,
         districts: districtOut,
         components: componentOut,
@@ -521,6 +529,7 @@ export const tools = {
         count: repo.graph.warnings.length,
         warnings: repo.graph.warnings,
         cannotSee: blindSpots(repo.graph),
+        coverage: repo.graph.coverage,
       });
     },
   ),

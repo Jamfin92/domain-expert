@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { invariants } from "@psq/graph";
 import { referenceAnswer } from "@psq/quiz";
-import { Workspace } from "../src/workspace.js";
+import { NoEntitiesError, Workspace } from "../src/workspace.js";
 import {
   STORE_VERSION,
   envelopePath,
@@ -12,7 +12,7 @@ import {
   readEnvelope,
   type StoredRepo,
 } from "../src/store.js";
-import { MINI_EFCORE, MINI_EFCORE_REFS, MINI_NODE } from "../../../test/fixtures.js";
+import { MINI_EFCORE, MINI_EFCORE_EMPTY_CONTEXT, MINI_EFCORE_REFS, MINI_NODE } from "../../../test/fixtures.js";
 
 /**
  * The read side. Every test here builds a real store by opening a real
@@ -129,7 +129,7 @@ describe("B5b: an unchanged repo is not re-extracted", () => {
     const w2 = ws(state);
     return w2.rehydrate().then(() => {
       expect(w2.rehydrateStatus()).toEqual({
-        state: "done", loaded: 1, failed: 0, missing: 0,
+        state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0,
       });
       // The whole point of the stored graph: nothing was extracted again.
       expect(calls.extractWithDigest).toBe(0);
@@ -213,7 +213,7 @@ describe("B8: stale detection", () => {
     const w2 = ws(state);
     await w2.rehydrate();
     expect(calls.extractWithDigest).toBe(1);
-    expect(w2.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0 });
+    expect(w2.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0 });
 
     const after = w2.get(id);
     expect(after?.graph.entities.find((e) => e.tableName === "ports")?.properties
@@ -245,7 +245,7 @@ describe("B9: a stale extractor forces a re-extract", () => {
     const w2 = ws(state);
     await w2.rehydrate();
     expect(calls.extractWithDigest).toBe(1);
-    expect(w2.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0 });
+    expect(w2.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0 });
     // And the rewritten envelope carries the current extractor, so the next
     // boot does not pay for this again.
     const env = readEnvelope(state, id);
@@ -303,7 +303,7 @@ describe("B10/B11: a corrupt store", () => {
     await w.rehydrate();
 
     expect(w.rehydrateStatus()).toEqual({
-      state: "done", loaded: 3, failed: 3, missing: 1,
+      state: "done", loaded: 3, failed: 3, missing: 1, emptied: 0,
     });
 
     // The counts alone do NOT separate case 5 from a load of the broken
@@ -359,14 +359,14 @@ describe("B16: the status is observable while it runs", () => {
     // first await, so this is an assertion and not a poll against a race.
     expect(w.rehydrateStatus().state).toBe("running");
     await running;
-    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 2, failed: 0, missing: 0 });
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 2, failed: 0, missing: 0, emptied: 0 });
   }, 60_000);
 
   it("is off, and touches no disk, when persistence is off", async () => {
     const w = new Workspace(() => AT);
     expect(w.rehydrateStatus().state).toBe("off");
     await w.rehydrate();
-    expect(w.rehydrateStatus()).toEqual({ state: "off", loaded: 0, failed: 0, missing: 0 });
+    expect(w.rehydrateStatus()).toEqual({ state: "off", loaded: 0, failed: 0, missing: 0, emptied: 0 });
   });
 
   it("hands out a copy, so a caller cannot mutate the counters", () => {
@@ -410,7 +410,7 @@ describe("B32: an id that does not agree with its path or filename", () => {
     const w = ws(state, log);
     await w.rehydrate();
 
-    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 1, missing: 0 });
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 1, missing: 0, emptied: 0 });
     expect(w.get(realId)).toBeUndefined();
     // Exactly the one envelope it started with. No orphan, and the bad one is
     // kept so a DELETE can still reach it by the id it is filed under.
@@ -461,7 +461,7 @@ describe("B24: a vanished path is missing, and is never digested", () => {
     const w = ws(state);
     await w.rehydrate();
 
-    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 0, missing: 1 });
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 0, missing: 1, emptied: 0 });
     // The control. `digestOf` on a vanished root returns the empty-input
     // sha256 instead of throwing, so an implementation that compared first
     // would see "changed", fire a re-extract, and land in the catch — which
@@ -537,7 +537,7 @@ describe("G22: an envelope stored before `entityRefs` existed", () => {
     const w = ws(state);
     await w.rehydrate();
 
-    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0 });
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0 });
     // Nothing was extracted again, so the `[]` below can only be the default.
     expect(calls.extractWithDigest).toBe(0);
     expect(w.get(id)!.graph.entityRefs).toEqual([]);
@@ -585,7 +585,7 @@ describe("G23: the extractor bump", () => {
     const w = ws(state);
     await w.rehydrate();
 
-    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 2, failed: 0, missing: 0 });
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 2, failed: 0, missing: 0, emptied: 0 });
     // Exactly one re-extract: the stale one. The control is the other entry —
     // a version check that fired for both would read the same in the counters
     // above and only differs here.
@@ -597,4 +597,115 @@ describe("G23: the extractor bump", () => {
     expect(w.get(staleId)!.graph.entityRefs.length).toBeGreaterThan(0);
     expect(w.get(currentId)!.graph.entityRefs.length).toBeGreaterThan(0);
   });
+});
+
+describe("P2a-ii: a persisted repo that re-extracts to 0 entities", () => {
+  // mini-node declares tables in BOTH files; stripping one leaves 2 entities.
+  // The text is replaced, not the files removed, so the TS reader still runs
+  // over 6 files and the coverage reason names them.
+  const SCHEMA_FILES = ["schema.ts", "db.ts"];
+  function strip(repo: string): void {
+    for (const f of SCHEMA_FILES) {
+      const p = join(repo, f);
+      const src = readFileSync(p, "utf8");
+      const out = src.replaceAll("CREATE TABLE IF NOT EXISTS", "-- no table here");
+      expect(out, f).not.toBe(src);
+      writeFileSync(p, out);
+    }
+  }
+
+  it("is emptied on rehydrate and its envelope deleted; an untouched copy still loads", async () => {
+    const state = tmp("state");
+    const bad = copyOf(MINI_NODE);
+    const good = copyOf(MINI_NODE);
+    const seeder = ws(state);
+    const badId = seeder.open(bad).id;
+    const goodId = seeder.open(good).id;
+    seeder.closeAll();
+    expect(listEnvelopeIds(state).sort()).toEqual([badId, goodId].sort());
+
+    strip(bad);
+    const log: string[] = [];
+    const w = ws(state, log);
+    await w.rehydrate();
+
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0, emptied: 1 });
+    // The positive control is the good copy: loaded, envelope kept.
+    expect(listEnvelopeIds(state)).toEqual([goodId]);
+    expect(w.list().map((r) => r.id)).toEqual([goodId]);
+    const emptied = log.filter((l) => l.includes("emptied"));
+    expect(emptied).toHaveLength(1);
+    expect(emptied[0]).toContain(badId);
+    expect(emptied[0]).toContain("no CREATE TABLE literal among 6 TypeScript files");
+  }, 60_000);
+
+  it("open() on the same workspace refuses with NoEntitiesError and drops the envelope, allowEmpty too", () => {
+    const state = tmp("state");
+    const repo = copyOf(MINI_NODE);
+    const intact = SCHEMA_FILES.map((f) => [f, readFileSync(join(repo, f), "utf8")] as const);
+    const restore = (): void => {
+      for (const [f, src] of intact) writeFileSync(join(repo, f), src);
+    };
+    const w = ws(state);
+    const id = w.open(repo).id;
+    expect(listEnvelopeIds(state)).toEqual([id]);
+
+    strip(repo);
+    let thrown: unknown;
+    try {
+      w.open(repo);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NoEntitiesError);
+    expect((thrown as NoEntitiesError).code).toBe("no-entities");
+    expect((thrown as NoEntitiesError).coverage.entities.status).toBe("none-found");
+    expect((thrown as Error).message).toMatch(/^No entities found: no CREATE TABLE literal among 6 TypeScript files\./);
+    expect((thrown as Error).message).toContain("ORM-defined schema");
+    expect(listEnvelopeIds(state)).toEqual([]);
+    expect(w.get(id)).toBeUndefined();
+
+    // Re-persist an intact copy (the control: the envelope does come back),
+    // then empty it again and re-open WITH allowEmpty.
+    restore();
+    w.open(repo);
+    expect(listEnvelopeIds(state)).toEqual([id]);
+    strip(repo);
+    const r = w.open(repo, { allowEmpty: true });
+    expect(r.graph.entities).toHaveLength(0);
+    expect(listEnvelopeIds(state)).toEqual([]);
+  }, 60_000);
+});
+
+describe("P2a-ii: the refusal message and the stored-empty-graph path", () => {
+  it("omits the raw-DDL / ORM clause for an efcore repo and states the efcore reason", () => {
+    const w = new Workspace(() => AT, { log: () => {} });
+    opened.push(w);
+    let msg = "";
+    try {
+      w.open(MINI_EFCORE_EMPTY_CONTEXT);
+    } catch (err) {
+      msg = (err as Error).message;
+    }
+    expect(msg).toMatch(/^No entities found: Data\/EmptyDbContext\.cs:13: DbContext EmptyDbContext contributed no entities/);
+    expect(msg).not.toContain("ORM-defined schema");
+  });
+
+  it("keeps a stored graph with 0 entities as failed, file kept, never emptied", async () => {
+    const state = tmp("state");
+    const id = ws(state).open(copyOf(MINI_EFCORE)).id;
+    const env = JSON.parse(readFileSync(envelopePath(state, id), "utf8")) as StoredRepo;
+    // Fingerprint and extractor untouched, invariants clean: the stored graph is used as-is.
+    const graph = { ...env.graph, entities: [], relations: [], entityRefs: [] };
+    expect(invariants(graph)).toEqual([]);
+    patch(state, id, { graph });
+
+    const log: string[] = [];
+    const w = ws(state, log);
+    await w.rehydrate();
+
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 1, missing: 0, emptied: 0 });
+    expect(existsSync(envelopePath(state, id))).toBe(true);
+    expect(log.join("\n")).toContain(`${id} failed — the stored graph has no entities`);
+  }, 60_000);
 });

@@ -9,7 +9,7 @@ import {
   DEFAULT_SEED,
   type SeededDb,
 } from "@psq/quiz";
-import type { EntityGraph, GradeResult, Question, Section } from "@psq/schema";
+import type { Coverage, EntityGraph, GradeResult, Question, Section } from "@psq/schema";
 import {
   STORE_VERSION,
   deleteEnvelope,
@@ -69,6 +69,23 @@ export interface RehydrateStatus {
   loaded: number;
   failed: number;
   missing: number;
+  /** Persisted repos that re-extracted to 0 entities; their envelopes were deleted. */
+  emptied: number;
+}
+
+/**
+ * `open()`'s refusal of a repo with no entities. Carries the graph's coverage
+ * so a caller can say WHY psq found no schema, not just that it found none.
+ */
+export class NoEntitiesError extends Error {
+  readonly code = "no-entities" as const;
+  constructor(
+    readonly coverage: Coverage,
+    message: string,
+  ) {
+    super(message);
+    this.name = "NoEntitiesError";
+  }
 }
 
 export interface QuizSession {
@@ -151,6 +168,7 @@ export class Workspace {
       loaded: 0,
       failed: 0,
       missing: 0,
+      emptied: 0,
     };
   }
 
@@ -327,6 +345,13 @@ export class Workspace {
           // Already closed, or never usable. Nothing to do.
         }
       }
+      // A persisted repo that now re-extracts to 0 entities. `open()` has
+      // already deleted its envelope; it is neither loaded nor broken.
+      if (err instanceof NoEntitiesError) {
+        this.status.emptied += 1;
+        this.log(`psq rehydrate: ${id} emptied — ${err.message}`);
+        return;
+      }
       // The TOCTOU window between the directory check and the work: a repo
       // deleted in between is missing, not broken.
       const read = readEnvelope(stateDir, id);
@@ -399,23 +424,26 @@ export class Workspace {
           problems.map((p) => `  - ${p}`).join("\n"),
       );
     }
+    if (graph.entities.length === 0 && this.stateDir !== undefined) {
+      // A repo persisted when it had entities must not be served from its old
+      // envelope on the next boot: current or absent; never stale (see persist()).
+      this.forget(id);
+    }
     if (graph.entities.length === 0 && opts.allowEmpty !== true) {
-      const reason =
-        graph.provider === "efcore"
-          ? "This looks like a .NET project, but nothing here is reachable from a DbSet."
-          : graph.provider === "sqlite-ddl"
-            ? "This looks like a Node project, but no CREATE TABLE statement was found. " +
-              "psq reads a schema from raw DDL; an ORM-defined schema is not read yet."
-            : graph.provider === "fullstack"
-              ? // psq read both halves of this repo. Saying it "did not recognize" the
-                // project would be a plain lie, and would send the reader looking for a
-                // detection bug instead of at the DbContext.
-                "This repo has both a .NET and a TypeScript side, and psq read both, but " +
-                "nothing on the .NET side is reachable from a DbSet and the TypeScript " +
-                "side declares no CREATE TABLE."
-              : "psq did not recognize this as a project it can read.";
-      throw new Error(
-        `No entities found. ${reason} psq reads .NET projects with an EF Core DbContext, ` +
+      const reason = graph.coverage.entities.reason ?? "psq read no entity schema here";
+      const orm =
+        graph.provider === "sqlite-ddl" || graph.provider === "fullstack"
+          ? " psq reads a schema from raw DDL; an ORM-defined schema is not read yet."
+          : "";
+      // A `partial` reason explains what the read left out, not why it found
+      // no schema, so it is not stated as the cause.
+      const head =
+        graph.coverage.entities.status === "partial"
+          ? `No entities found in a partial read (${reason}).`
+          : `No entities found: ${reason}.`;
+      throw new NoEntitiesError(
+        graph.coverage,
+        `${head}${orm} psq reads .NET projects with an EF Core DbContext, ` +
           "Node backends with a SQLite schema, and React clients — a repo with both is read " +
           "as both.",
       );

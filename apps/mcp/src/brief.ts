@@ -1,4 +1,5 @@
 import { degrees, orphans, routeFlow, DEFAULT_FLOW_DEPTH } from "@psq/graph";
+import type { Coverage, EntityGraph } from "@psq/schema";
 import type { Workspace, OpenRepo } from "../../server/src/workspace.js";
 import {
   blindSpots, cap, cite, cmp, handlerOf, headLabel, identityOf, methodKey, segmentOf,
@@ -82,7 +83,12 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
   // Entities. With none, one line instead of an empty section: the absence is
   // psq's coverage, not a fact about the app (the blind spots say so).
   if (g.entities.length === 0) {
-    out.push(`no entities: psq read ${g.shapes.length} shapes and no schema`);
+    out.push(
+      `no entities: psq read ${g.shapes.length} shapes and no schema` +
+        // A partial read's reason says what was left out, not why there is no schema.
+        (g.coverage?.entities.status === "partial" ? " in a partial read" : "") +
+        ` (${g.coverage?.entities.reason ?? "no reason recorded"})`,
+    );
   } else {
     out.push("## Entities and relations", "");
   }
@@ -296,6 +302,9 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
   if (lone.length) out.push("", `Entities with no relations: ${lone.join(", ")}`);
   out.push("");
 
+  // Coverage: never cut by scale (at most 11 lines).
+  out.push("## Coverage", "", ...coverageLines(g), "");
+
   // Blind spots
   out.push("## Warnings and what psq cannot see", "");
   const warn = cap(g.warnings, L.warnings);
@@ -305,4 +314,41 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
   for (const b of blindSpots(g)) out.push(`- cannot see: ${b}`);
   out.push("", `> ${INSTRUCTION}`, "");
   return out.join("\n");
+}
+
+const FACETS: ReadonlyArray<keyof Coverage> = [
+  "entities", "relations", "shapes", "routes", "clientCalls", "components", "entityRefs", "calls", "pairing",
+];
+
+/**
+ * One line per facet in a fixed order, then the provider basis. A facet's
+ * reason is printed whatever its status: a `complete` facet may carry an
+ * advisory reason, so "reason present" never means "empty".
+ */
+function coverageLines(g: EntityGraph): string[] {
+  const c = g.coverage;
+  if (!c) return ["- coverage: not recorded by this extractor"];
+  const lines = FACETS.map((k) => {
+    const f = c[k];
+    const why = f.reason ? ` — ${f.reason}` : "";
+    if (f.status === "not-read" && f.roots.length === 0) return `- ${k}: not-read${why}`;
+    const parts = [
+      `readers ${f.readers.join(", ")}`,
+      `roots ${f.roots.join(", ")}`,
+      `${f.filesRead} files`,
+      ...(f.skipped.length ? [`skipped ${f.skipped.map((x) => `${x.count} ${x.why}`).join(", ")}`] : []),
+    ];
+    return `- ${k}: ${f.status} (${parts.join("; ")})${why}`;
+  });
+  const b = g.providerBasis;
+  if (b) {
+    const yn = (v: boolean): string => (v ? "yes" : "no");
+    lines.push(
+      `- basis: ${b.csFiles} .cs (${b.testOnlyCs} under test paths), ` +
+        `${b.csprojFiles} .csproj (${b.testOnlyCsproj} under test paths), ` +
+        `${b.tsFiles} .ts/.tsx (${b.testOnlyTs} under test paths); ` +
+        `package.json ${yn(b.packageJson)}; tsconfig.json ${yn(b.tsconfig)}`,
+    );
+  }
+  return lines;
 }

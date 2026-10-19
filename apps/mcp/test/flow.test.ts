@@ -128,6 +128,13 @@ describe("brief Flow section", () => {
     const b = brief();
     expect(b.length).toBeLessThanOrEqual(BRIEF_BUDGET);
     expect(b).toContain("Lists are cut to");
+    // The Coverage section is never cut, whatever the scale.
+    const c = b.slice(b.indexOf("## Coverage"), b.indexOf("## Warnings"));
+    expect(b).toContain("## Coverage");
+    for (const f of ["entities", "relations", "shapes", "routes", "clientCalls", "components", "entityRefs", "calls", "pairing"]) {
+      expect(c, f).toMatch(new RegExp(`\\n- ${f}: `));
+    }
+    expect(c).toMatch(/\n- basis: /);
   });
 });
 

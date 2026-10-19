@@ -69,15 +69,15 @@ export interface RepoHead {
 /**
  * `git rev-parse` only. Never `status` or `diff`: those can run the opened
  * repo's `core.fsmonitor` hook, which is code from the repo psq is reading.
- * The environment is scrubbed of the variables that would point git at a
- * different repository than the path. Null on any failure (no git, not a
- * repo, no commits, timeout).
+ * The environment is scrubbed of EVERY `GIT_*` variable. That is broader than
+ * git's own repo-locating set (`git rev-parse --local-env-vars`, which omits
+ * `GIT_CEILING_DIRECTORIES`) and is chosen for simplicity: the repo at `path`
+ * is the only one psq identifies, so no inherited `GIT_*` setting is wanted.
+ * Null on any failure (no git, not a repo, no commits, timeout).
  */
 export function repoHeadOf(path: string): RepoHead | null {
   const env = { ...process.env };
-  delete env.GIT_DIR;
-  delete env.GIT_WORK_TREE;
-  delete env.GIT_INDEX_FILE;
+  for (const k of Object.keys(env)) if (/^GIT_/.test(k)) delete env[k];
   const git = (args: string[]): string =>
     execFileSync("git", ["-C", path, "rev-parse", ...args], {
       stdio: ["ignore", "pipe", "ignore"],
@@ -124,9 +124,6 @@ export function identityOf(repo: OpenRepo): Identity {
 export const headLabel = (h: RepoHead | null): string =>
   h === null ? "none" : h.prefix === "" ? h.commit : `${h.commit}:${h.prefix}`;
 
-/** The coverage note a 0-entity repo carries on every tool result. */
-export const NO_ENTITIES = { entities: "none-found" } as const;
-
 // ---------------------------------------------------------------------------
 // Stop conditions: what psq cannot see, and what each tool does not establish.
 
@@ -158,11 +155,15 @@ export const LIMITS = {
     text:
       "Counts are what psq extracted, not what the repo holds: 0 entities means psq read no " +
       "schema it understands, not that the app stores no data.",
+    // Gated on the COUNT, never on "a reason is present": a `complete` or
+    // `partial` facet may carry a reason with entities found. A `partial`
+    // reason explains the partial read, not the missing schema, so it is
+    // worded as such rather than as the cause.
     see: (g) =>
       g.entities.length === 0 &&
-      "psq read no entity schema here (no EF Core entity reachable from a DbSet, no CREATE TABLE " +
-        "literal): missing coverage is unknown, not absence, and the app may keep data in a way " +
-        "psq does not read.",
+      `psq read no entity schema here${g.coverage?.entities.status === "partial" ? " in a partial read" : ""} ` +
+        `(${g.coverage?.entities.reason ?? "no reader reported why"}): ` +
+        "missing coverage is unknown, not absence, and the app may keep data in a way psq does not read.",
   },
   ddlRelations: {
     // `ddl.ts` marks a relation `declared` when the DDL writes FOREIGN KEY /

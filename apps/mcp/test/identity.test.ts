@@ -1,4 +1,5 @@
-import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,11 +8,12 @@ import { EntityGraph } from "@psq/schema";
 import { Workspace } from "../../server/src/workspace.js";
 import { blindSpots, canonicalGraphJson, graphDigestOf, headLabel, repoHeadOf } from "../src/common.js";
 import { tools, type Ctx } from "../src/tools.js";
-import { MINI_EFCORE_REFS, MINI_TYPES_ONLY } from "../../../test/fixtures.js";
+import { MINI_EFCORE_REFS, MINI_REACT, MINI_TYPES_ONLY } from "../../../test/fixtures.js";
 
 /**
- * P1: every answer names the snapshot it was read from, and a repo with no
- * entities opens over the MCP with its coverage stated instead of refusing.
+ * P1: every answer names the snapshot it was read from. A repo with no
+ * entities opens over the MCP; its results carry `coverage` (per-facet status
+ * and reason) instead of a refusal.
  */
 
 let ctx: Ctx;
@@ -27,6 +29,16 @@ afterEach(() => {
 type Json = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const HEX64 = /^[0-9a-f]{64}$/;
+
+const FACETS = [
+  "entities", "relations", "shapes", "routes", "clientCalls", "components", "entityRefs", "calls", "pairing",
+];
+
+/** MINI_TYPES_ONLY's coverage: entities none-found WITH the reason, shapes complete. */
+const NONE_FOUND = expect.objectContaining({
+  entities: expect.objectContaining({ status: "none-found", reason: expect.stringMatching(/CREATE TABLE/) }),
+  shapes: expect.objectContaining({ status: "complete" }),
+});
 
 function expectHeadShape(h: unknown): void {
   if (h === null) return;
@@ -46,7 +58,7 @@ describe("a repo with no entities", () => {
       entities: 0,
       shapes: 3,
       warnings: 1,
-      coverage: { entities: "none-found" },
+      coverage: NONE_FOUND,
       extractorVersion: EXTRACTOR_VERSION,
     });
     expect(o.graphDigest).toMatch(HEX64);
@@ -66,16 +78,18 @@ describe("a repo with no entities", () => {
       tools.flow.run(ctx, { route: "GET /x" }),
       tools.areas.run(ctx, {}),
     ] as Json[]) {
-      expect(r).toEqual({ error: "no-entities", coverage: { entities: "none-found" }, graphDigest: expect.stringMatching(HEX64) });
+      expect(r).toEqual({ error: "no-entities", coverage: NONE_FOUND, graphDigest: expect.stringMatching(HEX64) });
     }
     const s = tools.search_entities.run(ctx, { query: "Post" }) as Json;
-    expect(s).toMatchObject({ total: 0, hits: [], next: [], coverage: { entities: "none-found" } });
+    expect(s).toMatchObject({ total: 0, hits: [], next: [], coverage: NONE_FOUND });
   });
 
   it("renders a one-line notice in the brief instead of an empty entities section", () => {
     tools.open_repo.run(ctx, { path: MINI_TYPES_ONLY });
     const b = tools.brief.run(ctx, {}) as string;
-    expect(b).toContain("\nno entities: psq read 3 shapes and no schema\n");
+    expect(b).toContain(
+      "\nno entities: psq read 3 shapes and no schema (no CREATE TABLE literal among 2 TypeScript files)\n",
+    );
     expect(b).not.toContain("## Entities and relations");
     expect(b).toContain("cannot see: psq read no entity schema here");
     expect(b).toMatch(/missing coverage is unknown, not absence/);
@@ -117,6 +131,91 @@ describe("a repo with no entities", () => {
     expect((tools.warnings.run(ctx, {}) as Json).cannotSee.join("\n")).toMatch(/missing coverage is unknown/);
     const refs = ctx.workspace.open(MINI_EFCORE_REFS);
     expect(blindSpots(refs.graph).join("\n")).not.toMatch(/missing coverage is unknown/);
+  });
+});
+
+describe("the coverage reason in cannotSee, the brief and the HTTP refusal", () => {
+  /**
+   * mini-react copied to its own temp dir, so a test can edit it without
+   * touching the shared fixture. Opened by absolute path, tsconfig.json's two
+   * references make the TS read partial ("reading only tsconfig.app.json");
+   * each test asserts that precondition, so it cannot pass vacuously.
+   */
+  const PARTIAL = "tsconfig.json: 2 referenced projects; reading only tsconfig.app.json";
+  function reactCopy(stripSchema: boolean): string {
+    const d = mkdtempSync(join(tmpdir(), "psq-react-"));
+    dirs.push(d);
+    const repo = join(d, "repo");
+    cpSync(MINI_REACT, repo, { recursive: true });
+    if (stripSchema) {
+      const p = join(repo, "src/lib/schema.ts");
+      const src = readFileSync(p, "utf8");
+      const out = src.replaceAll("CREATE TABLE", "-- no table");
+      expect(out).not.toBe(src);
+      writeFileSync(p, out);
+    }
+    return repo;
+  }
+
+  it("embeds the none-found reason in the cannotSee line", () => {
+    tools.open_repo.run(ctx, { path: MINI_TYPES_ONLY });
+    expect((tools.warnings.run(ctx, {}) as Json).cannotSee).toContain(
+      "psq read no entity schema here (no CREATE TABLE literal among 2 TypeScript files): missing coverage is " +
+        "unknown, not absence, and the app may keep data in a way psq does not read.",
+    );
+  });
+
+  it("words a partial read's reason as what was left out, not as the cause, at all three sites", () => {
+    const repo = reactCopy(true);
+    expect(() => new Workspace().open(repo)).toThrow(
+      `No entities found in a partial read (${PARTIAL}). psq reads a schema from raw DDL;`,
+    );
+    const o = tools.open_repo.run(ctx, { path: repo }) as Json;
+    expect(o.entities).toBe(0);
+    expect(o.coverage.entities).toMatchObject({ status: "partial", reason: PARTIAL });
+    const b = tools.brief.run(ctx, {}) as string;
+    expect(b).toContain(`\nno entities: psq read ${o.shapes} shapes and no schema in a partial read (${PARTIAL})\n`);
+    const spots = (tools.warnings.run(ctx, {}) as Json).cannotSee as string[];
+    expect(spots).toContain(
+      `psq read no entity schema here in a partial read (${PARTIAL}): missing coverage is unknown, not absence, ` +
+        "and the app may keep data in a way psq does not read.",
+    );
+  });
+
+  it("does not fire on a repo with entities whose entities facet carries a (partial) reason", () => {
+    const repo = reactCopy(false);
+    const o = tools.open_repo.run(ctx, { path: repo }) as Json;
+    // Non-vacuous: entities were found AND the facet has a reason.
+    expect(o.entities).toBeGreaterThan(0);
+    expect(o.coverage.entities).toMatchObject({ status: "partial", reason: PARTIAL });
+    const spots = ((tools.warnings.run(ctx, {}) as Json).cannotSee as string[]).join("\n");
+    expect(spots).not.toContain("psq read no entity schema here");
+    expect(tools.brief.run(ctx, {}) as string).not.toContain("no entities:");
+  });
+});
+
+describe("coverage on a repo with entities", () => {
+  it("open_repo carries the full coverage block and providerBasis on a repo with entities", () => {
+    const o = tools.open_repo.run(ctx, { path: MINI_EFCORE_REFS }) as Json;
+    expect(o.entities).toBe(2);
+    expect(Object.keys(o.coverage)).toEqual(FACETS);
+    expect(o.coverage.entities.status).toBe("complete");
+    expect(o.providerBasis.csFiles).toBeGreaterThan(0);
+    expect(o.providerBasis).toHaveProperty("testOnlyCsproj");
+  });
+
+  it("overview and warnings carry coverage; entity and routes do not on a repo with entities", () => {
+    const o = tools.open_repo.run(ctx, { path: MINI_EFCORE_REFS }) as Json;
+    const overview = tools.overview.run(ctx, {}) as Json;
+    const warnings = tools.warnings.run(ctx, {}) as Json;
+    // Keys first: on a tool without coverage, `undefined` would equal `undefined`.
+    expect(Object.keys(overview.coverage ?? {})).toEqual(FACETS);
+    expect(Object.keys(warnings.coverage ?? {})).toEqual(FACETS);
+    expect(overview.coverage).toEqual(o.coverage);
+    expect(warnings.coverage).toEqual(o.coverage);
+    // `stamp` injects coverage only on a 0-entity repo.
+    expect(tools.entity.run(ctx, { name: "Course" }) as Json).not.toHaveProperty("coverage");
+    expect(tools.routes.run(ctx, {}) as Json).not.toHaveProperty("coverage");
   });
 });
 
@@ -201,6 +300,43 @@ describe("repoHead", () => {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
       }
+    }
+  });
+
+  describe("scrubs every GIT_* variable, on a repo built here (never vacuous outside a checkout)", () => {
+    let sub: string;
+    let clean: ReturnType<typeof repoHeadOf>;
+    beforeEach(() => {
+      const t = mkdtempSync(join(tmpdir(), "psq-git-"));
+      dirs.push(t);
+      const git = (...args: string[]): void => {
+        const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
+        execFileSync("git", ["-C", t, ...args], { stdio: "ignore", env });
+      };
+      git("init", "-q");
+      git("-c", "user.name=x", "-c", "user.email=x@y", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "i");
+      sub = join(t, "a", "b");
+      mkdirSync(sub, { recursive: true });
+      clean = repoHeadOf(sub);
+      // HARD: a null here would make both cases below pass on any scrub.
+      expect(clean).not.toBeNull();
+      expect(clean!.prefix).toBe("a/b/");
+    });
+
+    for (const [key, value] of [
+      ["GIT_COMMON_DIR", () => "/nonexistent"],
+      ["GIT_CEILING_DIRECTORIES", () => join(sub, "..")],
+    ] as const) {
+      it(`ignores ${key}`, () => {
+        const saved = process.env[key];
+        try {
+          process.env[key] = value();
+          expect(repoHeadOf(sub)).toEqual(clean);
+        } finally {
+          if (saved === undefined) delete process.env[key];
+          else process.env[key] = saved;
+        }
+      });
     }
   });
 

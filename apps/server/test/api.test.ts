@@ -58,6 +58,10 @@ describe("opening a repo", () => {
     expect(res.body.error).toContain("No entities found");
     // The reason names what psq actually looked for in THIS repo, not a generic apology.
     expect(res.body.error).toContain("CREATE TABLE");
+    // The coverage reason itself reached the HTTP message, file count and all.
+    expect(res.body.error).toContain("TypeScript files");
+    // sqlite-ddl keeps the raw-DDL / ORM advice.
+    expect(res.body.error).toContain("ORM-defined schema");
   });
 
   it("reopening replaces the old copy instead of leaking a database", async () => {
@@ -524,7 +528,7 @@ describe("health", () => {
   // so persistence is off and the state is "off" rather than "pending" — a
   // "pending" that nothing will ever advance would be the wrong thing to
   // report forever.
-  const OFF = { state: "off", loaded: 0, failed: 0, missing: 0 };
+  const OFF = { state: "off", loaded: 0, failed: 0, missing: 0, emptied: 0 };
 
   it("reports how many repos are open", async () => {
     expect((await request(app).get("/api/health")).body)
