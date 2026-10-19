@@ -1,13 +1,16 @@
 import { readFileSync } from "node:fs";
 import type {
-  DeleteBehavior, Entity, EntityGraph, FactSource, Index, Property, Relation,
+  Coverage, DeleteBehavior, Entity, FactSource, Index, Property, Relation,
 } from "@psq/schema";
 import { parseCSharp, type FileParse, type PropertyDecl, type TypeDecl } from "./csharp/structure.js";
 import { entityConfigs, enumMemberArg, lambdaMembers, type EntityConfig } from "./csharp/fluent.js";
 import { collectEntityRefs } from "./csharp/entity-refs.js";
 import { collectCalls } from "./csharp/calls.js";
 import { readAspNetRoutes, scanUnattributedRouting } from "./csharp/routes.js";
-import { repoRelative, walk } from "./files.js";
+import { isTestFile, repoRelative, walk } from "./files.js";
+import {
+  facet, noneFound, notRead, pairingCoverage, skips, type ReaderGraph, type ReaderRun,
+} from "./coverage.js";
 import { csharpShapes } from "./csharp/shapes.js";
 import { pairShapes } from "./pair.js";
 
@@ -260,12 +263,14 @@ export interface DotnetExtractOptions {
 export function extractDotnet(
   repoRoot: string,
   opts: DotnetExtractOptions = {},
-): EntityGraph {
+): ReaderGraph {
   const warnings: string[] = [];
-  const files = walk(repoRoot, [".cs"]).filter((f) => {
+  const allCs = walk(repoRoot, [".cs"]);
+  const files = allCs.filter((f) => {
     if (opts.includeMigrations) return true;
     return !/\/Migrations\//.test(f);
   });
+  const migrationsSkipped = allCs.length - files.length;
 
   const parses: FileParse[] = [];
   for (const f of files) {
@@ -298,20 +303,60 @@ export function extractDotnet(
   const { routes, warnings: routeWarnings } = readAspNetRoutes(parses);
   warnings.push(...routeWarnings);
 
+  // One reader run over every parsed `.cs` file; each facet below shares it.
+  // The C# readers do not apply `isTestFile`, so nothing is skipped as a test.
+  const run: ReaderRun = {
+    roots: ["."],
+    filesRead: parses.length,
+    skipped: skips(["migrations", migrationsSkipped]),
+  };
+  const notTs = (): ReturnType<typeof notRead> =>
+    notRead("no TypeScript reader runs under provider efcore");
+
   const contexts = findContexts(parses);
   if (contexts.length === 0) {
+    const noContext =
+      `no class directly deriving DbContext among ${parses.length} .cs files ` +
+      `(${migrationsSkipped} under Migrations/ skipped)`;
+    const afterContext = "C# shapes/entity refs are read only after a DbContext is elected";
+    const coverage: Coverage = {
+      entities: noneFound(run, ["efcore"], noContext),
+      relations: noneFound(run, ["efcore"], noContext),
+      shapes: notRead(afterContext),
+      routes: facet(run, ["aspnet-routes"], routes.length, routesEmpty(parses.length)),
+      clientCalls: notTs(),
+      components: notTs(),
+      entityRefs: notRead(afterContext),
+      calls: facet(run, ["csharp-calls"], calls.length, callsEmpty(parses.length)),
+      pairing: notRead("no entities to pair shapes against"),
+    };
     return {
       kind: "entity", repo: repoRoot, provider: "efcore", contextName: null,
       entities: [], relations: [], shapes: [], routes, clientCalls: [], components: [],
-      entityRefs: [], calls, unresolvedCalls, warnings,
+      entityRefs: [], calls, unresolvedCalls, warnings, coverage,
     };
   }
+  // A DbContext under a test path is a fixture's model, not the repo's. Elect
+  // from the others; only when every context is under a test path fall back to
+  // all of them, and say so in coverage.
+  const nonTest = contexts.filter((c) => !isTestFile(c.parse.file));
+  const candidates = nonTest.length > 0 ? nonTest : contexts;
+  const skippedTest = contexts.length - candidates.length;
+  const ctx = candidates.slice().sort((a, b) => b.dbSets.size - a.dbSets.size)[0]!;
   if (contexts.length > 1) {
     warnings.push(
-      `${contexts.length} DbContext classes found (${contexts.map((c) => c.decl.name).join(", ")}); using the one with the most DbSets`,
+      `${contexts.length} DbContext classes found (${contexts.map((c) => c.decl.name).join(", ")}); ` +
+        `elected ${ctx.decl.name} (most DbSets${
+          nonTest.length === 0
+            ? ", all under test paths"
+            : skippedTest > 0 ? `, ${skippedTest} under test paths not considered` : ""
+        })`,
     );
   }
-  const ctx = contexts.slice().sort((a, b) => b.dbSets.size - a.dbSets.size)[0]!;
+  const entityReasons: string[] = [];
+  if (nonTest.length === 0) {
+    entityReasons.push(`only test-path DbContext classes found; elected ${ctx.decl.name}`);
+  }
 
   // ---- entity set -------------------------------------------------------
   const wanted = new Map<string, string | null>(); // type name -> DbSet name
@@ -465,9 +510,11 @@ export function extractDotnet(
   // a second, empty context is already covered by the multiple-context warning
   // above, and warning per-context would fire on the abstract-base pattern.
   if (entities.length === 0 && !ctx.decl.modifiers.includes("abstract")) {
-    warnings.push(
-      `${ctx.parse.file}:${ctx.decl.line}: DbContext ${ctx.decl.name} contributed no entities; the model is empty`,
-    );
+    const empty = `${ctx.parse.file}:${ctx.decl.line}: DbContext ${ctx.decl.name} contributed no entities; the model is empty`;
+    warnings.push(empty);
+    entityReasons.push(empty);
+  } else if (entities.length === 0) {
+    entityReasons.push(`elected DbContext ${ctx.decl.name} is abstract and contributed no entities`);
   }
 
   const entityByName = new Map(entities.map((e) => [e.name, e]));
@@ -640,6 +687,33 @@ export function extractDotnet(
   // the ones that contributed an entity.
   const entityRefs = collectEntityRefs(parses, entities, { contextDecl: ctx.decl });
 
+  // `facet` is count-based: `complete` with facts, `none-found` without. The
+  // fallback-election reason rides along on a complete entities facet.
+  const entitiesFacet = facet(run, ["efcore"], entities.length, entityReasons.join("; "));
+  if (entitiesFacet.status === "complete" && entityReasons.length > 0) {
+    entitiesFacet.reason = entityReasons.join("; ");
+  }
+  const coverage: Coverage = {
+    entities: entitiesFacet,
+    relations: facet(
+      run, ["efcore"], relations.length,
+      entities.length === 0
+        ? entityReasons.join("; ")
+        : `no relationship found among ${entities.length} entities of ${ctx.decl.name}`,
+    ),
+    shapes: facet(run, ["csharp-shapes"], shapes.length,
+      `no C# class, record, interface or enum outside the entity set among ${parses.length} .cs files`),
+    routes: facet(run, ["aspnet-routes"], routes.length, routesEmpty(parses.length)),
+    clientCalls: notTs(),
+    components: notTs(),
+    entityRefs: facet(run, ["entity-refs"], entityRefs.length,
+      entities.length === 0
+        ? "no entities to reference"
+        : `no method body among ${parses.length} .cs files mentions an entity`),
+    calls: facet(run, ["csharp-calls"], calls.length, callsEmpty(parses.length)),
+    pairing: pairingCoverage(run, entities.length, shapes.length),
+  };
+
   return {
     kind: "entity",
     repo: repoRoot,
@@ -659,7 +733,16 @@ export function extractDotnet(
     calls,
     unresolvedCalls,
     warnings,
+    coverage,
   };
+}
+
+function routesEmpty(files: number): string {
+  return `no attribute-routed ASP.NET action among ${files} .cs files`;
+}
+
+function callsEmpty(files: number): string {
+  return `no resolvable method-to-method call among ${files} .cs files`;
 }
 
 /** Read a boolean argument: `IsRequired()` and `IsRequired(true)` are true. */

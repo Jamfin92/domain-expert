@@ -1,8 +1,11 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import ts from "typescript";
-import type { ClientCall, EntityGraph } from "@psq/schema";
-import { repoRelative, walk } from "./files.js";
+import type { ClientCall, Coverage } from "@psq/schema";
+import { isTestFile, repoRelative, walk, walkHitLimit, WALK_LIMIT } from "./files.js";
+import {
+  facet, notRead, pairingCoverage, skips, type ReaderGraph, type ReaderRun, type Skip,
+} from "./coverage.js";
 import { collectDdl, readSchema } from "./node/ddl.js";
 import { readShapes } from "./node/shapes.js";
 import { readRoutes } from "./node/routes.js";
@@ -112,7 +115,13 @@ function pickReferencedProject(
     : { configPath: winner.configPath, parsed: winner.parsed, contributors };
 }
 
-function programFor(repoRoot: string, warnings: string[]): ts.Program {
+/** What `programFor` knowingly left out; folded into every node facet's coverage. */
+interface ProgramScope {
+  partialReason: string | null;
+  skipped: Skip[];
+}
+
+function programFor(repoRoot: string, warnings: string[], scope: ProgramScope): ts.Program {
   const configPath = join(repoRoot, "tsconfig.json");
 
   if (existsSync(configPath)) {
@@ -142,9 +151,10 @@ function programFor(repoRoot: string, warnings: string[]): ts.Program {
           // vite.config.ts); for a monorepo solution config it is a
           // half-read, so say so. A reference contributing nothing readable
           // (out-of-root, empty) is not a drop and does not warn.
-          warnings.push(
-            `tsconfig.json: ${refs.length} referenced projects; reading only ${repoRelative(repoRoot, chosen.configPath)}`,
-          );
+          const sentence = `tsconfig.json: ${refs.length} referenced projects; reading only ${repoRelative(repoRoot, chosen.configPath)}`;
+          warnings.push(sentence);
+          scope.partialReason = sentence;
+          scope.skipped.push(...skips(["other-project", refs.length - 1]));
         }
         return ts.createProgram(chosen.parsed.fileNames, {
           ...chosen.parsed.options,
@@ -164,7 +174,12 @@ function programFor(repoRoot: string, warnings: string[]): ts.Program {
     }
   }
 
-  return ts.createProgram(walk(repoRoot, [".ts", ".tsx"]), FALLBACK_OPTIONS);
+  const scanned = walk(repoRoot, [".ts", ".tsx"]);
+  if (walkHitLimit(scanned, WALK_LIMIT)) {
+    scope.partialReason = `the directory scan stopped at its ${WALK_LIMIT}-file limit; directories past it were not read`;
+    scope.skipped.push(...skips(["walk-limit", 1]));
+  }
+  return ts.createProgram(scanned, FALLBACK_OPTIONS);
 }
 
 /**
@@ -184,9 +199,10 @@ function ownSources(program: ts.Program, repoRoot: string): ts.SourceFile[] {
     .sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
 
-export function extractNode(repoRoot: string): EntityGraph {
+export function extractNode(repoRoot: string): ReaderGraph {
   const warnings: string[] = [];
-  const program = programFor(repoRoot, warnings);
+  const scope: ProgramScope = { partialReason: null, skipped: [] };
+  const program = programFor(repoRoot, warnings, scope);
   const checker = program.getTypeChecker();
   const sources = ownSources(program, repoRoot);
 
@@ -218,6 +234,47 @@ export function extractNode(repoRoot: string): EntityGraph {
     warnings,
   );
 
+  // One reader run over `sources`. The TypeScript readers each skip test
+  // files (`isTestFile`), so `filesRead` and every reason count the files
+  // actually scanned: sources minus test files. Same rule as the .NET reader,
+  // whose `filesRead` excludes the Migrations/ files it skips. In-root
+  // declaration files never reach `sources` at all.
+  const prefix = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
+  const testFiles = sources.filter((f) => isTestFile(repoRelative(repoRoot, f.fileName))).length;
+  const declarations = program
+    .getSourceFiles()
+    .filter(
+      (f) => f.isDeclarationFile && !f.fileName.includes("/node_modules/") && f.fileName.startsWith(prefix),
+    ).length;
+  const scanned = sources.length - testFiles;
+  const run: ReaderRun = {
+    roots: ["."],
+    filesRead: scanned,
+    skipped: [...skips(["test-file", testFiles], ["declaration", declarations]), ...scope.skipped],
+    partialReason: scope.partialReason,
+  };
+  const noDdl = `no CREATE TABLE literal among ${scanned} TypeScript files`;
+  const noTsReader = (f: string): ReturnType<typeof notRead> => notRead(`no TypeScript reader for ${f}`);
+  const coverage: Coverage = {
+    entities: facet(run, ["sqlite-ddl"], entities.length, noDdl),
+    relations: facet(run, ["sqlite-ddl"], relations.length,
+      entities.length === 0 ? noDdl : `no relationship inferred among ${entities.length} tables`),
+    shapes: facet(run, ["ts-shapes"], shapes.length,
+      `no interface, type alias, enum or zod schema among ${scanned} TypeScript files`),
+    routes: facet(run, ["express-routes"], routes.length,
+      `no Express-style route registration among ${scanned} TypeScript files`),
+    clientCalls: facet(run, ["client-calls"], clientCalls.length,
+      `no HTTP call site among ${scanned} TypeScript files`),
+    components: facet(run, ["components"], components.length,
+      `no UI component among ${scanned} TypeScript files`),
+    entityRefs: noTsReader("entity refs"),
+    calls: noTsReader("method calls"),
+    // A partial run makes pairing partial too: shapes or tables it did not read were not paired.
+    pairing: run.partialReason
+      ? facet(run, ["pair"], 0, "")
+      : pairingCoverage(run, entities.length, shapes.length),
+  };
+
   return {
     kind: "entity",
     repo: repoRoot,
@@ -233,5 +290,6 @@ export function extractNode(repoRoot: string): EntityGraph {
     // is a SQLite table-name string, not a symbol. That half is H-c.
     entityRefs: [],
     warnings,
+    coverage,
   };
 }

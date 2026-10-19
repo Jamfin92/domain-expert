@@ -15,7 +15,10 @@ const SKIP = new Set([
  * Walk a repo collecting files with the given extensions.
  * Read-only: psq never writes into a target repo except on explicit export.
  */
-export function walk(root: string, exts: string[], limit = 20000): string[] {
+/** `walk`'s default file limit. */
+export const WALK_LIMIT = 20000;
+
+export function walk(root: string, exts: string[], limit = WALK_LIMIT): string[] {
   const out: string[] = [];
   const stack = [root];
   while (stack.length > 0 && out.length < limit) {
@@ -58,6 +61,26 @@ export function isTestFile(repoRelativePath: string): boolean {
     /(^|\/)(test|tests|__tests__|fixtures|__fixtures__)\//.test(repoRelativePath) ||
     /\.(test|spec)\.[cm]?[jt]sx?$/.test(repoRelativePath)
   );
+}
+
+/**
+ * Split walked files into the repo's own source and source under test paths,
+ * by `isTestFile` on the path relative to `root`. Order is preserved.
+ */
+export function partitionTest(root: string, files: string[]): { src: string[]; test: string[] } {
+  const src: string[] = [];
+  const test: string[] = [];
+  for (const f of files) (isTestFile(repoRelative(root, f)) ? test : src).push(f);
+  return { src, test };
+}
+
+/**
+ * Whether a `walk` stopped at its limit. `walk` checks the limit once per
+ * directory, so it can return MORE than `limit`; reaching it at all means
+ * directories may have been left unread.
+ */
+export function walkHitLimit(files: string[], limit: number): boolean {
+  return files.length >= limit;
 }
 
 /**

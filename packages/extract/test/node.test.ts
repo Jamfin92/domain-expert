@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { extractNode } from "../src/index.js";
 import {
   corpusRepo,
@@ -208,6 +211,54 @@ describe.skipIf(!repoAClient)("repoAClient: Vite React client [corpus]", () => {
     const keys = new Set(g.components.map((c) => c.key));
     for (const call of g.clientCalls) {
       for (const key of call.components) expect(keys.has(key), key).toBe(true);
+    }
+  });
+});
+
+describe("extractNode coverage (P2a)", () => {
+  it("counts test files and in-root declarations as skipped; no DDL is none-found with a reason", () => {
+    const root = mkdtempSync(join(tmpdir(), "psq-node-cov-"));
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "user.ts"), "export interface User { id: number }\n");
+      writeFileSync(join(root, "src", "user.test.ts"), "export interface Fixture { id: number }\n");
+      writeFileSync(join(root, "src", "env.d.ts"), "declare const BUILD: string;\n");
+      const g = extractNode(root);
+      expect(g.coverage.entities).toEqual({
+        status: "none-found",
+        readers: ["sqlite-ddl"],
+        roots: ["."],
+        // 2 sources, 1 of them a test file every TS reader skips: 1 scanned.
+        filesRead: 1,
+        skipped: [{ why: "test-file", count: 1 }, { why: "declaration", count: 1 }],
+        reason: "no CREATE TABLE literal among 1 TypeScript files",
+      });
+      expect(g.coverage.routes.reason).toBe("no Express-style route registration among 1 TypeScript files");
+      expect(g.coverage.shapes.status).toBe("complete");
+      expect(g.coverage.entityRefs).toMatchObject({ status: "not-read", reason: "no TypeScript reader for entity refs" });
+      expect(g.coverage.calls.status).toBe("not-read");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("extractNode coverage counts only scanned files", () => {
+  it("a lone test file under a manifest is skipped, so the reason says 0 scanned", () => {
+    const root = mkdtempSync(join(tmpdir(), "psq-node-scan-"));
+    try {
+      writeFileSync(join(root, "package.json"), "{}\n");
+      mkdirSync(join(root, "test"), { recursive: true });
+      writeFileSync(join(root, "test", "a.ts"), "export const a = 1;\n");
+      const g = extractNode(root);
+      expect(g.coverage.entities).toMatchObject({
+        status: "none-found",
+        filesRead: 0,
+        skipped: [{ why: "test-file", count: 1 }],
+        reason: "no CREATE TABLE literal among 0 TypeScript files",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

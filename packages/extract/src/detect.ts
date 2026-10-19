@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { EntityGraph } from "@psq/schema";
+import type { ProviderBasis } from "@psq/schema";
 import { extractDotnet } from "./dotnet.js";
 import { extractNode } from "./node.js";
-import { digestOf, repoRelative, walk } from "./files.js";
+import { digestOf, partitionTest, repoRelative, walk } from "./files.js";
 import { mergeGraphs, nodeRootFor } from "./merge.js";
+import { allFacets, notRead, type ExtractedGraph } from "./coverage.js";
 
 export type Provider = "efcore" | "sqlite-ddl" | "fullstack" | "none";
 
@@ -20,28 +21,45 @@ export type Provider = "efcore" | "sqlite-ddl" | "fullstack" | "none";
  * throwing away the client half of a full-stack repo throws away facts psq can
  * read. Hence the reversal, recorded here rather than patched quietly.
  *
- * Known sharp edge: `walk` does not apply `isTestFile`, so ONE `.ts` anywhere
- * in a .NET repo — a build script, a Playwright spec — flips it to "fullstack"
- * and pays for a `ts.Program` (~870 ms on a repo of any size) to learn there
- * are no shapes. Nothing worse than slow: the extra reader contributes empty
- * arrays. Narrowing the test would be a guess about which `.ts` files count.
+ * Only source OUTSIDE test paths (`isTestFile`) makes a stack present. A
+ * `.cs` under `tests/fixtures/` is not the repo being a .NET project, and a
+ * Playwright spec or a `__tests__/` file is not it being a TypeScript one;
+ * routing on them read a project psq invented. The package.json/tsconfig.json
+ * fallback below is unchanged. A build script outside test paths still counts
+ * (narrowing further would be a guess about which `.ts` files matter).
  */
 export function detectProvider(repoRoot: string): Provider {
+  return detectStack(repoRoot).provider;
+}
+
+/** `detectProvider`, plus the file counts that decided it. */
+export function detectStack(repoRoot: string): { provider: Provider; basis: ProviderBasis } {
   // One walk for every extension at once. Asking separately per language means
   // traversing a repo three times before admitting psq cannot read it.
   const source = walk(repoRoot, [".csproj", ".cs", ".ts", ".tsx"]);
-  const hasDotnet = source.some((f) => f.endsWith(".csproj") || f.endsWith(".cs"));
-  const hasNode = source.some((f) => f.endsWith(".ts") || f.endsWith(".tsx"));
-  if (hasDotnet && hasNode) return "fullstack";
-  if (hasDotnet) return "efcore";
-  if (hasNode) return "sqlite-ddl";
+  const { src, test } = partitionTest(repoRoot, source);
+  const isCs = (f: string): boolean => f.endsWith(".cs");
+  const isTs = (f: string): boolean => f.endsWith(".ts") || f.endsWith(".tsx");
+  const basis: ProviderBasis = {
+    csFiles: source.filter(isCs).length,
+    csprojFiles: source.filter((f) => f.endsWith(".csproj")).length,
+    tsFiles: source.filter(isTs).length,
+    testOnlyCs: test.filter(isCs).length,
+    testOnlyCsproj: test.filter((f) => f.endsWith(".csproj")).length,
+    testOnlyTs: test.filter(isTs).length,
+    packageJson: existsSync(join(repoRoot, "package.json")),
+    tsconfig: existsSync(join(repoRoot, "tsconfig.json")),
+  };
+  const hasDotnet = src.some((f) => f.endsWith(".csproj") || isCs(f));
+  const hasNode = src.some(isTs);
+  if (hasDotnet && hasNode) return { provider: "fullstack", basis };
+  if (hasDotnet) return { provider: "efcore", basis };
+  if (hasNode) return { provider: "sqlite-ddl", basis };
 
   // No source, but a manifest: a JavaScript repo, or one whose sources live
   // somewhere `walk` skips. The Node reader will say what it could not find.
-  if (existsSync(join(repoRoot, "package.json")) || existsSync(join(repoRoot, "tsconfig.json"))) {
-    return "sqlite-ddl";
-  }
-  return "none";
+  if (basis.packageJson || basis.tsconfig) return { provider: "sqlite-ddl", basis };
+  return { provider: "none", basis };
 }
 
 /**
@@ -56,8 +74,12 @@ export function detectProvider(repoRoot: string): Provider {
  * This is a discipline control: nothing enforces the bump, and forgetting it
  * serves one class of stale graph. An auto-derived digest of the extractor's
  * own sources was considered and rejected as too clever for the gain.
+ *
+ * 8: (1) every graph carries `coverage` + `providerBasis`; (2) the provider
+ * is elected from source outside test paths only; (3) the DbContext is
+ * elected from contexts outside test paths first.
  */
-export const EXTRACTOR_VERSION = 7;
+export const EXTRACTOR_VERSION = 8;
 
 /**
  * Extract whatever this repo is, alongside a fingerprint of the files that
@@ -67,7 +89,7 @@ export const EXTRACTOR_VERSION = 7;
  * duplicate that is correct today is the drift a cross-time staleness check
  * cannot see.
  */
-export function extractWithDigest(repoRoot: string): { graph: EntityGraph; digest: string } {
+export function extractWithDigest(repoRoot: string): { graph: ExtractedGraph; digest: string } {
   // The digest is taken BEFORE extraction, and the order is load-bearing.
   // Object-literal properties evaluate in source order, so returning
   // `{ graph: extractGraph(root), digest: digestOf(root) }` would build the
@@ -88,16 +110,17 @@ export function extractWithDigest(repoRoot: string): { graph: EntityGraph; diges
  * Extract whatever this repo is. An unrecognized repo is an empty graph with a
  * warning that names what was looked for — never a throw, and never a guess.
  */
-export function extract(repoRoot: string): EntityGraph {
+export function extract(repoRoot: string): ExtractedGraph {
   return extractGraph(repoRoot);
 }
 
-function extractGraph(repoRoot: string): EntityGraph {
-  switch (detectProvider(repoRoot)) {
+function extractGraph(repoRoot: string): ExtractedGraph {
+  const { provider, basis } = detectStack(repoRoot);
+  switch (provider) {
     case "efcore":
-      return extractDotnet(repoRoot);
+      return { ...extractDotnet(repoRoot), providerBasis: basis };
     case "sqlite-ddl":
-      return extractNode(repoRoot);
+      return { ...extractNode(repoRoot), providerBasis: basis };
     case "fullstack": {
       // Two roots, one graph. The .NET reader takes the outer root; the
       // TypeScript reader takes whichever directory owns the tsconfig, because
@@ -106,9 +129,19 @@ function extractGraph(repoRoot: string): EntityGraph {
       const dotnet = extractDotnet(repoRoot);
       const picked = nodeRootFor(repoRoot);
       const node = extractNode(picked.root);
-      return mergeGraphs(dotnet, node, repoRelative(repoRoot, picked.root), picked.warnings);
+      return {
+        ...mergeGraphs(dotnet, node, repoRelative(repoRoot, picked.root), picked.warnings),
+        providerBasis: basis,
+      };
     }
-    case "none":
+    case "none": {
+      const underTest = basis.testOnlyCs + basis.testOnlyCsproj + basis.testOnlyTs;
+      const sentence =
+        "No .csproj, .cs, .ts or .tsx source files outside test paths, and no package.json or " +
+        "tsconfig.json, found here" +
+        (underTest > 0
+          ? `; ${underTest} files under test/fixture paths were not treated as the project`
+          : "");
       return {
         kind: "entity",
         repo: repoRoot,
@@ -122,9 +155,11 @@ function extractGraph(repoRoot: string): EntityGraph {
         components: [],
         entityRefs: [],
         warnings: [
-          "No .csproj, .cs, package.json, tsconfig.json or TypeScript source found here. " +
-            "psq reads .NET projects with an EF Core DbContext and Node backends with a SQLite schema.",
+          `${sentence}. psq reads .NET projects with an EF Core DbContext and Node backends with a SQLite schema.`,
         ],
+        coverage: allFacets(() => notRead(`no reader ran: ${sentence}`)),
+        providerBasis: basis,
       };
+    }
   }
 }

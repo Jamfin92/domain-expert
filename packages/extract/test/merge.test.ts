@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Component, ClientCall, Entity, EntityGraph, Route, Shape } from "@psq/schema";
 import { mergeGraphs, nodeRootFor } from "../src/merge.js";
+import { mergeFacet } from "../src/coverage.js";
+import { extract } from "../src/detect.js";
 
 // Imported directly rather than through `../src/index.js`: `merge` is an
 // internal of `extract()`, and widening the package's public surface for a
@@ -462,5 +464,123 @@ describe("mergeGraphs: client calls are matched to .NET routes", () => {
     const r = route("GET", "/a");
     const g = mergeGraphs(graph({ routes: [r] }), graph({}), "client");
     expect(g.routes).toEqual([r]);
+  });
+});
+
+describe("mergeFacet", () => {
+  type F = Parameters<typeof mergeFacet>[0];
+  const f = (status: F["status"], over: Partial<F> = {}): F => ({
+    status,
+    readers: status === "not-read" ? [] : [`r-${status}`],
+    roots: status === "not-read" ? [] : ["."],
+    filesRead: status === "not-read" ? 0 : 3,
+    skipped: [],
+    reason: status === "complete" ? null : `${status} reason`,
+    ...over,
+  });
+
+  it.each([
+    ["partial", "complete", "partial"],
+    ["complete", "partial", "partial"],
+    ["complete", "not-read", "complete"],
+    ["not-read", "complete", "complete"],
+    ["none-found", "not-read", "none-found"],
+    ["none-found", "complete", "complete"],
+    ["not-read", "not-read", "not-read"],
+  ] as const)("%s + %s -> %s", (a, b, want) => {
+    expect(mergeFacet(f(a), f(b)).status).toBe(want);
+  });
+
+  it("concatenates readers, roots and skips, sums filesRead, joins reasons", () => {
+    const m = mergeFacet(
+      f("partial", { readers: ["a"], roots: ["."], filesRead: 2, skipped: [{ why: "test-file", count: 1 }], reason: "one" }),
+      f("none-found", { readers: ["b"], roots: ["client"], filesRead: 5, skipped: [{ why: "declaration", count: 2 }], reason: "two" }),
+    );
+    expect(m).toEqual({
+      status: "partial",
+      readers: ["a", "b"],
+      roots: [".", "client"],
+      filesRead: 7,
+      skipped: [{ why: "test-file", count: 1 }, { why: "declaration", count: 2 }],
+      reason: "one; two",
+    });
+  });
+
+  it("on a merged complete, drops a none-found half's reason and keeps a complete half's", () => {
+    expect(mergeFacet(f("complete"), f("none-found", { reason: "no CREATE TABLE" })).reason).toBeNull();
+    expect(
+      mergeFacet(f("complete", { reason: "only test-path DbContext classes found; elected T" }), f("none-found")).reason,
+    ).toBe("only test-path DbContext classes found; elected T");
+    // partial still carries every half that ran.
+    expect(mergeFacet(f("partial", { reason: "p" }), f("none-found", { reason: "n" })).reason).toBe("p; n");
+  });
+
+  it("dedupes roots", () => {
+    expect(mergeFacet(f("complete"), f("none-found")).roots).toEqual(["."]);
+  });
+
+  it("drops a not-read half's reason once the other half ran", () => {
+    expect(mergeFacet(f("complete"), f("not-read")).reason).toBeNull();
+    expect(mergeFacet(f("not-read", { reason: "x" }), f("not-read", { reason: "y" })).reason).toBe("x; y");
+  });
+});
+
+describe("fullstack with the node root at the repo root", () => {
+  it("records the shared root once", () => {
+    const root = mkdtempSync(join(tmpdir(), "psq-merge-sameroot-"));
+    try {
+      writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true }, include: ["src"] }));
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "a.ts"), "export interface A { id: number }\n");
+      writeFileSync(join(root, "Program.cs"), "namespace Api;\npublic class Program {}\n");
+      const g = extract(root);
+      expect(g.provider).toBe("fullstack");
+      expect(g.coverage.routes.roots).toEqual(["."]);
+      expect(g.coverage.routes.readers).toEqual(["aspnet-routes", "express-routes"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fullstack coverage at the referenced-projects site", () => {
+  it("marks the node facets partial with an other-project skip, under the client root", () => {
+    const root = mkdtempSync(join(tmpdir(), "psq-merge-refs-"));
+    try {
+      const w = (rel: string, body: string): void => {
+        mkdirSync(join(root, rel, ".."), { recursive: true });
+        writeFileSync(join(root, rel), body);
+      };
+      w("Api/Program.cs", "namespace Api;\npublic class Program {}\n");
+      w("client/tsconfig.json", JSON.stringify({
+        files: [],
+        references: [{ path: "./tsconfig.app.json" }, { path: "./tsconfig.node.json" }],
+      }));
+      w("client/tsconfig.app.json", JSON.stringify({ compilerOptions: { strict: true }, include: ["src"] }));
+      w("client/tsconfig.node.json", JSON.stringify({ compilerOptions: { strict: true }, include: ["vite.config.ts"] }));
+      w("client/src/a.ts", "export interface A { id: number }\n");
+      w("client/src/b.ts", "export interface B { id: number }\n");
+      w("client/vite.config.ts", "export default {};\n");
+      const g = extract(root);
+      expect(g.provider).toBe("fullstack");
+      const sentence = "tsconfig.json: 2 referenced projects; reading only tsconfig.app.json";
+      expect(g.warnings).toContain(sentence);
+      expect(g.coverage.clientCalls).toMatchObject({
+        status: "partial",
+        readers: ["client-calls"],
+        roots: ["client"],
+        skipped: [{ why: "other-project", count: 1 }],
+        reason: sentence,
+      });
+      // A partial half makes the merged facet partial.
+      expect(g.coverage.shapes.status).toBe("partial");
+      // No DbContext, so the C# shapes half is not-read and adds no root.
+      expect(g.coverage.shapes.roots).toEqual(["client"]);
+      expect(g.coverage.routes.roots).toEqual([".", "client"]);
+      // The C# half never reads TypeScript, so its facets are not partial.
+      expect(g.coverage.calls.status).not.toBe("partial");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

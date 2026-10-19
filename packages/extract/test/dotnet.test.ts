@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { extractDotnet } from "../src/dotnet.js";
 
 import { corpusRepo, NOT_A_PROJECT, type CorpusDotnetExpect } from "../../../test/fixtures.js";
@@ -143,5 +146,123 @@ describe.skipIf(!repoC)("negative fixture [corpus]", () => {
     expect(g.entities).toEqual([]);
     expect(g.relations).toEqual([]);
     expect(g.contextName).toBeNull();
+  });
+});
+
+/**
+ * DbContext election and the reasons behind an empty entity model (P2a).
+ * Hermetic: each case builds its own tiny repo.
+ */
+describe("DbContext election skips test paths; empty facets say why", () => {
+  let root: string;
+  const write = (rel: string, lines: string[]): void => {
+    mkdirSync(dirname(join(root, rel)), { recursive: true });
+    writeFileSync(join(root, rel), lines.join("\n"));
+  };
+  const context = (rel: string, name: string, sets: string[], ns = "App.Data"): void =>
+    write(rel, [
+      "using Microsoft.EntityFrameworkCore;",
+      "using App.Models;",
+      `namespace ${ns};`,
+      `public class ${name} : DbContext`,
+      "{",
+      ...sets.map((t) => `    public DbSet<${t}> ${t}s { get; set; }`),
+      "}",
+    ]);
+  const model = (name: string): void =>
+    write(`Models/${name}.cs`, [
+      "namespace App.Models;",
+      `public class ${name}`,
+      "{",
+      "    public int Id { get; set; }",
+      "}",
+    ]);
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "psq-elect-"));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("elects the non-test context even when a test-path one has more DbSets", () => {
+    for (const m of ["A", "B", "C", "D", "E"]) model(m);
+    context("Data/AppDbContext.cs", "AppDbContext", ["A", "B"]);
+    context("test/Fixtures/BigTestDbContext.cs", "BigTestDbContext", ["A", "B", "C", "D", "E"], "App.Tests");
+    const g = extractDotnet(root);
+    expect(g.contextName).toBe("AppDbContext");
+    expect(g.entities.map((e) => e.name)).toEqual(["A", "B"]);
+    expect(g.warnings).toContain(
+      "2 DbContext classes found (AppDbContext, BigTestDbContext); " +
+        "elected AppDbContext (most DbSets, 1 under test paths not considered)",
+    );
+    expect(g.coverage.entities.status).toBe("complete");
+    expect(g.coverage.entities.reason).toBeNull();
+  });
+
+  it("falls back to test-path contexts when there is nothing else, and says so", () => {
+    model("A");
+    model("B");
+    context("tests/Fixtures/OnlyTestDbContext.cs", "OnlyTestDbContext", ["A", "B"], "App.Tests");
+    context("tests/Fixtures/SmallTestDbContext.cs", "SmallTestDbContext", ["A"], "App.Tests");
+    const g = extractDotnet(root);
+    expect(g.contextName).toBe("OnlyTestDbContext");
+    expect(g.warnings).toContain(
+      "2 DbContext classes found (OnlyTestDbContext, SmallTestDbContext); " +
+        "elected OnlyTestDbContext (most DbSets, all under test paths)",
+    );
+    expect(g.coverage.entities.status).toBe("complete");
+    expect(g.coverage.entities.reason).toBe(
+      "only test-path DbContext classes found; elected OnlyTestDbContext",
+    );
+  });
+
+  it("no DbContext: entities none-found with the reason, shapes not-read, routes still read", () => {
+    write("Migrations/Init.cs", ["namespace App.Migrations;", "public class Init {}"]);
+    write("Controllers/PingController.cs", [
+      "using Microsoft.AspNetCore.Mvc;",
+      "namespace App.Controllers;",
+      "[ApiController]",
+      '[Route("api/ping")]',
+      "public class PingController : ControllerBase",
+      "{",
+      "    [HttpGet]",
+      '    public IActionResult Get() => Ok("pong");',
+      "}",
+    ]);
+    const g = extractDotnet(root);
+    expect(g.contextName).toBeNull();
+    expect(g.routes.length).toBeGreaterThan(0);
+    expect(g.coverage.entities).toMatchObject({
+      status: "none-found",
+      readers: ["efcore"],
+      filesRead: 1,
+      skipped: [{ why: "migrations", count: 1 }],
+      reason: "no class directly deriving DbContext among 1 .cs files (1 under Migrations/ skipped)",
+    });
+    expect(g.coverage.relations.status).toBe("none-found");
+    expect(g.coverage.shapes).toMatchObject({
+      status: "not-read",
+      reason: "C# shapes/entity refs are read only after a DbContext is elected",
+    });
+    expect(g.coverage.entityRefs.status).toBe("not-read");
+    expect(g.coverage.routes.status).toBe("complete");
+    expect(g.coverage.clientCalls.status).toBe("not-read");
+  });
+
+  it("an abstract elected context with no entities: none-found with the abstract reason, no warning", () => {
+    write("Data/BaseContext.cs", [
+      "using Microsoft.EntityFrameworkCore;",
+      "namespace App.Data;",
+      "public abstract class BaseContext(DbContextOptions options) : DbContext(options)",
+      "{",
+      "}",
+    ]);
+    const g = extractDotnet(root);
+    expect(g.contextName).toBe("BaseContext");
+    expect(g.warnings).toEqual([]);
+    expect(g.coverage.entities).toMatchObject({
+      status: "none-found",
+      reason: "elected DbContext BaseContext is abstract and contributed no entities",
+    });
   });
 });

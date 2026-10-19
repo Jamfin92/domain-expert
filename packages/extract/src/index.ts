@@ -2,10 +2,12 @@ export {
   extract,
   extractWithDigest,
   detectProvider,
+  detectStack,
   EXTRACTOR_VERSION,
   type Provider,
 } from "./detect.js";
 export { extractDotnet, type DotnetExtractOptions } from "./dotnet.js";
+export type { ExtractedGraph, ReaderGraph } from "./coverage.js";
 export { extractNode } from "./node.js";
 export { parseCSharp } from "./csharp/structure.js";
 // `DIGEST_EXTENSIONS` is deliberately NOT re-exported: it is an internal of

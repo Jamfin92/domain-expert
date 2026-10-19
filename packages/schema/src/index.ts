@@ -405,6 +405,68 @@ export const UnresolvedCalls = z.object({
 });
 export type UnresolvedCalls = z.infer<typeof UnresolvedCalls>;
 
+// ---------------------------------------------------------------------------
+// Coverage — what each reader ran over, so an empty facet can say why (P2a)
+// ---------------------------------------------------------------------------
+
+/**
+ * complete   = the reader ran over every eligible file under its roots (says
+ *              nothing about recall)
+ * partial    = the reader ran but knowingly left eligible input out (walk limit
+ *              hit, referenced projects not read, cross-stack pairing not computed)
+ * not-read   = no reader for this facet ran under this provider
+ * none-found = the reader ran to completion and produced zero facts
+ */
+export const CoverageStatus = z.enum(["complete", "partial", "not-read", "none-found"]);
+export type CoverageStatus = z.infer<typeof CoverageStatus>;
+
+export const SkipReason = z.enum(["test-file", "migrations", "declaration", "walk-limit", "other-project"]);
+export type SkipReason = z.infer<typeof SkipReason>;
+
+export const FacetCoverage = z
+  .object({
+    status: CoverageStatus,
+    /** e.g. ["efcore"], ["sqlite-ddl"], ["aspnet-routes","express-routes"], [] */
+    readers: z.array(z.string()),
+    /** Repo-relative; "." = the repo root. */
+    roots: z.array(z.string()),
+    /** FILE-level count for that reader run, not per facet. */
+    filesRead: z.number().int().nonnegative(),
+    skipped: z.array(z.object({ why: SkipReason, count: z.number().int().positive() })),
+    reason: z.string().nullable(),
+  })
+  .refine((f) => f.status === "complete" || (f.reason !== null && f.reason.length > 0), {
+    message: "reason required unless status is complete",
+  });
+export type FacetCoverage = z.infer<typeof FacetCoverage>;
+
+/** Nine facets; `pairing` is shape-to-entity mirroring. */
+export const Coverage = z.object({
+  entities: FacetCoverage,
+  relations: FacetCoverage,
+  shapes: FacetCoverage,
+  routes: FacetCoverage,
+  clientCalls: FacetCoverage,
+  components: FacetCoverage,
+  entityRefs: FacetCoverage,
+  calls: FacetCoverage,
+  pairing: FacetCoverage,
+});
+export type Coverage = z.infer<typeof Coverage>;
+
+/** What on disk decided `provider`. Test-only counts are files under test paths. */
+export const ProviderBasis = z.object({
+  csFiles: z.number().int(),
+  csprojFiles: z.number().int(),
+  tsFiles: z.number().int(),
+  testOnlyCs: z.number().int(),
+  testOnlyCsproj: z.number().int(),
+  testOnlyTs: z.number().int(),
+  packageJson: z.boolean(),
+  tsconfig: z.boolean(),
+});
+export type ProviderBasis = z.infer<typeof ProviderBasis>;
+
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
   repo: z.string(),
@@ -449,6 +511,14 @@ export const EntityGraph = z.object({
   unresolvedCalls: z.array(UnresolvedCalls).optional(),
   /** Non-fatal parse problems. Never silently dropped. */
   warnings: z.array(z.string()),
+  /**
+   * Per-facet record of what the readers ran over. Optional so hand-built
+   * graphs and envelopes stored before it existed still parse; every graph
+   * `@psq/extract` produces carries it.
+   */
+  coverage: Coverage.optional(),
+  /** The file counts that decided `provider`. Optional for the same reason. */
+  providerBasis: ProviderBasis.optional(),
 });
 export type EntityGraph = z.infer<typeof EntityGraph>;
 

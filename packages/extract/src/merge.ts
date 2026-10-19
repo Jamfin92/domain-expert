@@ -1,7 +1,10 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { ClientCall, Component, EntityGraph, Entity, Route, Shape } from "@psq/schema";
+import type {
+  ClientCall, Component, Coverage, EntityGraph, Entity, FacetCoverage, Route, Shape,
+} from "@psq/schema";
 import { basePrefixOf, linkCalls, setBasePrefix } from "./node/clients.js";
+import { FACETS, mergeFacet, type ReaderGraph } from "./coverage.js";
 
 /**
  * Joining a .NET graph and a TypeScript graph into one.
@@ -95,6 +98,24 @@ function prefixPath(prefix: string, p: string): string {
   return prefix === "" ? p : `${prefix}/${p}`;
 }
 
+/**
+ * The cross-stack pairing sentence. One function so the warning and the
+ * `coverage.pairing.reason` it backs cannot drift apart.
+ */
+function unpairedSentence(unpaired: number): string {
+  return (
+    `${unpaired} shapes from the TypeScript side were not paired against the .NET entity ` +
+    "model; psq pairs shapes within a stack only, so mirrors:null on a TS shape means " +
+    '"not computed", not "no mirror".'
+  );
+}
+
+/** Node-side coverage roots are relative to the node root; put them in merge coordinates. */
+function prefixFacet(prefix: string, f: FacetCoverage): FacetCoverage {
+  if (prefix === "") return f;
+  return { ...f, roots: f.roots.map((r) => (r === "." ? prefix : prefixPath(prefix, r))) };
+}
+
 function byNameThenFile(a: { name: string; file: string }, b: { name: string; file: string }): number {
   return a.name.localeCompare(b.name) || a.file.localeCompare(b.file);
 }
@@ -110,8 +131,23 @@ function byNameThenFile(a: { name: string; file: string }, b: { name: string; fi
  * path), every string in `ClientCall.components` (they are `Component.key`s),
  * and `file` on `EntityRef`, `Call.from`/`Call.to` and `UnresolvedCalls`.
  *
+ * `coverage` is merged per facet (`mergeFacet`) when both inputs carry it,
+ * and absent otherwise (hand-built graphs in tests).
+ *
  * Pure over its inputs. Neither argument is mutated.
  */
+export function mergeGraphs(
+  dotnet: ReaderGraph,
+  node: ReaderGraph,
+  prefix: string,
+  rootWarnings?: string[],
+): ReaderGraph;
+export function mergeGraphs(
+  dotnet: EntityGraph,
+  node: EntityGraph,
+  prefix: string,
+  rootWarnings?: string[],
+): EntityGraph;
 export function mergeGraphs(
   dotnet: EntityGraph,
   node: EntityGraph,
@@ -215,12 +251,33 @@ export function mergeGraphs(
   // shape's `mirrors: null` means "not computed", not "no mirror" — and that
   // distinction is invisible in the graph. Said once, not once per shape.
   const unpaired = nodeShapes.filter((s) => s.mirrors === null).length;
-  if (unpaired > 0 && dotnet.entities.length > 0) {
-    mergeWarnings.push(
-      `${unpaired} shapes from the TypeScript side were not paired against the .NET entity ` +
-        "model; psq pairs shapes within a stack only, so mirrors:null on a TS shape means " +
-        '"not computed", not "no mirror".',
-    );
+  const pairingGap = unpaired > 0 && dotnet.entities.length > 0 ? unpairedSentence(unpaired) : null;
+  if (pairingGap !== null) mergeWarnings.push(pairingGap);
+
+  // `nodeRootFor` with >=2 candidates reads everything from the outer root, so
+  // nothing is skipped there and no skip is recorded (its warning covers the
+  // degraded attribution).
+  let coverage: Coverage | undefined;
+  if (dotnet.coverage && node.coverage) {
+    const d = dotnet.coverage;
+    const n = node.coverage;
+    coverage = Object.fromEntries(
+      FACETS.map((k) => [k, mergeFacet(d[k], prefixFacet(prefix, n[k]))]),
+    ) as Coverage;
+    if (pairingGap !== null) {
+      // Cross-stack pairing was never computed: partial, whatever each half
+      // says. It spans both runs (the .NET entities and the TS shapes), so its
+      // roots, files and skips are those of the two runs that produced them.
+      const span = mergeFacet(d.entities, prefixFacet(prefix, n.shapes));
+      coverage.pairing = {
+        status: "partial",
+        readers: ["pair"],
+        roots: span.roots,
+        filesRead: span.filesRead,
+        skipped: span.skipped,
+        reason: pairingGap,
+      };
+    }
   }
 
   return {
@@ -244,5 +301,6 @@ export function mergeGraphs(
       ? { unresolvedCalls: [...(dotnet.unresolvedCalls ?? []), ...(nodeUnresolved ?? [])] }
       : {}),
     warnings: [...dotnet.warnings, ...nodeWarnings, ...rootWarnings, ...mergeWarnings],
+    ...(coverage ? { coverage } : {}),
   };
 }
