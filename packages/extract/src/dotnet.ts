@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type {
   Coverage, DeleteBehavior, Entity, FactSource, Index, Property, Relation,
 } from "@psq/schema";
@@ -7,12 +8,13 @@ import { entityConfigs, enumMemberArg, lambdaMembers, type EntityConfig } from "
 import { collectEntityRefs } from "./csharp/entity-refs.js";
 import { collectCalls } from "./csharp/calls.js";
 import { readAspNetRoutes, scanUnattributedRouting } from "./csharp/routes.js";
-import { isTestFile, repoRelative, walk } from "./files.js";
+import { isTestFile, repoRelative, walk, walkHitLimit, WALK_LIMIT } from "./files.js";
 import {
   facet, noneFound, notRead, pairingCoverage, skips, type ReaderGraph, type ReaderRun,
 } from "./coverage.js";
 import { csharpShapes } from "./csharp/shapes.js";
 import { pairShapes } from "./pair.js";
+import { countNoun, Warnings } from "./warnings.js";
 
 /** Collection types EF treats as a "many" navigation. */
 const COLLECTIONS = new Set([
@@ -110,7 +112,7 @@ function synthetic(name: string, type: string): PropertyDecl {
 function withInheritedProperties(
   decl: TypeDecl,
   byName: Map<string, { decl: TypeDecl; parse: FileParse }[]>,
-  warnings: string[],
+  warnings: Warnings,
   depth = 0,
 ): PropertyDecl[] {
   if (depth > 6) return decl.properties;
@@ -215,7 +217,7 @@ function resolveType(
   name: string,
   byName: Map<string, { decl: TypeDecl; parse: FileParse }[]>,
   ctx: ContextInfo,
-  warnings: string[],
+  warnings: Warnings,
 ): { decl: TypeDecl; parse: FileParse } | null {
   const candidates = byName.get(name);
   if (!candidates || candidates.length === 0) return null;
@@ -228,15 +230,19 @@ function resolveType(
   if (inScope.length === 1) return inScope[0]!;
   if (inScope.length > 1) {
     warnings.push(
+      "type-ambiguous",
       `${name}: ${inScope.length} declarations in imported namespaces ` +
         `(${inScope.map((c) => c.parse.namespace).join(", ")}); took the first`,
+      { about: name },
     );
     return inScope[0]!;
   }
 
   warnings.push(
+    "type-ambiguous",
     `${name}: ${candidates.length} declarations, none in a namespace imported by ` +
       `${ctx.decl.name} (${candidates.map((c) => c.parse.namespace).join(", ")}); took the first`,
+    { about: name },
   );
   return candidates[0]!;
 }
@@ -261,11 +267,22 @@ export interface DotnetExtractOptions {
  * keeps DTOs, services and stale duplicates out of the graph.
  */
 export function extractDotnet(
-  repoRoot: string,
+  repoRootIn: string,
   opts: DotnetExtractOptions = {},
 ): ReaderGraph {
-  const warnings: string[] = [];
-  const allCs = walk(repoRoot, [".cs"]);
+  // A relative root reads different FACTS than its absolute twin (P2b F6).
+  const repoRoot = resolve(repoRootIn);
+  const warnings = new Warnings();
+  const allCs = walk(repoRoot, [".cs"], WALK_LIMIT);
+  // The same limit the TypeScript scan has; reaching it is a partial read,
+  // and a partial read is said out loud (P2b F3).
+  const partialReasons: string[] = [];
+  const hitLimit = walkHitLimit(allCs, WALK_LIMIT);
+  if (hitLimit) {
+    const sentence = `the .cs file walk stopped at its ${WALK_LIMIT}-file limit; directories past it were not read`;
+    warnings.push("walk-limit", sentence);
+    partialReasons.push(sentence);
+  }
   const files = allCs.filter((f) => {
     if (opts.includeMigrations) return true;
     return !/\/Migrations\//.test(f);
@@ -273,17 +290,25 @@ export function extractDotnet(
   const migrationsSkipped = allCs.length - files.length;
 
   const parses: FileParse[] = [];
+  let unreadable = 0;
   for (const f of files) {
+    const rel = repoRelative(repoRoot, f);
     try {
       const src = readFileSync(f, "utf8");
-      const rel = repoRelative(repoRoot, f);
       const p = parseCSharp(src, rel);
       parses.push(p);
-      warnings.push(...p.warnings);
-      warnings.push(...scanUnattributedRouting(src, rel));
+      warnings.append(p.warnings);
+      warnings.append(scanUnattributedRouting(src, rel));
     } catch (err) {
-      warnings.push(`${repoRelative(repoRoot, f)}: parse failed (${String(err)})`);
+      // Only I/O reaches here: no file CONTENT makes the parser throw. The
+      // error's own message carries the absolute path, so only its code is kept.
+      const e = err as NodeJS.ErrnoException;
+      unreadable += 1;
+      warnings.push("cs-unreadable", `${rel}: unreadable (${e?.code ?? e?.name ?? String(err)})`, { file: rel });
     }
+  }
+  if (unreadable > 0) {
+    partialReasons.push(`${countNoun(unreadable, "file")} ${unreadable === 1 ? "was" : "were"} unreadable`);
   }
 
   const byName = new Map<string, { decl: TypeDecl; parse: FileParse }[]>();
@@ -301,14 +326,19 @@ export function extractDotnet(
   const { calls, unresolved: unresolvedCalls } = collectCalls(parses);
 
   const { routes, warnings: routeWarnings } = readAspNetRoutes(parses);
-  warnings.push(...routeWarnings);
+  warnings.append(routeWarnings);
 
   // One reader run over every parsed `.cs` file; each facet below shares it.
   // The C# readers do not apply `isTestFile`, so nothing is skipped as a test.
   const run: ReaderRun = {
     roots: ["."],
     filesRead: parses.length,
-    skipped: skips(["migrations", migrationsSkipped]),
+    skipped: skips(
+      ["migrations", migrationsSkipped],
+      ["walk-limit", hitLimit ? 1 : 0],
+      ["unreadable", unreadable],
+    ),
+    partialReason: partialReasons.length > 0 ? partialReasons.join("; ") : null,
   };
   const notTs = (): ReturnType<typeof notRead> =>
     notRead("no TypeScript reader runs under provider efcore");
@@ -333,7 +363,8 @@ export function extractDotnet(
     return {
       kind: "entity", repo: repoRoot, provider: "efcore", contextName: null,
       entities: [], relations: [], shapes: [], routes, clientCalls: [], components: [],
-      entityRefs: [], calls, unresolvedCalls, warnings, coverage,
+      entityRefs: [], calls, unresolvedCalls,
+      warnings: warnings.strings, warningRecords: warnings.records, coverage,
     };
   }
   // A DbContext under a test path is a fixture's model, not the repo's. Elect
@@ -345,12 +376,14 @@ export function extractDotnet(
   const ctx = candidates.slice().sort((a, b) => b.dbSets.size - a.dbSets.size)[0]!;
   if (contexts.length > 1) {
     warnings.push(
+      "dbcontext-election",
       `${contexts.length} DbContext classes found (${contexts.map((c) => c.decl.name).join(", ")}); ` +
         `elected ${ctx.decl.name} (most DbSets${
           nonTest.length === 0
             ? ", all under test paths"
             : skippedTest > 0 ? `, ${skippedTest} under test paths not considered` : ""
         })`,
+      { about: ctx.decl.name },
     );
   }
   const entityReasons: string[] = [];
@@ -367,7 +400,7 @@ export function extractDotnet(
   for (const name of wanted.keys()) {
     const hit = resolveType(name, byName, ctx, warnings);
     if (!hit) {
-      warnings.push(`${name}: declared as a DbSet but no class declaration found`);
+      warnings.push("dbset-type-missing", `${name}: declared as a DbSet but no class declaration found`, { about: name });
       continue;
     }
     resolved.set(name, hit);
@@ -465,7 +498,9 @@ export function extractDotnet(
       if (conv) keys = [conv.name];
     }
     for (const p of properties) if (keys.includes(p.name)) p.isPrimaryKey = true;
-    if (keys.length === 0) warnings.push(`${name}: no primary key found by convention or HasKey`);
+    if (keys.length === 0) {
+      warnings.push("entity-no-key", `${name}: no primary key found by convention or HasKey`, { about: name });
+    }
 
     const dbSetName = wanted.get(name) ?? null;
 
@@ -511,7 +546,7 @@ export function extractDotnet(
   // above, and warning per-context would fire on the abstract-base pattern.
   if (entities.length === 0 && !ctx.decl.modifiers.includes("abstract")) {
     const empty = `${ctx.parse.file}:${ctx.decl.line}: DbContext ${ctx.decl.name} contributed no entities; the model is empty`;
-    warnings.push(empty);
+    warnings.push("dbcontext-empty", empty, { file: ctx.parse.file, line: ctx.decl.line, about: ctx.decl.name });
     entityReasons.push(empty);
   } else if (entities.length === 0) {
     entityReasons.push(`elected DbContext ${ctx.decl.name} is abstract and contributed no entities`);
@@ -732,7 +767,8 @@ export function extractDotnet(
     // Already sorted by `collectCalls`, with code-unit comparisons.
     calls,
     unresolvedCalls,
-    warnings,
+    warnings: warnings.strings,
+    warningRecords: warnings.records,
     coverage,
   };
 }

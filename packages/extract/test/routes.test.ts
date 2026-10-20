@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parseCSharp } from "../src/csharp/structure.js";
 import { combineTemplates, readAspNetRoutes, scanUnattributedRouting } from "../src/csharp/routes.js";
 import { linkCalls, normaliseRoutePath } from "../src/node/clients.js";
+import { Warnings } from "../src/warnings.js";
 import type { ClientCall, Route } from "@psq/schema";
 
 function routesOf(src: string) {
@@ -36,7 +37,7 @@ describe("readAspNetRoutes", () => {
     const r = routesOf(`
       public class XController { [HttpGet("{c:regex(^[a-z]+$)}")] public int A() => 1; }
     `);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings.map((w) => w.text)).toEqual([]);
     expect(r.routes.map((x) => x.path)).toEqual(["/{c:regex(^[a-z]+$)}"]);
   });
 
@@ -46,7 +47,7 @@ describe("readAspNetRoutes", () => {
         [ActionName("Load")] [HttpGet] public int LoadAsync() => 1;
       }
     `);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings.map((w) => w.text)).toEqual([]);
     expect(r.routes.map((x) => x.path)).toEqual(["/Load"]);
   });
 
@@ -58,16 +59,16 @@ describe("readAspNetRoutes", () => {
         [HttpPost] public int Save() => 1;
       }`);
     expect(r.routes).toEqual([]);
-    expect(r.warnings).toHaveLength(2);
-    expect(r.warnings[0]).toMatch(/^C\.cs:\d+: .*HomeController\.Index.*conventional/);
-    expect(r.warnings[1]).toMatch(/^C\.cs:\d+: .*HomeController\.Save.*conventional/);
+    expect(r.warnings.map((w) => w.text)).toHaveLength(2);
+    expect(r.warnings[0]!.text).toMatch(/^C\.cs:\d+: .*HomeController\.Index.*conventional/);
+    expect(r.warnings[1]!.text).toMatch(/^C\.cs:\d+: .*HomeController\.Save.*conventional/);
   });
 
   it("still routes a templated verb, and a bare verb under a class [Route], on the same class", () => {
     const r = routesOf(`
       public class XController { [HttpGet("a")] public int A() => 1; }
       [Route("r")] public class YController { [HttpGet] public int B() => 1; }`);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings.map((w) => w.text)).toEqual([]);
     expect(r.routes.map((x) => `${x.method} ${x.path}`)).toEqual(["GET /a", "GET /r"]);
   });
 
@@ -76,7 +77,7 @@ describe("readAspNetRoutes", () => {
       [Route("r")] public class XController {
         [HttpGet] [HttpPost("b")] public int A() => 1;
       }`);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings.map((w) => w.text)).toEqual([]);
     expect(r.routes.map((x) => `${x.method} ${x.path}`).sort()).toEqual(["GET /r", "POST /r/b"]);
   });
 
@@ -86,8 +87,8 @@ describe("readAspNetRoutes", () => {
         [HttpGet("a")] [Route("b")] public int A() => 1;
       }`);
     expect(r.routes.map((x) => `${x.method} ${x.path}`)).toEqual(["GET /r/a"]);
-    expect(r.warnings).toHaveLength(1);
-    expect(r.warnings[0]).toMatch(/^C\.cs:3: .*XController\.A.*\[Route\].*no HTTP-method restriction/);
+    expect(r.warnings.map((w) => w.text)).toHaveLength(1);
+    expect(r.warnings[0]!.text).toMatch(/^C\.cs:3: .*XController\.A.*\[Route\].*no HTTP-method restriction/);
   });
 
   it("lends a template-less verb to [Route]", () => {
@@ -95,7 +96,7 @@ describe("readAspNetRoutes", () => {
       [Route("r")] public class XController {
         [HttpGet] [Route("b")] public int A() => 1;
       }`);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings.map((w) => w.text)).toEqual([]);
     expect(r.routes.map((x) => `${x.method} ${x.path}`)).toEqual(["GET /r/b"]);
   });
 
@@ -118,8 +119,8 @@ describe("readAspNetRoutes", () => {
       [Route("base")] public class BaseController : ControllerBase { [HttpGet("x")] public int A() => 1; }
       [Route("kid")] public class KidController : BaseController { [HttpGet("y")] public int B() => 1; }`);
     expect(r.routes.map((x) => x.path).sort()).toEqual(["/base/x", "/kid/y"]);
-    expect(r.warnings).toHaveLength(1);
-    expect(r.warnings[0]).toMatch(/^C\.cs:\d+: .*KidController.*BaseController.*inherited actions are not read/);
+    expect(r.warnings.map((w) => w.text)).toHaveLength(1);
+    expect(r.warnings[0]!.text).toMatch(/^C\.cs:\d+: .*KidController.*BaseController.*inherited actions are not read/);
   });
 
   it("reads HttpHead and HttpOptions", () => {
@@ -143,7 +144,7 @@ describe("readAspNetRoutes", () => {
         [HttpGet("a\\\\b")] public int B() => 1;
       }`);
     expect(r.routes).toEqual([]);
-    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings.map((w) => w.text)).toHaveLength(2);
   });
 });
 
@@ -155,7 +156,7 @@ describe("scanUnattributedRouting", () => {
       "static class E { public static void MapPut(this object o) {} }",
       "app.MapDelete(\"/d\", f);",
     ].join("\n");
-    expect(scanUnattributedRouting(src, "P.cs")).toEqual([
+    expect(scanUnattributedRouting(src, "P.cs").map((w) => w.text)).toEqual([
       "P.cs:4: minimal API MapDelete(...) is not read; routes registered this way are not extracted",
     ]);
   });
@@ -191,15 +192,15 @@ describe("route/call path matching", () => {
 
   it("matches {id:int} to a template hole, case-insensitively, only in aspnet mode", () => {
     const routes = [route("GET", "/api/Widgets/{id:int}")];
-    const hit = linkCalls(routes, [call("GET", "/api/widgets/*")], [], { aspnet: true });
+    const hit = linkCalls(routes, [call("GET", "/api/widgets/*")], new Warnings(), { aspnet: true });
     expect(hit[0]!.matches).toBe("GET /api/Widgets/{id:int}");
-    const miss = linkCalls(routes, [call("GET", "/api/widgets/*")], []);
+    const miss = linkCalls(routes, [call("GET", "/api/widgets/*")], new Warnings());
     expect(miss[0]!.matches).toBeNull();
   });
 
   it("does not match across methods or segment counts", () => {
     const routes = [route("GET", "/api/Widgets/{id}")];
     const calls = [call("POST", "/api/Widgets/*"), call("GET", "/api/Widgets/*/x"), call("GET", "/api/Widgets")];
-    expect(linkCalls(routes, calls, [], { aspnet: true }).map((c) => c.matches)).toEqual([null, null, null]);
+    expect(linkCalls(routes, calls, new Warnings(), { aspnet: true }).map((c) => c.matches)).toEqual([null, null, null]);
   });
 });

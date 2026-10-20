@@ -1,5 +1,6 @@
 import ts from "typescript";
 import type { Shape, ShapeField, ShapeKind } from "@psq/schema";
+import type { Warnings } from "../warnings.js";
 import { isTestFile, repoRelative } from "../files.js";
 
 /**
@@ -139,7 +140,7 @@ export function readShapes(
   root: string,
   checker: ts.TypeChecker,
   sources: readonly ts.SourceFile[],
-  warnings: string[],
+  warnings: Warnings,
 ): Shape[] {
   const out: Shape[] = [];
   const seen = new Set<string>();
@@ -202,7 +203,9 @@ export function readShapes(
         }
       } catch (err) {
         const { line } = source.getLineAndCharacterOfPosition(statement.getStart());
-        warnings.push(`${rel}:${line + 1}: could not resolve a declaration (${(err as Error).message})`);
+        warnings.push("shape-unresolved", `${rel}:${line + 1}: could not resolve a declaration (${(err as Error).message})`, {
+          file: rel, line: line + 1,
+        });
       }
     }
   }

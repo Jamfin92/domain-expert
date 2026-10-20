@@ -1,10 +1,11 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type {
-  ClientCall, Component, Coverage, EntityGraph, Entity, FacetCoverage, Route, Shape,
+  ClientCall, Component, Coverage, EntityGraph, Entity, FacetCoverage, Route, Shape, WarningRecord,
 } from "@psq/schema";
 import { basePrefixOf, linkCalls, setBasePrefix } from "./node/clients.js";
 import { FACETS, mergeFacet, type ReaderGraph } from "./coverage.js";
+import { countNoun, rebaseText, Warnings } from "./warnings.js";
 
 /**
  * Joining a .NET graph and a TypeScript graph into one.
@@ -49,16 +50,18 @@ const SKIP = new Set([
  * Warns only when it genuinely cannot decide (rule 3). One candidate is not a
  * guess, and no candidate at all is the ordinary tsconfig-less Node repo,
  * which reads correctly from the root today.
+ *
+ * `records` is `warnings` as typed records, same order (P2b).
  */
-export function nodeRootFor(root: string): { root: string; warnings: string[] } {
-  if (existsSync(join(root, "tsconfig.json"))) return { root, warnings: [] };
+export function nodeRootFor(root: string): { root: string; warnings: string[]; records: WarningRecord[] } {
+  if (existsSync(join(root, "tsconfig.json"))) return { root, warnings: [], records: [] };
 
   const candidates: string[] = [];
   let entries: string[];
   try {
     entries = readdirSync(root);
   } catch {
-    return { root, warnings: [] };
+    return { root, warnings: [], records: [] };
   }
   for (const name of entries.sort()) {
     if (SKIP.has(name)) continue;
@@ -71,18 +74,18 @@ export function nodeRootFor(root: string): { root: string; warnings: string[] } 
     if (existsSync(join(full, "tsconfig.json"))) candidates.push(name);
   }
 
-  if (candidates.length === 1) return { root: join(root, candidates[0]!), warnings: [] };
+  if (candidates.length === 1) return { root: join(root, candidates[0]!), warnings: [], records: [] };
   if (candidates.length > 1) {
-    return {
-      root,
-      warnings: [
-        `no tsconfig.json at the repo root and ${candidates.length} candidates below it ` +
-          `(${candidates.map((c) => `${c}/`).join(", ")}); read the TypeScript side from the ` +
-          "root with default compiler options, so client-call attribution may be incomplete.",
-      ],
-    };
+    const w = new Warnings();
+    w.push(
+      "node-root-ambiguous",
+      `no tsconfig.json at the repo root and ${candidates.length} candidates below it ` +
+        `(${candidates.map((c) => `${c}/`).join(", ")}); read the TypeScript side from the ` +
+        "root with default compiler options, so client-call attribution may be incomplete.",
+    );
+    return { root, warnings: w.strings, records: w.records };
   }
-  return { root, warnings: [] };
+  return { root, warnings: [], records: [] };
 }
 
 /**
@@ -94,6 +97,16 @@ export function nodeRootFor(root: string): { root: string; warnings: string[] } 
  */
 const NO_SCHEMA_PREFIX = "No CREATE TABLE statement was found, so this repo has shapes but no schema.";
 
+/** The one predicate both merge paths (records and strings-only) use for that warning. */
+function isNoSchema(text: string): boolean {
+  return text.startsWith(NO_SCHEMA_PREFIX);
+}
+
+const NO_SCHEMA_MERGED =
+  "No CREATE TABLE statement was found on the TypeScript side; this graph's schema " +
+  "comes from the .NET entity model instead. psq reads a TypeScript schema from raw " +
+  "DDL only; an ORM-defined schema is not read.";
+
 function prefixPath(prefix: string, p: string): string {
   return prefix === "" ? p : `${prefix}/${p}`;
 }
@@ -104,16 +117,30 @@ function prefixPath(prefix: string, p: string): string {
  */
 function unpairedSentence(unpaired: number): string {
   return (
-    `${unpaired} shapes from the TypeScript side were not paired against the .NET entity ` +
+    `${countNoun(unpaired, "shape")} from the TypeScript side ${unpaired === 1 ? "was" : "were"} ` +
+    "not paired against the .NET entity " +
     "model; psq pairs shapes within a stack only, so mirrors:null on a TS shape means " +
     '"not computed", not "no mirror".'
   );
 }
 
-/** Node-side coverage roots are relative to the node root; put them in merge coordinates. */
-function prefixFacet(prefix: string, f: FacetCoverage): FacetCoverage {
+/**
+ * Node-side coverage roots are relative to the node root; put them in merge
+ * coordinates. `rebaseReason` re-prefixes a reason that repeats a node warning
+ * word for word (`tsconfig.json: … reading only …`), with the same helper the
+ * warning record goes through, so warning === reason survives the merge.
+ */
+function prefixFacet(
+  prefix: string,
+  f: FacetCoverage,
+  rebaseReason: (reason: string) => string = (r) => r,
+): FacetCoverage {
   if (prefix === "") return f;
-  return { ...f, roots: f.roots.map((r) => (r === "." ? prefix : prefixPath(prefix, r))) };
+  return {
+    ...f,
+    roots: f.roots.map((r) => (r === "." ? prefix : prefixPath(prefix, r))),
+    reason: f.reason === null ? null : rebaseReason(f.reason),
+  };
 }
 
 function byNameThenFile(a: { name: string; file: string }, b: { name: string; file: string }): number {
@@ -134,25 +161,32 @@ function byNameThenFile(a: { name: string; file: string }, b: { name: string; fi
  * `coverage` is merged per facet (`mergeFacet`) when both inputs carry it,
  * and absent otherwise (hand-built graphs in tests).
  *
+ * `warningRecords` likewise (P2b): emitted only when BOTH inputs carry records
+ * and every root warning is a record. Node records are rebased into merge
+ * coordinates (`file`, the text's own `file:` prefix, a path-bearing `about`)
+ * and `warnings` is derived from the records. Otherwise `warnings` is built
+ * from the strings exactly as before records existed, unprefixed, and no
+ * records are emitted (string-only, hand-built inputs).
+ *
  * Pure over its inputs. Neither argument is mutated.
  */
 export function mergeGraphs(
   dotnet: ReaderGraph,
   node: ReaderGraph,
   prefix: string,
-  rootWarnings?: string[],
+  rootWarnings?: readonly (string | WarningRecord)[],
 ): ReaderGraph;
 export function mergeGraphs(
   dotnet: EntityGraph,
   node: EntityGraph,
   prefix: string,
-  rootWarnings?: string[],
+  rootWarnings?: readonly (string | WarningRecord)[],
 ): EntityGraph;
 export function mergeGraphs(
   dotnet: EntityGraph,
   node: EntityGraph,
   prefix: string,
-  rootWarnings: string[] = [],
+  rootWarnings: readonly (string | WarningRecord)[] = [],
 ): EntityGraph {
   const at = (p: string): string => prefixPath(prefix, p);
 
@@ -210,15 +244,10 @@ export function mergeGraphs(
   // of the merged graph, which does have a schema — the .NET one. `psq graph`
   // prints warnings, so leaving it would state a wrong fact. Rewritten rather
   // than dropped, so the honest half survives.
-  const nodeWarnings = node.warnings.map((w) =>
-    entities.length > 0 && w.startsWith(NO_SCHEMA_PREFIX)
-      ? "No CREATE TABLE statement was found on the TypeScript side; this graph's schema " +
-        "comes from the .NET entity model instead. psq reads a TypeScript schema from raw " +
-        "DDL only; an ORM-defined schema is not read."
-      : w,
-  );
+  const rewriteNoSchema = (w: string): string =>
+    entities.length > 0 && isNoSchema(w) ? NO_SCHEMA_MERGED : w;
 
-  const mergeWarnings: string[] = [];
+  const mergeWarnings = new Warnings();
 
   // The TypeScript reader linked its calls against the TypeScript side's own
   // routes only. A call it left unmatched may hit a .NET route; the C# path
@@ -239,6 +268,7 @@ export function mergeGraphs(
   // not existing. This warning is the guard, not `invariants()`.
   if (dotnet.entities.length > 0 && nodeEntities.length > 0) {
     mergeWarnings.push(
+      "two-entity-languages",
       `both stacks contributed entities (${dotnet.entities.length} from the .NET side, ` +
         `${nodeEntities.length} from raw DDL); this graph holds two entity languages at once, ` +
         "so any fact that reads a property type without knowing which side it came from is " +
@@ -252,7 +282,40 @@ export function mergeGraphs(
   // distinction is invisible in the graph. Said once, not once per shape.
   const unpaired = nodeShapes.filter((s) => s.mirrors === null).length;
   const pairingGap = unpaired > 0 && dotnet.entities.length > 0 ? unpairedSentence(unpaired) : null;
-  if (pairingGap !== null) mergeWarnings.push(pairingGap);
+  if (pairingGap !== null) mergeWarnings.push("shapes-unpaired", pairingGap);
+
+  // Warnings: records when both readers produced them, strings otherwise.
+  const rootRecords = rootWarnings.filter((w): w is WarningRecord => typeof w !== "string");
+  let warnings: string[];
+  let warningRecords: WarningRecord[] | undefined;
+  let rebaseReason = (r: string): string => r;
+  if (
+    dotnet.warningRecords !== undefined &&
+    node.warningRecords !== undefined &&
+    rootRecords.length === rootWarnings.length
+  ) {
+    const nodeRecords = node.warningRecords;
+    const fromNode = new Warnings();
+    fromNode.append(nodeRecords);
+    warningRecords = [
+      ...dotnet.warningRecords.map((r) => ({ ...r })),
+      ...fromNode.rebase(prefix).map((r) => ({ ...r, text: rewriteNoSchema(r.text) })),
+      ...rootRecords.map((r) => ({ ...r })),
+      ...mergeWarnings.records,
+    ];
+    warnings = warningRecords.map((r) => r.text);
+    rebaseReason = (reason) => {
+      const hit = nodeRecords.find((r) => r.text === reason);
+      return hit ? rebaseText(prefix, reason, hit.file) : reason;
+    };
+  } else {
+    warnings = [
+      ...dotnet.warnings,
+      ...node.warnings.map(rewriteNoSchema),
+      ...rootWarnings.map((w) => (typeof w === "string" ? w : w.text)),
+      ...mergeWarnings.strings,
+    ];
+  }
 
   // `nodeRootFor` with >=2 candidates reads everything from the outer root, so
   // nothing is skipped there and no skip is recorded (its warning covers the
@@ -262,13 +325,13 @@ export function mergeGraphs(
     const d = dotnet.coverage;
     const n = node.coverage;
     coverage = Object.fromEntries(
-      FACETS.map((k) => [k, mergeFacet(d[k], prefixFacet(prefix, n[k]))]),
+      FACETS.map((k) => [k, mergeFacet(d[k], prefixFacet(prefix, n[k], rebaseReason))]),
     ) as Coverage;
     if (pairingGap !== null) {
       // Cross-stack pairing was never computed: partial, whatever each half
       // says. It spans both runs (the .NET entities and the TS shapes), so its
       // roots, files and skips are those of the two runs that produced them.
-      const span = mergeFacet(d.entities, prefixFacet(prefix, n.shapes));
+      const span = mergeFacet(d.entities, prefixFacet(prefix, n.shapes, rebaseReason));
       coverage.pairing = {
         status: "partial",
         readers: ["pair"],
@@ -300,7 +363,8 @@ export function mergeGraphs(
     ...(dotnet.unresolvedCalls !== undefined || nodeUnresolved !== undefined
       ? { unresolvedCalls: [...(dotnet.unresolvedCalls ?? []), ...(nodeUnresolved ?? [])] }
       : {}),
-    warnings: [...dotnet.warnings, ...nodeWarnings, ...rootWarnings, ...mergeWarnings],
+    warnings,
+    ...(warningRecords ? { warningRecords } : {}),
     ...(coverage ? { coverage } : {}),
   };
 }

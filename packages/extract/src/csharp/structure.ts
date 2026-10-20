@@ -1,4 +1,6 @@
+import type { WarningRecord } from "@psq/schema";
 import { lex, type Token } from "./lex.js";
+import { Warnings } from "../warnings.js";
 
 /**
  * Structural reader for the C# subset psq needs: namespaces, usings, type
@@ -82,7 +84,7 @@ export interface FileParse {
   namespace: string | null;
   usings: string[];
   types: TypeDecl[];
-  warnings: string[];
+  warnings: WarningRecord[];
 }
 
 const TYPE_KEYWORDS = new Set(["class", "record", "struct", "interface", "enum"]);
@@ -267,7 +269,7 @@ function parseBody(
   tokens: Token[],
   from: number,
   to: number,
-  warnings: string[],
+  warnings: Warnings,
   file: string,
 ): {
   properties: PropertyDecl[];
@@ -357,7 +359,9 @@ function parseBody(
       if (tokens[k]?.text === "{") {
         const close = matchBracket(tokens, k);
         if (close === -1) {
-          warnings.push(`${file}:${declLine}: unbalanced body for method ${memberName}`);
+          warnings.push("cs-unbalanced-body", `${file}:${declLine}: unbalanced body for method ${memberName}`, {
+            file, line: declLine, about: memberName,
+          });
           i = to;
           continue;
         }
@@ -418,7 +422,9 @@ function parseBody(
         // resume from the first `;` ignoring depth, which is exactly the
         // pre-D-Hb-10 behaviour.
         warnings.push(
+          "cs-member-not-terminated",
           `${file}:${declLine}: expression body for method ${memberName} not terminated`,
+          { file, line: declLine, about: memberName },
         );
         methods.push({
           name: memberName,
@@ -442,7 +448,9 @@ function parseBody(
     if (tokens[j]?.text === "{") {
       const close = matchBracket(tokens, j);
       if (close === -1) {
-        warnings.push(`${file}:${declLine}: unbalanced accessor block for ${memberName}`);
+        warnings.push("cs-unbalanced-body", `${file}:${declLine}: unbalanced accessor block for ${memberName}`, {
+          file, line: declLine, about: memberName,
+        });
         i = to;
         continue;
       }
@@ -517,7 +525,7 @@ function parseBody(
 /** Parse one C# file into the structures psq consumes. */
 export function parseCSharp(src: string, file: string): FileParse {
   const tokens = lex(src);
-  const warnings: string[] = [];
+  const warnings = new Warnings();
   const usings: string[] = [];
   const types: TypeDecl[] = [];
   let fileNamespace: string | null = null;
@@ -616,7 +624,9 @@ export function parseCSharp(src: string, file: string): FileParse {
       if (tokens[k]?.text === "{") {
         const close = matchBracket(tokens, k);
         if (close === -1) {
-          warnings.push(`${file}:${line}: unbalanced body for type ${name}`);
+          warnings.push("cs-unbalanced-body", `${file}:${line}: unbalanced body for type ${name}`, {
+            file, line, about: name,
+          });
           break;
         }
         const { properties, methods, signatures, fields } =
@@ -650,7 +660,9 @@ export function parseCSharp(src: string, file: string): FileParse {
       if (tokens[k]?.text !== ";") {
         const stoppedAt = tokens[k]?.text ?? "end of file";
         warnings.push(
+          "cs-type-header-not-terminated",
           `${file}:${line}: type ${name} header not terminated by '{' or ';' (stopped at '${stoppedAt}'); members and any remaining base types were not read`,
+          { file, line, about: name },
         );
       }
       types.push({
@@ -665,5 +677,5 @@ export function parseCSharp(src: string, file: string): FileParse {
     i = Math.max(i + 1, afterAttrs);
   }
 
-  return { file, namespace: fileNamespace, usings, types, warnings };
+  return { file, namespace: fileNamespace, usings, types, warnings: warnings.records };
 }

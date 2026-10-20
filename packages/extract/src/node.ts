@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
 import type { ClientCall, Coverage } from "@psq/schema";
 import { isTestFile, repoRelative, walk, walkHitLimit, WALK_LIMIT } from "./files.js";
@@ -12,6 +12,7 @@ import { readRoutes } from "./node/routes.js";
 import { linkCalls, readClientCalls } from "./node/clients.js";
 import { attributeComponents } from "./node/refs.js";
 import { pairShapes } from "./pair.js";
+import { Warnings } from "./warnings.js";
 
 /**
  * Read a Node backend: its SQLite schema, its declared shapes, its HTTP surface.
@@ -121,14 +122,16 @@ interface ProgramScope {
   skipped: Skip[];
 }
 
-function programFor(repoRoot: string, warnings: string[], scope: ProgramScope): ts.Program {
+function programFor(repoRoot: string, warnings: Warnings, scope: ProgramScope): ts.Program {
   const configPath = join(repoRoot, "tsconfig.json");
 
   if (existsSync(configPath)) {
     const read = ts.readConfigFile(configPath, ts.sys.readFile);
     if (read.error) {
       warnings.push(
+        "tsconfig-diagnostic",
         `tsconfig.json: ${ts.flattenDiagnosticMessageText(read.error.messageText, " ")}; using defaults`,
+        { file: "tsconfig.json" },
       );
     } else {
       const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, repoRoot);
@@ -152,7 +155,7 @@ function programFor(repoRoot: string, warnings: string[], scope: ProgramScope): 
           // half-read, so say so. A reference contributing nothing readable
           // (out-of-root, empty) is not a drop and does not warn.
           const sentence = `tsconfig.json: ${refs.length} referenced projects; reading only ${repoRelative(repoRoot, chosen.configPath)}`;
-          warnings.push(sentence);
+          warnings.push("tsconfig-references-partial", sentence, { file: "tsconfig.json" });
           scope.partialReason = sentence;
           scope.skipped.push(...skips(["other-project", refs.length - 1]));
         }
@@ -168,15 +171,21 @@ function programFor(repoRoot: string, warnings: string[], scope: ProgramScope): 
       // against the house rule. This branch is unreachable when there is no
       // tsconfig at all: that case never enters the else-arm.
       warnings.push(
+        "tsconfig-fallback-scan",
         "tsconfig.json names no files and no referenced project contributes files " +
           "under this directory; falling back to a directory scan with default compiler options",
+        { file: "tsconfig.json" },
       );
     }
   }
 
-  const scanned = walk(repoRoot, [".ts", ".tsx"]);
+  const scanned = walk(repoRoot, [".ts", ".tsx"], WALK_LIMIT);
   if (walkHitLimit(scanned, WALK_LIMIT)) {
-    scope.partialReason = `the directory scan stopped at its ${WALK_LIMIT}-file limit; directories past it were not read`;
+    // Dual-purpose like the referenced-projects sentence: the partial reason
+    // AND a warning, so a partial read is never silent (P2b F3).
+    const sentence = `the directory scan stopped at its ${WALK_LIMIT}-file limit; directories past it were not read`;
+    warnings.push("walk-limit", sentence);
+    scope.partialReason = sentence;
     scope.skipped.push(...skips(["walk-limit", 1]));
   }
   return ts.createProgram(scanned, FALLBACK_OPTIONS);
@@ -199,8 +208,11 @@ function ownSources(program: ts.Program, repoRoot: string): ts.SourceFile[] {
     .sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
 
-export function extractNode(repoRoot: string): ReaderGraph {
-  const warnings: string[] = [];
+export function extractNode(repoRootIn: string): ReaderGraph {
+  // A relative root reads different FACTS than its absolute twin (mini-node:
+  // 2 entities vs 4 at d45360a), so every entry point resolves first (P2b F6).
+  const repoRoot = resolve(repoRootIn);
+  const warnings = new Warnings();
   const scope: ProgramScope = { partialReason: null, skipped: [] };
   const program = programFor(repoRoot, warnings, scope);
   const checker = program.getTypeChecker();
@@ -218,6 +230,7 @@ export function extractNode(repoRoot: string): ReaderGraph {
 
   if (entities.length === 0 && shapes.length > 0) {
     warnings.push(
+      "no-schema",
       "No CREATE TABLE statement was found, so this repo has shapes but no schema. " +
         "psq reads a schema from raw DDL only; an ORM-defined schema is not read.",
     );
@@ -289,7 +302,8 @@ export function extractNode(repoRoot: string): ReaderGraph {
     // The TypeScript reader emits no entity refs: on the Node side an entity
     // is a SQLite table-name string, not a symbol. That half is H-c.
     entityRefs: [],
-    warnings,
+    warnings: warnings.strings,
+    warningRecords: warnings.records,
     coverage,
   };
 }

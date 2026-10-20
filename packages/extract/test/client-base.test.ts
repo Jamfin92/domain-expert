@@ -4,6 +4,7 @@ import type { ClientCall, EntityGraph, Route } from "@psq/schema";
 import { extractNode } from "../src/node.js";
 import { mergeGraphs } from "../src/merge.js";
 import { basePrefixOf, linkCalls, setBasePrefix } from "../src/node/clients.js";
+import { Warnings } from "../src/warnings.js";
 
 const FIXTURE = resolve(__dirname, "../../../test/fixtures/mini-client-base");
 
@@ -102,22 +103,25 @@ describe("linkCalls: literal first, prefix second", () => {
 
   it("prefers the literal path over prefix + path", () => {
     const routes = [route("GET", "/x"), route("GET", "/api/x")];
-    const [c] = linkCalls(routes, [call("/x", "/api")], []);
+    const [c] = linkCalls(routes, [call("/x", "/api")], new Warnings());
     expect(c!.matches).toBe("GET /x");
   });
 
   it("falls back to prefix + path only when the call declares one", () => {
     const routes = [route("GET", "/api/x")];
-    const [withBase, without] = linkCalls(routes, [call("/x", "/api"), call("/x")], []);
+    const [withBase, without] = linkCalls(routes, [call("/x", "/api"), call("/x")], new Warnings());
     expect(withBase!.matches).toBe("GET /api/x");
     expect(without!.matches).toBeNull();
   });
 
   it("warns, naming the effective path, when prefix + path is ambiguous", () => {
-    const warnings: string[] = [];
+    const warnings = new Warnings();
     const [c] = linkCalls([route("GET", "/api/a/{x}"), route("GET", "/api/a/{y}")], [call("/a/*", "/api")], warnings, { aspnet: true });
     expect(c!.matches).toBeNull();
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("GET /api/a/* could match");
+    expect(warnings.strings).toHaveLength(1);
+    expect(warnings.strings[0]).toContain("GET /api/a/* could match");
+    expect(warnings.records[0]).toMatchObject({
+      code: "client-call-ambiguous", file: "a.ts", line: 1, about: "GET /api/a/*",
+    });
   });
 });

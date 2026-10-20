@@ -37,7 +37,7 @@ describe.skipIf(!repoA)("C# structural parser [corpus]", () => {
     expect(onModel).toBeDefined();
     expect(onModel!.body.length).toBeGreaterThan(100);
 
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 
   it("reads modern C# members that the 0.20 tree-sitter grammar rejects", () => {
@@ -67,7 +67,7 @@ describe.skipIf(!repoA)("C# structural parser [corpus]", () => {
       expect(byName(prop.name).type).toBe(prop.type);
     }
 
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 
   it("does not treat a static constants class as an entity shape", () => {
@@ -96,7 +96,7 @@ describe("base constructor argument lists", () => {
     expect(t.bases).toEqual(["DbContext", "IThing"]);
     expect(t.properties.map((x) => `${x.name}:${x.type}`)).toEqual(["o:int", "As:DbSet<A>"]);
     expect(t.methods.map((m) => m.name)).toEqual(["M"]);
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 
   it("does the same for a record, which is not a separate code path", () => {
@@ -107,13 +107,13 @@ describe("base constructor argument lists", () => {
     const t = p.types[0]!;
     expect(t.bases).toEqual(["Base"]);
     expect(t.properties.map((x) => x.name)).toEqual(["Id", "X"]);
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 
   it("leaves a correctly terminated bodyless declaration silent", () => {
     const p = parseCSharp("record R(int Id) : Base(Id);", "T.cs");
     expect(p.types[0]!.properties.map((x) => x.name)).toEqual(["Id"]);
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 
   it("keeps `abstract` in modifiers, which the zero-entity warning reads", () => {
@@ -121,7 +121,7 @@ describe("base constructor argument lists", () => {
     // depends on this modifier surviving the header reader.
     const p = parseCSharp("abstract class BaseContext : DbContext { }", "T.cs");
     expect(p.types[0]!.modifiers).toContain("abstract");
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 });
 
@@ -134,9 +134,12 @@ describe("unterminated type headers", () => {
       "T.cs",
     );
     expect(p.types[0]!.properties).toEqual([]);
-    expect(p.warnings).toHaveLength(1);
-    expect(p.warnings[0]).toContain("type C header not terminated");
-    expect(p.warnings[0]).toContain("stopped at '::'");
+    expect(p.warnings.map((w) => w.text)).toHaveLength(1);
+    expect(p.warnings[0]!.text).toContain("type C header not terminated");
+    expect(p.warnings[0]!.text).toContain("stopped at '::'");
+    expect(p.warnings[0]).toMatchObject({
+      code: "cs-type-header-not-terminated", file: "T.cs", line: 1, about: "C",
+    });
   });
 
   it("also catches a base whose generic arguments close with `>>`", () => {
@@ -144,7 +147,7 @@ describe("unterminated type headers", () => {
       "class C : Dictionary<string, List<int>> { public int X { get; set; } }",
       "T.cs",
     );
-    expect(p.warnings.some((w) => /header not terminated/.test(w))).toBe(true);
+    expect(p.warnings.some((w) => /header not terminated/.test(w.text))).toBe(true);
   });
 });
 
@@ -171,7 +174,7 @@ describe("D-Hb-10: expression-bodied method bodies are captured", () => {
     // with the malformed case further down, which is the same assertion in
     // the other direction.
     const p = parseCSharp("class C { public int M() => Head + Tail; }", "T.cs");
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 
   // The gating class is NOT one construct, which is what the inherited record
@@ -227,7 +230,7 @@ describe("D-Hb-10: expression-bodied method bodies are captured", () => {
     );
     expect(p.types[0]!.methods.map((m) => m.name)).toEqual(["M", "Z"]);
     expect(p.types[0]!.properties.map((x) => x.name)).toEqual(["After"]);
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
   });
 
   it("a local function inside the lambda stays INSIDE the enclosing body", () => {
@@ -303,9 +306,10 @@ describe("the terminator-not-found fallback on a malformed expression body", () 
     // branches beside it; `psq graph` prints warnings and rule 3 makes a new
     // one a bug rather than noise.
     const p = parseCSharp(MALFORMED, "T.cs");
-    expect(p.warnings).toHaveLength(1);
-    expect(p.warnings[0]).toContain("T.cs:1:");
-    expect(p.warnings[0]).toContain("expression body for method A not terminated");
+    expect(p.warnings.map((w) => w.text)).toHaveLength(1);
+    expect(p.warnings[0]!.text).toContain("T.cs:1:");
+    expect(p.warnings[0]!.text).toContain("expression body for method A not terminated");
+    expect(p.warnings[0]).toMatchObject({ code: "cs-member-not-terminated", file: "T.cs", line: 1, about: "A" });
   });
 });
 
@@ -337,7 +341,7 @@ abstract class A : I {
   });
 
   it("still reads past a constructor", () => {
-    expect(p.warnings).toEqual([]);
+    expect(p.warnings.map((w) => w.text)).toEqual([]);
     expect(cls!.methods).toHaveLength(1);
   });
 });

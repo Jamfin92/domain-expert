@@ -20,9 +20,9 @@ import { EntityGraph, Route } from "@psq/schema";
  * `Route` and `RouteHandler` are pinned the same way with no allowlist (cases
  * 5-6): `handler` is mirrored, so the gap there is zero both ways.
  *
- * The six schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
+ * The seven schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
  * identical" pin: the gap is real and deliberate today, so the assertion is
- * that the gap is exactly these six. It reddens when the gap widens (a new
+ * that the gap is exactly these seven. It reddens when the gap widens (a new
  * schema field the client never learns about) AND when it narrows (a field
  * mirrored in the client without shrinking this list on purpose).
  *
@@ -58,6 +58,7 @@ const SCHEMA_FIELDS = [
   "routes",
   "shapes",
   "unresolvedCalls",
+  "warningRecords",
   "warnings",
 ].sort();
 
@@ -79,7 +80,10 @@ const WEB_FIELDS = [
 // `calls` and `unresolvedCalls` are the C# call graph. The Flow view draws it, but from the
 // server's /flow endpoint (`Flow`, mirrored in api.ts), so the client never reads the raw edges.
 // `coverage` and `providerBasis` (P2a) are produced by extraction; apps/web consumes neither yet.
-const NOT_MIRRORED = ["calls", "coverage", "kind", "providerBasis", "shapes", "unresolvedCalls"].sort();
+// `warningRecords` (P2b) is the typed twin of `warnings`; the web keeps reading the strings (P2c).
+const NOT_MIRRORED = [
+  "calls", "coverage", "kind", "providerBasis", "shapes", "unresolvedCalls", "warningRecords",
+].sort();
 
 const ENTITY_GRAPH_MARKER = "export interface EntityGraph {";
 const ROUTE_MARKER = "export interface Route {";
@@ -184,7 +188,7 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     expect(webFields).toEqual(WEB_FIELDS);
   });
 
-  it("3. the fields the client does not mirror are exactly the known six", () => {
+  it("3. the fields the client does not mirror are exactly the known seven", () => {
     const schemaOnly = Object.keys(EntityGraph.shape)
       .filter((k) => !webFields.includes(k))
       .sort();

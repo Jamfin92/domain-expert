@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { detectProvider, detectStack, extract } from "../src/detect.js";
+import { dirname, join, relative } from "node:path";
+import { detectProvider, detectStack, extract, extractWithDigest } from "../src/detect.js";
+import { extractDotnet } from "../src/dotnet.js";
+import { extractNode } from "../src/node.js";
 import {
   MINI_EFCORE, MINI_EFCORE_EMPTY_CONTEXT, MINI_EFCORE_PRIMARY_CTOR, MINI_EFCORE_REFS,
   MINI_FULLSTACK, MINI_FULLSTACK_CSHARP, MINI_FULLSTACK_REACT, MINI_NODE, MINI_REACT,
@@ -64,7 +66,11 @@ describe("detectStack: only non-test source makes a stack present", () => {
     expect(detectProvider(root)).toBe("none");
     const g = extract(root);
     expect(g.providerBasis).toMatchObject({ testOnlyCsproj: 1, testOnlyCs: 0, testOnlyTs: 0, csprojFiles: 1 });
-    expect(g.warnings[0]).toContain("1 files under test/fixture paths were not treated as the project");
+    // P2b F5: noun AND verb agree with the count.
+    expect(g.warnings[0]).toContain("; 1 file under test/fixture paths was not treated as the project.");
+    expect(g.warningRecords).toEqual([
+      { code: "no-reader", file: null, line: null, about: null, text: g.warnings[0] },
+    ]);
   });
 
   it("(c') a manifest still routes test-only TypeScript to the Node reader (fallback unchanged)", () => {
@@ -101,3 +107,35 @@ describe("detectProvider: every hermetic fixture keeps its provider", () => {
     expect(basis.testOnlyCs + basis.testOnlyTs).toBe(0);
   });
 });
+
+/**
+ * P2b F6. Every entry point resolves its path first. At d45360a a relative
+ * mini-node read 2 entities and an absolute one 4; `repo` also differed.
+ * `not-a-project` is in the set because the readers resolve on their own, so
+ * only a "none" graph shows a missing resolve in `extract` / `extractWithDigest`.
+ */
+describe("a relative path reads exactly what its absolute twin reads", () => {
+  const rel = (p: string): string => relative(process.cwd(), p);
+
+  it.each([MINI_NODE, NOT_A_PROJECT, MINI_FULLSTACK_CSHARP])("extract(%s)", (abs) => {
+    expect(isRelative(rel(abs))).toBe(true);
+    expect(extract(rel(abs))).toEqual(extract(abs));
+  });
+
+  it.each([MINI_NODE, NOT_A_PROJECT])("extractWithDigest(%s)", (abs) => {
+    expect(extractWithDigest(rel(abs))).toEqual(extractWithDigest(abs));
+  });
+
+  it("extractNode", () => {
+    expect(extractNode(rel(MINI_NODE))).toEqual(extractNode(MINI_NODE));
+    expect(extractNode(MINI_NODE).entities).toHaveLength(4);
+  });
+
+  it("extractDotnet", () => {
+    expect(extractDotnet(rel(MINI_EFCORE))).toEqual(extractDotnet(MINI_EFCORE));
+  });
+});
+
+function isRelative(p: string): boolean {
+  return !p.startsWith("/") && p.length > 0;
+}

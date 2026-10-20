@@ -1,5 +1,6 @@
 import ts from "typescript";
 import type { ClientCall, Component } from "@psq/schema";
+import type { Warnings } from "../warnings.js";
 import { isTestFile, repoRelative } from "../files.js";
 import { importsExpress } from "./routes.js";
 
@@ -122,7 +123,7 @@ function collectDefs(
   sources: readonly ts.SourceFile[],
   checker: ts.TypeChecker,
   detector: ComponentDetector,
-  warnings: string[],
+  warnings: Warnings,
 ): RefGraph {
   const defs: Def[] = [];
   const byNode = new Map<ts.Node, Def>();
@@ -156,7 +157,9 @@ function collectDefs(
       // it get no owner (ownerDef stops there) — attributing either to the
       // winner or to the enclosing declaration would be a mis-attribution.
       warnings.push(
+        "ref-key-collision",
         `${file}: definitions at line ${existing.line} and line ${line} both produce the key "${key}"; keeping the first`,
+        { file, about: key },
       );
       dropped.add(canonical);
       return;
@@ -442,7 +445,7 @@ export function attributeComponents(
   checker: ts.TypeChecker,
   calls: readonly ClientCall[],
   callNodes: ReadonlyMap<ClientCall, ts.CallExpression>,
-  warnings: string[],
+  warnings: Warnings,
   detector: ComponentDetector = reactComponentDetector,
 ): Component[] {
   const graph = collectDefs(root, sources, checker, detector, warnings);
@@ -455,7 +458,9 @@ export function attributeComponents(
       // Unreachable by construction — readClientCalls records a node for
       // every call it emits — but if it ever happens the honest answer is
       // "attribution could not run", which must not look like "no owner".
-      warnings.push(`${call.file}:${call.line}: no AST node recorded for this call; not attributed`);
+      warnings.push("ref-no-ast", `${call.file}:${call.line}: no AST node recorded for this call; not attributed`, {
+        file: call.file, line: call.line,
+      });
       call.components = [];
       continue;
     }

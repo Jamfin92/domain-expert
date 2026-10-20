@@ -1,5 +1,6 @@
 import ts from "typescript";
 import type { ClientCall, Route } from "@psq/schema";
+import type { Warnings } from "../warnings.js";
 import { isTestFile, repoRelative } from "../files.js";
 import { importsExpress } from "./routes.js";
 
@@ -244,7 +245,7 @@ function isRegistration(second: ts.Expression | undefined): boolean {
 export function readClientCalls(
   root: string,
   sources: readonly ts.SourceFile[],
-  warnings: string[],
+  warnings: Warnings,
   /**
    * Filled with the AST node of every recorded call, for the attribution
    * pass (`refs.ts`) that runs after matching. The node never enters the
@@ -256,12 +257,14 @@ export function readClientCalls(
 ): ClientCall[] {
   const out: ClientCall[] = [];
   const warnedBases = new Set<string>();
-  const warnBase = (text: string, where: string): void => {
+  const warnBase = (text: string, file: string, line: number): void => {
     if (warnedBases.has(text)) return;
     warnedBases.add(text);
     warnings.push(
-      `${where}: client base \`${text}\` is not a statically readable path prefix; ` +
+      "client-base-unreadable",
+      `${file}:${line}: client base \`${text}\` is not a statically readable path prefix; ` +
         "calls through it may be unmatched",
+      { file, line, about: text },
     );
   };
 
@@ -305,7 +308,7 @@ export function readClientCalls(
               : null;
           if (inst) {
             if ("prefix" in inst) prefix = inst.prefix;
-            else warnBase(inst.unreadable, `${rel}:${line + 1}`);
+            else warnBase(inst.unreadable, rel, line + 1);
           }
 
           // `${BASE}/x`: a template whose head hole is a base.
@@ -326,7 +329,7 @@ export function readClientCalls(
               } else {
                 // Only a fetch or an instance call is surely a client call;
                 // map.get(`${k}/a`) is not an unread construct.
-                if (viaFetch || inst) warnBase(first!.expression.getText(), `${rel}:${line + 1}`);
+                if (viaFetch || inst) warnBase(first!.expression.getText(), rel, line + 1);
                 readable = false;
               }
             }
@@ -372,7 +375,7 @@ export function readClientCalls(
 export function linkCalls(
   routes: readonly Route[],
   calls: ClientCall[],
-  warnings: string[],
+  warnings: Warnings,
   opts: { aspnet?: boolean } = {},
 ): ClientCall[] {
   // `aspnet`: `{param}` syntax, and case-insensitive paths. ASP.NET routing is
@@ -398,9 +401,11 @@ export function linkCalls(
       call.matches = `${route.method} ${route.path}`;
     } else if (candidates.length > 1) {
       warnings.push(
+        "client-call-ambiguous",
         `${call.file}:${call.line}: ${call.method} ${shown} could match ${candidates
           .map((r) => `${r.method} ${r.path}`)
           .join(" or ")}; not matched`,
+        { file: call.file, line: call.line, about: `${call.method} ${shown}` },
       );
     }
   }

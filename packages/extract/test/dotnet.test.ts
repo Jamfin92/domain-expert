@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { extractDotnet } from "../src/dotnet.js";
 
-import { corpusRepo, NOT_A_PROJECT, type CorpusDotnetExpect } from "../../../test/fixtures.js";
+import { corpusRepo, MINI_EFCORE, NOT_A_PROJECT, type CorpusDotnetExpect } from "../../../test/fixtures.js";
 
 const repoA = corpusRepo("repoA");
 const repoB = corpusRepo("repoB");
@@ -264,5 +264,39 @@ describe("DbContext election skips test paths; empty facets say why", () => {
       status: "none-found",
       reason: "elected DbContext BaseContext is abstract and contributed no entities",
     });
+  });
+});
+
+/**
+ * P2b F4. No file CONTENT makes the C# parser throw; only I/O does, so the
+ * test makes one file unreadable (`chmod 000`) on a temp copy. Root ignores
+ * the mode, so the test is skipped as root.
+ */
+describe.skipIf(process.getuid?.() === 0)("an unreadable .cs file leaves a trace in warnings and coverage", () => {
+  it("records cs-unreadable with a relative file, and marks the run-built facets partial", () => {
+    const root = mkdtempSync(join(tmpdir(), "psq-unreadable-"));
+    const locked = join(root, "Models", "Student.cs");
+    try {
+      cpSync(MINI_EFCORE, root, { recursive: true });
+      chmodSync(locked, 0o000);
+      const g = extractDotnet(root);
+      const hit = g.warningRecords.filter((r) => r.code === "cs-unreadable");
+      expect(hit).toHaveLength(1);
+      expect(hit[0]).toMatchObject({ file: "Models/Student.cs", line: null, about: null });
+      expect(hit[0]!.text).toBe("Models/Student.cs: unreadable (EACCES)");
+      expect(g.warnings.join("\n")).not.toContain(root);
+      expect(g.warnings).toEqual(g.warningRecords.map((r) => r.text));
+      for (const facet of ["entities", "relations", "shapes", "routes", "entityRefs", "calls"] as const) {
+        expect(g.coverage[facet], facet).toMatchObject({ status: "partial", reason: "1 file was unreadable" });
+        expect(g.coverage[facet].skipped, facet).toContainEqual({ why: "unreadable", count: 1 });
+      }
+      // A facet no reader ran keeps no skips.
+      expect(g.coverage.clientCalls).toMatchObject({ status: "not-read", skipped: [] });
+      // filesRead counts the files parsed, not the one that could not be opened.
+      expect(g.coverage.entities.filesRead).toBe(extractDotnet(MINI_EFCORE).coverage.entities.filesRead - 1);
+    } finally {
+      chmodSync(locked, 0o644);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

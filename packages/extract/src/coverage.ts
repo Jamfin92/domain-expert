@@ -1,5 +1,5 @@
 import type {
-  Coverage, CoverageStatus, EntityGraph, FacetCoverage, ProviderBasis, SkipReason,
+  Coverage, CoverageStatus, EntityGraph, FacetCoverage, ProviderBasis, SkipReason, WarningRecord,
 } from "@psq/schema";
 
 /**
@@ -14,8 +14,11 @@ import type {
  * A reader (`extractDotnet`, `extractNode`, `mergeGraphs`) returns a
  * `ReaderGraph`: it cannot know the provider basis, which is decided before
  * any reader runs. `extract()` adds the basis and returns an `ExtractedGraph`.
+ *
+ * `warningRecords` is required here for the same reason (P2b): the schema
+ * keeps it optional for hand-built graphs, every reader must return it.
  */
-export type ReaderGraph = EntityGraph & { coverage: Coverage };
+export type ReaderGraph = EntityGraph & { coverage: Coverage; warningRecords: WarningRecord[] };
 export type ExtractedGraph = ReaderGraph & { providerBasis: ProviderBasis };
 
 export type Skip = { why: SkipReason; count: number };

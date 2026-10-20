@@ -420,7 +420,10 @@ export type UnresolvedCalls = z.infer<typeof UnresolvedCalls>;
 export const CoverageStatus = z.enum(["complete", "partial", "not-read", "none-found"]);
 export type CoverageStatus = z.infer<typeof CoverageStatus>;
 
-export const SkipReason = z.enum(["test-file", "migrations", "declaration", "walk-limit", "other-project"]);
+/** `unreadable` = a file the reader could not open (an I/O error; P2b). */
+export const SkipReason = z.enum([
+  "test-file", "migrations", "declaration", "walk-limit", "other-project", "unreadable",
+]);
 export type SkipReason = z.infer<typeof SkipReason>;
 
 export const FacetCoverage = z
@@ -467,6 +470,128 @@ export const ProviderBasis = z.object({
 });
 export type ProviderBasis = z.infer<typeof ProviderBasis>;
 
+// ---------------------------------------------------------------------------
+// Warning records — the typed twin of `warnings` (P2b)
+// ---------------------------------------------------------------------------
+
+/**
+ * One code per CLASS of warning, not per push site. kebab-case like
+ * `SkipReason`. Each line says what the record's `about` names (null when the
+ * text names nothing). `file`/`line` always name where the text's own
+ * `file:line:` prefix points, when it has one.
+ */
+export const WarningCode = z.enum([
+  // ---- C# structure (`csharp/structure.ts`) ----
+  /** A method body, accessor block or type body whose brace never closes. about: the member or type. */
+  "cs-unbalanced-body",
+  /** An expression-bodied method with no terminating `;`. about: the method. */
+  "cs-member-not-terminated",
+  /** A type header that stopped before `{` or `;`. about: the type. */
+  "cs-type-header-not-terminated",
+  // ---- C# routes (`csharp/routes.ts`) ----
+  /** Actions or a class [Route] inherited from a repo-local base; not read. about: the controller. */
+  "route-inherited-not-read",
+  /** A controller in an [Area]; area routes are not read. about: the controller. */
+  "route-area-not-read",
+  /** A [Route]/verb template that is not a plain string literal. about: `Controller` or `Controller.Action`. */
+  "route-template-not-literal",
+  /** An [ActionName] whose argument is not a plain string literal. about: `Controller.Action`. */
+  "route-action-name-not-literal",
+  /** An action using [AcceptVerbs]. about: `Controller.Action`. */
+  "route-accept-verbs",
+  /** A public method without an HTTP-method attribute under a class [Route]. about: `Controller.Action`. */
+  "route-verb-undecided",
+  /** A [Route] that accepts every verb; no verb is invented. about: `Controller.Action`. */
+  "route-any-verb",
+  /** Conventionally routed: no attribute route, or MapControllerRoute-style registration. about: `Controller.Action` or the registration call. */
+  "route-conventional",
+  /** A template psq cannot substitute (unknown or unterminated token). about: `Controller.Action`. */
+  "route-template-invalid",
+  /** `[action]` on a method ending in Async: MVC may trim the suffix, psq cannot see the option. about: `Controller.Action`. */
+  "route-action-name-undecided",
+  /** A minimal-API registration (MapGet etc.); not read. about: the registration call. */
+  "route-minimal-api",
+  // ---- C# model (`dotnet.ts`) ----
+  /** Several declarations of an entity type; the first was taken. about: the type. */
+  "type-ambiguous",
+  /** A `.cs` file the reader could not open (I/O). about: null. */
+  "cs-unreadable",
+  /** More than one DbContext; one was elected. about: the elected context. */
+  "dbcontext-election",
+  /** A DbSet<T> whose T has no declaration. about: the type. */
+  "dbset-type-missing",
+  /** An entity with no primary key by convention or HasKey. about: the entity. */
+  "entity-no-key",
+  /** The elected DbContext contributed no entities. about: the context. */
+  "dbcontext-empty",
+  // ---- pairing (`pair.ts`) ----
+  /** A shape that could mirror more than one entity; not paired. about: the shape. */
+  "shape-mirror-ambiguous",
+  // ---- Node (`node.ts`, `node/*.ts`) ----
+  /** tsconfig.json could not be read; defaults used. about: null. */
+  "tsconfig-diagnostic",
+  /** Only one of several referenced tsconfig projects was read. about: null. */
+  "tsconfig-references-partial",
+  /** tsconfig.json yielded no files; a directory scan was used. about: null. */
+  "tsconfig-fallback-scan",
+  /** A directory walk stopped at its file limit. about: null. */
+  "walk-limit",
+  /** Shapes but no CREATE TABLE schema (rewritten by the fullstack merge). about: null. */
+  "no-schema",
+  /** CREATE TABLE in a template literal with substitutions; not read. about: null. */
+  "ddl-substitution-literal",
+  /** A DDL candidate literal that SQLite refused. about: null. */
+  "ddl-candidate-failed",
+  /** A shared key column that names no single owner; no relation inferred. about: the column. */
+  "ddl-relation-ambiguous",
+  /** A TypeScript declaration the checker could not resolve. about: null. */
+  "shape-unresolved",
+  /** An Express route registered with a regular expression. about: the HTTP method. */
+  "route-regex",
+  /** A client base that is not a statically readable path prefix. about: the base expression. */
+  "client-base-unreadable",
+  /** A client call matching more than one route; not matched. about: `METHOD /path` of the call. */
+  "client-call-ambiguous",
+  /** Two definitions producing the same component key; the first kept. about: the key. */
+  "ref-key-collision",
+  /** A client call with no recorded AST node; not attributed. about: null. */
+  "ref-no-ast",
+  // ---- fullstack merge (`merge.ts`) ----
+  /** No root tsconfig and several candidates below it. about: null. */
+  "node-root-ambiguous",
+  /** Both stacks contributed entities. about: null. */
+  "two-entity-languages",
+  /** TypeScript shapes never paired against the .NET model. about: null. */
+  "shapes-unpaired",
+  // ---- provider detection (`detect.ts`) ----
+  /** No reader for this repo. about: null. */
+  "no-reader",
+]);
+export type WarningCode = z.infer<typeof WarningCode>;
+
+/**
+ * The typed twin of one `warnings` string. `graph.warningRecords[i].text ===
+ * graph.warnings[i]` for every graph `@psq/extract` produces: the strings are
+ * derived from the records.
+ */
+export const WarningRecord = z.object({
+  code: WarningCode,
+  /**
+   * Repo-relative, forward slashes, never absolute. The file the text's
+   * `file:line:` / `file:` prefix names; `"tsconfig.json"` for the tsconfig
+   * warnings (which fire only when that file exists); null when the text names
+   * no file.
+   */
+  file: z.string().nullable(),
+  /** 1-based; the line the text's `file:line:` prefix names, else null. */
+  line: z.number().int().positive().nullable(),
+  /** What the warning is about (entity, route, shape, type, column, key); see each `WarningCode`. */
+  about: z.string().nullable(),
+  /** Exactly the string in `warnings` at the same index. */
+  text: z.string().min(1),
+});
+export type WarningRecord = z.infer<typeof WarningRecord>;
+
 export const EntityGraph = z.object({
   kind: z.literal("entity"),
   repo: z.string(),
@@ -511,6 +636,13 @@ export const EntityGraph = z.object({
   unresolvedCalls: z.array(UnresolvedCalls).optional(),
   /** Non-fatal parse problems. Never silently dropped. */
   warnings: z.array(z.string()),
+  /**
+   * `warnings` as typed records, same length and order (P2b). Optional so
+   * hand-built graphs and envelopes stored before it existed still parse;
+   * every graph `@psq/extract` produces carries it. Not `.default([])`: a
+   * defaulted `[]` beside a non-empty `warnings` would break the invariant.
+   */
+  warningRecords: z.array(WarningRecord).optional(),
   /**
    * Per-facet record of what the readers ran over. Optional so hand-built
    * graphs and envelopes stored before it existed still parse; every graph

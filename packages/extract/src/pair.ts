@@ -1,5 +1,6 @@
 import type { Entity, Shape } from "@psq/schema";
 import { conceptKey, fieldKey } from "./names.js";
+import type { Warnings } from "./warnings.js";
 
 /**
  * How much of the smaller side must be accounted for by the larger before the
@@ -23,7 +24,7 @@ const MIN_SHARED = 2;
  * over: the names must reduce to the same concept AND the fields must
  * substantially overlap. An ambiguous name is a warning, never a coin toss.
  */
-export function pairShapes(entities: Entity[], shapes: Shape[], warnings: string[]): Shape[] {
+export function pairShapes(entities: Entity[], shapes: Shape[], warnings: Warnings): Shape[] {
   const byConcept = new Map<string, Entity[]>();
   for (const e of entities) {
     for (const key of new Set([conceptKey(e.name), conceptKey(e.tableName)])) {
@@ -40,7 +41,9 @@ export function pairShapes(entities: Entity[], shapes: Shape[], warnings: string
     if (!candidates || candidates.length === 0) return shape;
     if (candidates.length > 1) {
       warnings.push(
+        "shape-mirror-ambiguous",
         `${shape.file}: ${shape.name} could mirror ${candidates.map((c) => c.name).join(" or ")}; not paired`,
+        { file: shape.file, about: shape.name },
       );
       return shape;
     }

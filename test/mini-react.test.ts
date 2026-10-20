@@ -26,6 +26,10 @@ describe("reading a React client", () => {
       "tsconfig.json: 2 referenced projects; reading only tsconfig.app.json",
       'src/lib/refresh.ts: definitions at line 8 and line 28 both produce the key "src/lib/refresh.ts#Refresh"; keeping the first',
     ]);
+    expect(g.warningRecords.map(({ code, file, line, about }) => ({ code, file, line, about }))).toEqual([
+      { code: "tsconfig-references-partial", file: "tsconfig.json", line: null, about: null },
+      { code: "ref-key-collision", file: "src/lib/refresh.ts", line: null, about: "src/lib/refresh.ts#Refresh" },
+    ]);
     expect(g.provider).toBe("sqlite-ddl");
     expect(g.entities.map((e) => e.name)).toEqual(["things"]);
     expect(g.routes).toEqual([]);

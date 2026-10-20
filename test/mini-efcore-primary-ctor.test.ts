@@ -95,6 +95,13 @@ describe("mini EF fixture whose model is empty", () => {
   it("says exactly those two things and nothing else", () => {
     expect(g.warnings).toHaveLength(2);
   });
+
+  it("codes them, with the file and line each text names (P2b)", () => {
+    expect(g.warningRecords.map(({ code, file, line, about }) => ({ code, file, line, about }))).toEqual([
+      { code: "cs-type-header-not-terminated", file: "Dtos/WidgetDto.cs", line: 19, about: "WidgetDto" },
+      { code: "dbcontext-empty", file: "Data/EmptyDbContext.cs", line: 13, about: "EmptyDbContext" },
+    ]);
+  });
 });
 
 /**

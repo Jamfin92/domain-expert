@@ -6,6 +6,7 @@ import type { Component, ClientCall, Entity, EntityGraph, Route, Shape } from "@
 import { mergeGraphs, nodeRootFor } from "../src/merge.js";
 import { mergeFacet } from "../src/coverage.js";
 import { extract } from "../src/detect.js";
+import { MINI_FULLSTACK_CSHARP } from "../../../test/fixtures.js";
 
 // Imported directly rather than through `../src/index.js`: `merge` is an
 // internal of `extract()`, and widening the package's public surface for a
@@ -288,6 +289,92 @@ describe("mergeGraphs: warnings", () => {
       "root selection said this",
     ]);
   });
+
+  it("string-only inputs (hand-built): no records, and strings exactly as before records existed", () => {
+    // P2b mixed-input rule: records only when BOTH inputs carry them. A
+    // string-only node warning is NOT re-prefixed (that needs its record's file).
+    const merged = mergeGraphs(
+      graph({ entities: [entity("Product", "Models/Product.cs")], warnings: ["Models/X.cs:3: dotnet said this"] }),
+      graph({ provider: "sqlite-ddl", shapes: [shape("W", "t.ts")], warnings: ["src/x.ts:12: node said this", NO_SCHEMA] }),
+      "client",
+      ["root selection said this"],
+    );
+    expect(merged.warningRecords).toBeUndefined();
+    expect(merged.warnings).toEqual([
+      "Models/X.cs:3: dotnet said this",
+      "src/x.ts:12: node said this",
+      "No CREATE TABLE statement was found on the TypeScript side; this graph's schema " +
+        "comes from the .NET entity model instead. psq reads a TypeScript schema from raw " +
+        "DDL only; an ORM-defined schema is not read.",
+      "root selection said this",
+      "1 shape from the TypeScript side was not paired against the .NET entity model; psq pairs " +
+        'shapes within a stack only, so mirrors:null on a TS shape means "not computed", not "no mirror".',
+    ]);
+  });
+
+  it("record inputs: records rebased into merge coordinates, strings derived from them", () => {
+    const rec = (code: "cs-unbalanced-body" | "shape-unresolved" | "no-schema" | "ref-key-collision",
+      text: string, file: string | null, line: number | null, about: string | null = null) =>
+      ({ code, text, file, line, about });
+    const merged = mergeGraphs(
+      graph({
+        entities: [entity("Product", "Models/Product.cs")],
+        warnings: ["Models/X.cs:3: unbalanced body for type X"],
+        warningRecords: [rec("cs-unbalanced-body", "Models/X.cs:3: unbalanced body for type X", "Models/X.cs", 3, "X")],
+      }),
+      graph({
+        provider: "sqlite-ddl",
+        shapes: [shape("W", "t.ts", "Something")],
+        warnings: ["src/x.ts:12: could not resolve a declaration (boom)", NO_SCHEMA, 'src/k.ts: definitions at line 1 and line 2 both produce the key "src/k.ts#K"; keeping the first'],
+        warningRecords: [
+          rec("shape-unresolved", "src/x.ts:12: could not resolve a declaration (boom)", "src/x.ts", 12),
+          rec("no-schema", NO_SCHEMA, null, null),
+          rec("ref-key-collision", 'src/k.ts: definitions at line 1 and line 2 both produce the key "src/k.ts#K"; keeping the first', "src/k.ts", null, "src/k.ts#K"),
+        ],
+      }),
+      "client",
+      [{ code: "node-root-ambiguous", file: null, line: null, about: null, text: "root said this" }],
+    );
+    expect(merged.warningRecords).toEqual([
+      rec("cs-unbalanced-body", "Models/X.cs:3: unbalanced body for type X", "Models/X.cs", 3, "X"),
+      rec("shape-unresolved", "client/src/x.ts:12: could not resolve a declaration (boom)", "client/src/x.ts", 12),
+      rec("no-schema",
+        "No CREATE TABLE statement was found on the TypeScript side; this graph's schema " +
+          "comes from the .NET entity model instead. psq reads a TypeScript schema from raw " +
+          "DDL only; an ORM-defined schema is not read.", null, null),
+      // The body's own embedded path stays in node coordinates (documented remainder).
+      rec("ref-key-collision", 'client/src/k.ts: definitions at line 1 and line 2 both produce the key "src/k.ts#K"; keeping the first', "client/src/k.ts", null, "client/src/k.ts#K"),
+      { code: "node-root-ambiguous", file: null, line: null, about: null, text: "root said this" },
+    ]);
+    expect(merged.warnings).toEqual(merged.warningRecords!.map((r) => r.text));
+  });
+
+  it("both inputs carry records but a root warning is a plain string: falls back to strings, keeps it", () => {
+    // P2b mixed-input rule, second half: records need EVERY root warning as a
+    // record. A string root warning has no code, so no records are emitted and
+    // the string survives verbatim rather than being dropped.
+    const r = (text: string, file: string | null) =>
+      ({ code: "shape-unresolved" as const, file, line: null, about: null, text });
+    const merged = mergeGraphs(
+      graph({ warnings: ["dotnet said this"], warningRecords: [r("dotnet said this", null)] }),
+      graph({ provider: "sqlite-ddl", warnings: ["src/x.ts: node said this"], warningRecords: [r("src/x.ts: node said this", "src/x.ts")] }),
+      "client",
+      ["root selection said this"],
+    );
+    expect(merged.warningRecords).toBeUndefined();
+    expect(merged.warnings).toEqual(["dotnet said this", "src/x.ts: node said this", "root selection said this"]);
+  });
+
+  it("a real fullstack extraction carries records, one per warning (mini-fullstack-csharp)", () => {
+    // tsc cannot see a merge that forgets records (the (R,R)->R overload sits
+    // over a (G,G)->G implementation), so this is the gate for that path.
+    const g = extract(MINI_FULLSTACK_CSHARP);
+    expect(g.provider).toBe("fullstack");
+    expect(g.warningRecords).toBeDefined();
+    expect(g.warningRecords.length).toBe(g.warnings.length);
+    expect(g.warningRecords.length).toBeGreaterThan(0);
+    expect(g.warningRecords.map((r) => r.text)).toEqual(g.warnings);
+  });
 });
 
 describe("nodeRootFor", () => {
@@ -308,13 +395,13 @@ describe("nodeRootFor", () => {
 
   it("prefers the root's own tsconfig over anything below it", () => {
     const root = tmp(["client"], true);
-    expect(nodeRootFor(root)).toEqual({ root, warnings: [] });
+    expect(nodeRootFor(root)).toEqual({ root, warnings: [], records: [] });
     cleanup();
   });
 
   it("descends to the single candidate, silently — nothing was lost", () => {
     const root = tmp(["client"]);
-    expect(nodeRootFor(root)).toEqual({ root: join(root, "client"), warnings: [] });
+    expect(nodeRootFor(root)).toEqual({ root: join(root, "client"), warnings: [], records: [] });
     cleanup();
   });
 
@@ -328,6 +415,9 @@ describe("nodeRootFor", () => {
         "read the TypeScript side from the root with default compiler options, so " +
         "client-call attribution may be incomplete.",
     ]);
+    expect(picked.records).toEqual([
+      { code: "node-root-ambiguous", file: null, line: null, about: null, text: picked.warnings[0] },
+    ]);
     cleanup();
   });
 
@@ -336,7 +426,7 @@ describe("nodeRootFor", () => {
     // would make every one of them noisy for nothing.
     const root = tmp([]);
     mkdirSync(join(root, "src"));
-    expect(nodeRootFor(root)).toEqual({ root, warnings: [] });
+    expect(nodeRootFor(root)).toEqual({ root, warnings: [], records: [] });
     cleanup();
   });
 
@@ -561,10 +651,25 @@ describe("fullstack coverage at the referenced-projects site", () => {
       w("client/src/a.ts", "export interface A { id: number }\n");
       w("client/src/b.ts", "export interface B { id: number }\n");
       w("client/vite.config.ts", "export default {};\n");
+      w("client/src/c.ts", "const t = 'x';\nexport const s = `CREATE TABLE ${t} (id int)`;\n");
       const g = extract(root);
       expect(g.provider).toBe("fullstack");
-      const sentence = "tsconfig.json: 2 referenced projects; reading only tsconfig.app.json";
+      // P2b F1: node warnings carry the node-root prefix, in the text AND the
+      // record's file. The inner `tsconfig.app.json` stays node-relative.
+      const sentence = "client/tsconfig.json: 2 referenced projects; reading only tsconfig.app.json";
       expect(g.warnings).toContain(sentence);
+      expect(g.warningRecords.find((r) => r.code === "tsconfig-references-partial")).toEqual({
+        code: "tsconfig-references-partial", file: "client/tsconfig.json", line: null, about: null, text: sentence,
+      });
+      const sub = g.warningRecords.find((r) => r.code === "ddl-substitution-literal");
+      expect(sub).toEqual({
+        code: "ddl-substitution-literal",
+        file: "client/src/c.ts",
+        line: 2,
+        about: null,
+        text: "client/src/c.ts:2: CREATE TABLE in a template literal with substitutions; not read",
+      });
+      expect(g.warnings).toEqual(g.warningRecords.map((r) => r.text));
       expect(g.coverage.clientCalls).toMatchObject({
         status: "partial",
         readers: ["client-calls"],

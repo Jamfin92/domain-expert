@@ -1,4 +1,5 @@
-import type { Route } from "@psq/schema";
+import type { Route, WarningCode, WarningRecord } from "@psq/schema";
+import { Warnings } from "../warnings.js";
 import { lex } from "./lex.js";
 import type { AttributeRef, FileParse, MethodDecl, TypeDecl } from "./structure.js";
 
@@ -69,7 +70,7 @@ function short(name: string): string {
 function substitute(
   template: string,
   tokens: { controller: string; action: string; actionSafe: boolean },
-): { value: string } | { error: string } {
+): { value: string } | { error: string; code: WarningCode } {
   let out = "";
   let depth = 0;
   for (let i = 0; i < template.length; i++) {
@@ -87,7 +88,9 @@ function substitute(
         continue;
       }
       const end = template.indexOf("]", i);
-      if (end === -1) return { error: `unterminated token in template "${template}"` };
+      if (end === -1) {
+        return { error: `unterminated token in template "${template}"`, code: "route-template-invalid" };
+      }
       const name = template.slice(i + 1, end);
       if (name === "controller") out += tokens.controller;
       else if (name === "action") {
@@ -96,10 +99,13 @@ function substitute(
             error:
               "template uses [action] on a method ending in Async; MVC may trim that suffix " +
               "depending on a framework option psq cannot see",
+            code: "route-action-name-undecided",
           };
         }
         out += tokens.action;
-      } else return { error: `unsupported token [${name}] in template "${template}"` };
+      } else {
+        return { error: `unsupported token [${name}] in template "${template}"`, code: "route-template-invalid" };
+      }
       i = end;
       continue;
     }
@@ -130,7 +136,7 @@ function toPath(template: string): string {
 
 export interface RouteReadResult {
   routes: Route[];
-  warnings: string[];
+  warnings: WarningRecord[];
 }
 
 function cmp(a: string, b: string): number {
@@ -138,7 +144,7 @@ function cmp(a: string, b: string): number {
 }
 
 export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
-  const warnings: string[] = [];
+  const warnings = new Warnings();
   const routes: Route[] = [];
 
   const classes = new Map<string, TypeDecl[]>();
@@ -211,15 +217,19 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
       if (t.modifiers.includes("abstract")) {
         if (t.methods.some(actionish)) {
           warnings.push(
+            "route-inherited-not-read",
             `${loc}: abstract controller ${t.name} declares actions; actions inherited by ` +
               "derived controllers are not read",
+            { file: parse.file, line: t.line, about: t.name },
           );
         }
         continue;
       }
 
       if (attrs.some((a) => attrKey(a) === "Area")) {
-        warnings.push(`${loc}: controller ${t.name} is in an area ([Area]); area routes are not read`);
+        warnings.push("route-area-not-read", `${loc}: controller ${t.name} is in an area ([Area]); area routes are not read`, {
+          file: parse.file, line: t.line, about: t.name,
+        });
         continue;
       }
       const inheritsActions = (c: TypeDecl, depth = 0): TypeDecl | null => {
@@ -232,16 +242,20 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
       const actionBase = inheritsActions(t);
       if (actionBase) {
         warnings.push(
+          "route-inherited-not-read",
           `${loc}: controller ${t.name} derives from ${actionBase.name}, which declares actions; ` +
             "inherited actions are not read",
+          { file: parse.file, line: t.line, about: t.name },
         );
       }
       if (routeAttrs.length === 0) {
         const from = inheritedRoute(t);
         if (from) {
           warnings.push(
+            "route-inherited-not-read",
             `${loc}: controller ${t.name} inherits [Route] from ${from.name}; inherited class ` +
               "routes are not read",
+            { file: parse.file, line: t.line, about: t.name },
           );
           continue;
         }
@@ -252,7 +266,9 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
       for (const a of routeAttrs) {
         const tpl = templateOf(a);
         if (tpl.kind === "unreadable") {
-          warnings.push(`${parse.file}:${a.line}: [Route] on ${t.name} has a template that is not a plain string literal; controller routes not read`);
+          warnings.push("route-template-not-literal", `${parse.file}:${a.line}: [Route] on ${t.name} has a template that is not a plain string literal; controller routes not read`, {
+            file: parse.file, line: a.line, about: t.name,
+          });
           classOk = false;
         } else classTemplates.push(tpl.kind === "literal" ? tpl.value : "");
       }
@@ -266,11 +282,14 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
 
       for (const m of t.methods) {
         const mloc = `${parse.file}:${m.line}`;
+        const action = `${t.name}.${m.name}`;
         if (!m.modifiers.includes("public") || m.modifiers.includes("static")) continue;
         if (m.attributes.some((a) => attrKey(a) === "NonAction")) continue;
 
         if (m.attributes.some((a) => attrKey(a) === "AcceptVerbs")) {
-          warnings.push(`${mloc}: ${t.name}.${m.name} uses [AcceptVerbs]; the route was not read`);
+          warnings.push("route-accept-verbs", `${mloc}: ${t.name}.${m.name} uses [AcceptVerbs]; the route was not read`, {
+            file: parse.file, line: m.line, about: action,
+          });
           continue;
         }
 
@@ -280,8 +299,10 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
         if (verbAttrs.length === 0 && methodRoutes.length === 0) {
           if (routeAttrs.length > 0) {
             warnings.push(
+              "route-verb-undecided",
               `${mloc}: public method ${t.name}.${m.name} has no HTTP method attribute; ` +
                 "whether it is an action under the class [Route] was not decided",
+              { file: parse.file, line: m.line, about: action },
             );
           }
           continue;
@@ -297,7 +318,9 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
           const verb = VERBS[attrKey(a)]!;
           const tpl = templateOf(a);
           if (tpl.kind === "unreadable") {
-            warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has a template that is not a plain string literal; route not read`);
+            warnings.push("route-template-not-literal", `${parse.file}:${a.line}: ${t.name}.${m.name} has a template that is not a plain string literal; route not read`, {
+              file: parse.file, line: a.line, about: action,
+            });
             bad = true;
           } else if (tpl.kind === "literal") selectors.push({ verbs: [verb], template: tpl.value, line: a.line });
           else {
@@ -308,16 +331,22 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
         for (const a of methodRoutes) {
           const tpl = templateOf(a);
           if (tpl.kind === "unreadable") {
-            warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has a template that is not a plain string literal; route not read`);
+            warnings.push("route-template-not-literal", `${parse.file}:${a.line}: ${t.name}.${m.name} has a template that is not a plain string literal; route not read`, {
+              file: parse.file, line: a.line, about: action,
+            });
             bad = true;
           } else if (verbAttrs.length === 0) {
-            warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has [Route] and no HTTP method attribute, so it accepts every verb; route not read`);
+            warnings.push("route-any-verb", `${parse.file}:${a.line}: ${t.name}.${m.name} has [Route] and no HTTP method attribute, so it accepts every verb; route not read`, {
+              file: parse.file, line: a.line, about: action,
+            });
             bad = true;
           } else if (bareVerbs.length === 0) {
             // CreateSelectors: only template-less verb attributes lend their verbs to a
             // [Route] selector; templated ones are selectors of their own. Route has no
             // any-verb value, so say so rather than invent a verb.
-            warnings.push(`${parse.file}:${a.line}: ${t.name}.${m.name} has [Route] with no HTTP-method restriction (the method's verb attributes all carry their own template), so it accepts every verb; route not read`);
+            warnings.push("route-any-verb", `${parse.file}:${a.line}: ${t.name}.${m.name} has [Route] with no HTTP-method restriction (the method's verb attributes all carry their own template), so it accepts every verb; route not read`, {
+              file: parse.file, line: a.line, about: action,
+            });
           } else {
             selectors.push({ verbs: [...new Set(bareVerbs)], template: tpl.kind === "literal" ? tpl.value : "", line: a.line });
           }
@@ -334,7 +363,9 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
         if (nameAttr) {
           const v = nameAttr.args[0] === undefined ? null : plainString(nameAttr.args[0]);
           if (v === null) {
-            warnings.push(`${mloc}: ${t.name}.${m.name} has an [ActionName] that is not a plain string literal; route not read`);
+            warnings.push("route-action-name-not-literal", `${mloc}: ${t.name}.${m.name} has an [ActionName] that is not a plain string literal; route not read`, {
+              file: parse.file, line: m.line, about: action,
+            });
             continue;
           }
           actionName = v;
@@ -344,8 +375,10 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
           for (const sel of selectors) {
             if (cls === null && sel.template === null) {
               warnings.push(
+                "route-conventional",
                 `${parse.file}:${sel.line}: ${t.name}.${m.name} has an HTTP method attribute with no ` +
                   "template on a controller with no [Route]; it is conventionally routed, so no attribute route was read",
+                { file: parse.file, line: sel.line, about: action },
               );
               continue;
             }
@@ -356,7 +389,9 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
               actionSafe: nameAttr !== undefined || !m.name.endsWith("Async"),
             });
             if ("error" in sub) {
-              warnings.push(`${parse.file}:${sel.line}: ${t.name}.${m.name}: ${sub.error}; route not read`);
+              warnings.push(sub.code, `${parse.file}:${sel.line}: ${t.name}.${m.name}: ${sub.error}; route not read`, {
+                file: parse.file, line: sel.line, about: action,
+              });
               continue;
             }
             for (const verb of sel.verbs) {
@@ -378,7 +413,7 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
     (a, b) =>
       cmp(a.file, b.file) || a.line - b.line || cmp(a.method, b.method) || cmp(a.path, b.path),
   );
-  return { routes, warnings };
+  return { routes, warnings: warnings.records };
 }
 
 const MINIMAL = new Set(["MapGet", "MapPost", "MapPut", "MapDelete", "MapPatch", "MapMethods"]);
@@ -393,20 +428,24 @@ const CONVENTIONAL = new Set([
  * `(` after, so a method DECLARED with one of these names does not either. Runs
  * over the lexed source because top-level statements (`Program.cs`) are not types.
  */
-export function scanUnattributedRouting(src: string, file: string): string[] {
+export function scanUnattributedRouting(src: string, file: string): WarningRecord[] {
   if (!/Map(Get|Post|Put|Delete|Patch|Methods|ControllerRoute|DefaultControllerRoute|AreaControllerRoute)|UseMvc/.test(src)) {
     return [];
   }
-  const out: string[] = [];
+  const out = new Warnings();
   const toks = lex(src);
   for (let i = 1; i < toks.length - 1; i++) {
     const t = toks[i]!;
     if (toks[i - 1]!.text !== "." || toks[i + 1]!.text !== "(") continue;
     if (MINIMAL.has(t.text)) {
-      out.push(`${file}:${t.line}: minimal API ${t.text}(...) is not read; routes registered this way are not extracted`);
+      out.push("route-minimal-api", `${file}:${t.line}: minimal API ${t.text}(...) is not read; routes registered this way are not extracted`, {
+        file, line: t.line, about: t.text,
+      });
     } else if (CONVENTIONAL.has(t.text)) {
-      out.push(`${file}:${t.line}: conventional routing ${t.text}(...) is not read; routes registered this way are not extracted`);
+      out.push("route-conventional", `${file}:${t.line}: conventional routing ${t.text}(...) is not read; routes registered this way are not extracted`, {
+        file, line: t.line, about: t.text,
+      });
     }
   }
-  return out;
+  return out.records;
 }

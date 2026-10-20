@@ -64,6 +64,36 @@ const EXPECTED_WARNINGS = [
   `${C}/VerbsController.cs:9: VerbsController.Both uses [AcceptVerbs]; the route was not read`,
 ];
 
+/** The `WarningCode` of each EXPECTED_WARNINGS entry, index for index (P2b). */
+const EXPECTED_CODES = [
+  "route-minimal-api",
+  "route-conventional",
+  "route-area-not-read",
+  "route-template-invalid",
+  "route-template-not-literal",
+  "route-any-verb",
+  "route-verb-undecided",
+  "route-action-name-undecided",
+  "route-inherited-not-read",
+  "route-inherited-not-read",
+  "route-accept-verbs",
+];
+
+/** The `about` of each EXPECTED_WARNINGS entry, index for index (P2b fix round 1). */
+const EXPECTED_ABOUT = [
+  "MapGet",
+  "MapControllerRoute",
+  "AuditController",
+  "BadController.Tok",
+  "BadController.Lit",
+  "BadController.Verbless",
+  "BadController.Undecided",
+  "AsyncController.FetchAsync",
+  "BaseApiController",
+  "ChildController",
+  "VerbsController.Both",
+];
+
 describe("mini ASP.NET attribute-routing fixture", () => {
   const g = extractDotnet(ROUTES);
 
@@ -77,6 +107,13 @@ describe("mini ASP.NET attribute-routing fixture", () => {
 
   it("warns on every unsupported form, and only on those", () => {
     expect([...g.warnings].sort()).toEqual([...EXPECTED_WARNINGS].sort());
+  });
+
+  it("gives every warning its code (text paired with code, so a swap between sites is red)", () => {
+    const pair = (t: string, c: string, a: string | null): string => `${c} [${a}] <- ${t}`;
+    expect(g.warningRecords.map((r) => pair(r.text, r.code, r.about)).sort()).toEqual(
+      EXPECTED_WARNINGS.map((t, i) => pair(t, EXPECTED_CODES[i]!, EXPECTED_ABOUT[i]!)).sort(),
+    );
   });
 
   it("emits no route for an unsupported form", () => {

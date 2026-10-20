@@ -1,5 +1,6 @@
 import ts from "typescript";
 import type { Route } from "@psq/schema";
+import type { Warnings } from "../warnings.js";
 import { isTestFile, repoRelative } from "../files.js";
 import { resolveHandler } from "./handlers.js";
 
@@ -76,7 +77,7 @@ export function readRoutes(
   root: string,
   checker: ts.TypeChecker,
   sources: readonly ts.SourceFile[],
-  warnings: string[],
+  warnings: Warnings,
 ): Route[] {
   const out: Route[] = [];
 
@@ -104,7 +105,9 @@ export function readRoutes(
             if (handler) route.handler = handler;
             out.push(route);
           } else if (ts.isRegularExpressionLiteral(first)) {
-            warnings.push(`${rel}:${line + 1}: ${method.toUpperCase()} route matched by a regular expression; no path recorded`);
+            warnings.push("route-regex", `${rel}:${line + 1}: ${method.toUpperCase()} route matched by a regular expression; no path recorded`, {
+              file: rel, line: line + 1, about: method.toUpperCase(),
+            });
           }
         }
       }

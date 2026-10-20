@@ -245,6 +245,8 @@ describe("stop conditions", () => {
   });
 
   it("every cannotSee line comes from the same table", () => {
+    // Catches a cannotSee line that is not a LIMITS row (measured: a rogue line in blindSpots reddens it);
+    // does NOT check the content of a row's see() string, since `allowed` is built from see() itself.
     for (const path of [MINI_EFCORE_REFS, MINI_FULLSTACK_REACT, MINI_TYPES_ONLY, MINI_ASPNET_ROUTES,
       resolve(FIXTURES, "mini-fullstack-csharp"), resolve(FIXTURES, "mini-node")]) {
       const g = ctx.workspace.open(path, { allowEmpty: true }).graph;

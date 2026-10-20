@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ProviderBasis } from "@psq/schema";
 import { extractDotnet } from "./dotnet.js";
 import { extractNode } from "./node.js";
 import { digestOf, partitionTest, repoRelative, walk } from "./files.js";
 import { mergeGraphs, nodeRootFor } from "./merge.js";
 import { allFacets, notRead, type ExtractedGraph } from "./coverage.js";
+import { countNoun, Warnings } from "./warnings.js";
 
 export type Provider = "efcore" | "sqlite-ddl" | "fullstack" | "none";
 
@@ -78,8 +79,16 @@ export function detectStack(repoRoot: string): { provider: Provider; basis: Prov
  * 8: (1) every graph carries `coverage` + `providerBasis`; (2) the provider
  * is elected from source outside test paths only; (3) the DbContext is
  * elected from contexts outside test paths first.
+ *
+ * 9: (1) every graph carries `warningRecords`, the typed twin of `warnings`;
+ * (2) a DDL candidate must begin like a SQL statement (prose mentioning CREATE
+ * TABLE is no longer executed); (3) fullstack node warnings carry the node-root
+ * prefix; (4) unreadable `.cs` files are counted in coverage (`skipped:
+ * unreadable`, partial) and a walk-limit hit warns in both readers; (5) every
+ * entry point resolves its path first, so a relative root reads the same facts
+ * as its absolute twin; (6) "1 file"/"1 shape" grammar.
  */
-export const EXTRACTOR_VERSION = 8;
+export const EXTRACTOR_VERSION = 9;
 
 /**
  * Extract whatever this repo is, alongside a fingerprint of the files that
@@ -89,7 +98,9 @@ export const EXTRACTOR_VERSION = 8;
  * duplicate that is correct today is the drift a cross-time staleness check
  * cannot see.
  */
-export function extractWithDigest(repoRoot: string): { graph: ExtractedGraph; digest: string } {
+export function extractWithDigest(repoRootIn: string): { graph: ExtractedGraph; digest: string } {
+  // Same path form for the digest and the graph; see `extract`.
+  const repoRoot = resolve(repoRootIn);
   // The digest is taken BEFORE extraction, and the order is load-bearing.
   // Object-literal properties evaluate in source order, so returning
   // `{ graph: extractGraph(root), digest: digestOf(root) }` would build the
@@ -111,7 +122,8 @@ export function extractWithDigest(repoRoot: string): { graph: ExtractedGraph; di
  * warning that names what was looked for — never a throw, and never a guess.
  */
 export function extract(repoRoot: string): ExtractedGraph {
-  return extractGraph(repoRoot);
+  // A relative root used to read different facts than its absolute twin (P2b F6).
+  return extractGraph(resolve(repoRoot));
 }
 
 function extractGraph(repoRoot: string): ExtractedGraph {
@@ -130,7 +142,7 @@ function extractGraph(repoRoot: string): ExtractedGraph {
       const picked = nodeRootFor(repoRoot);
       const node = extractNode(picked.root);
       return {
-        ...mergeGraphs(dotnet, node, repoRelative(repoRoot, picked.root), picked.warnings),
+        ...mergeGraphs(dotnet, node, repoRelative(repoRoot, picked.root), picked.records),
         providerBasis: basis,
       };
     }
@@ -140,8 +152,14 @@ function extractGraph(repoRoot: string): ExtractedGraph {
         "No .csproj, .cs, .ts or .tsx source files outside test paths, and no package.json or " +
         "tsconfig.json, found here" +
         (underTest > 0
-          ? `; ${underTest} files under test/fixture paths were not treated as the project`
+          ? `; ${countNoun(underTest, "file")} under test/fixture paths ` +
+            `${underTest === 1 ? "was" : "were"} not treated as the project`
           : "");
+      const w = new Warnings();
+      w.push(
+        "no-reader",
+        `${sentence}. psq reads .NET projects with an EF Core DbContext and Node backends with a SQLite schema.`,
+      );
       return {
         kind: "entity",
         repo: repoRoot,
@@ -154,9 +172,8 @@ function extractGraph(repoRoot: string): ExtractedGraph {
         clientCalls: [],
         components: [],
         entityRefs: [],
-        warnings: [
-          `${sentence}. psq reads .NET projects with an EF Core DbContext and Node backends with a SQLite schema.`,
-        ],
+        warnings: w.strings,
+        warningRecords: w.records,
         coverage: allFacets(() => notRead(`no reader ran: ${sentence}`)),
         providerBasis: basis,
       };

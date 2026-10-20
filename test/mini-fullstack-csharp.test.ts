@@ -105,6 +105,8 @@ describe("a full-stack C# + React repo", () => {
         'psq pairs shapes within a stack only, so mirrors:null on a TS shape means ' +
         '"not computed", not "no mirror".',
     ]);
+    expect(g.warningRecords.map((r) => r.code)).toEqual(["no-schema", "shapes-unpaired"]);
+    expect(g.warningRecords.map((r) => r.text)).toEqual(g.warnings);
     // The unrewritten node warning claims this repo has no schema. It has one.
     expect(g.warnings.some((w) => /this repo has shapes but no schema/.test(w))).toBe(false);
     // Only one stack contributed entities, so the two-entity-languages warning

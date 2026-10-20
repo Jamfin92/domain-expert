@@ -3,6 +3,7 @@ import type { Cardinality, Entity, Index, Property, Relation } from "@psq/schema
 import { DatabaseSync, type Database } from "../sqlite/driver.js";
 import { conceptKey } from "../names.js";
 import { isTestFile, repoRelative } from "../files.js";
+import type { Warnings } from "../warnings.js";
 
 /**
  * Read a Node backend's schema by running its DDL, not by parsing it.
@@ -16,6 +17,46 @@ import { isTestFile, repoRelative } from "../files.js";
  */
 
 const CREATE_TABLE = /\bCREATE\s+TABLE\b/i;
+
+/**
+ * Every keyword a SQLite statement can begin with (sqlite.org/lang.html). A
+ * literal is DDL only when its first token, after whitespace and comments, is
+ * one of these (P2b F2). Prose that merely MENTIONS "CREATE TABLE" ("No CREATE
+ * TABLE statement was found…", a CLI help line) is not executed.
+ */
+const STATEMENT_START =
+  /^(ALTER|ANALYZE|ATTACH|BEGIN|COMMIT|CREATE|DELETE|DETACH|DROP|END|EXPLAIN|INSERT|PRAGMA|REINDEX|RELEASE|REPLACE|ROLLBACK|SAVEPOINT|SELECT|UPDATE|VACUUM|WITH)\b/i;
+
+/** Strip leading whitespace, `-- …` line comments and `/* … *\/` block comments. */
+function stripLeading(text: string): string {
+  let s = text;
+  for (;;) {
+    const next = s.replace(/^\s+/, "").replace(/^--[^\n]*(\n|$)/, "").replace(/^\/\*[\s\S]*?\*\//, "");
+    if (next === s) return s;
+    s = next;
+  }
+}
+
+/** A string that begins like a SQL statement and contains CREATE TABLE. */
+function isDdlLiteral(text: string): boolean {
+  return STATEMENT_START.test(stripLeading(text)) && CREATE_TABLE.test(text);
+}
+
+/**
+ * A template with substitutions: judged by its first non-blank literal chunk
+ * (the head, else the text after a substitution), never by `getText()`, which
+ * starts with a backtick. A leading `;` is a statement separator, so
+ * `${pragmas}; CREATE TABLE …` is DDL while `${x}: CREATE TABLE in …` is prose.
+ * A template that is only substitutions cannot be judged and keeps the warning.
+ */
+function isDdlTemplate(node: ts.TemplateExpression): boolean {
+  if (!CREATE_TABLE.test(node.getText())) return false;
+  for (const chunk of [node.head.text, ...node.templateSpans.map((sp) => sp.literal.text)]) {
+    const t = stripLeading(stripLeading(chunk).replace(/^;+/, ""));
+    if (t !== "") return STATEMENT_START.test(t);
+  }
+  return true; // only substitutions: cannot be judged, keep the warning
+}
 
 /** Above this many tables keyed on the same column name, the name is a habit. */
 const MAX_SHARED_KEY_CLAIMANTS = 2;
@@ -36,7 +77,7 @@ interface Candidate {
 export function collectDdl(
   root: string,
   sources: readonly ts.SourceFile[],
-  warnings: string[],
+  warnings: Warnings,
 ): Candidate[] {
   const out: Candidate[] = [];
   const seen = new Set<string>();
@@ -47,15 +88,17 @@ export function collectDdl(
 
     const visit = (node: ts.Node): void => {
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-        if (CREATE_TABLE.test(node.text) && !seen.has(node.text)) {
+        if (isDdlLiteral(node.text) && !seen.has(node.text)) {
           seen.add(node.text);
           out.push({ text: node.text, file: rel });
         }
-      } else if (ts.isTemplateExpression(node) && CREATE_TABLE.test(node.getText())) {
+      } else if (ts.isTemplateExpression(node) && isDdlTemplate(node)) {
         // A schema assembled at runtime is not a fact psq can hold. Say so.
         const { line } = source.getLineAndCharacterOfPosition(node.getStart());
         warnings.push(
+          "ddl-substitution-literal",
           `${rel}:${line + 1}: CREATE TABLE in a template literal with substitutions; not read`,
+          { file: rel, line: line + 1 },
         );
       }
       ts.forEachChild(node, visit);
@@ -102,7 +145,7 @@ function tableNames(db: Database): string[] {
 }
 
 /** Run every candidate, attributing each table to the file that declared it. */
-function readTables(candidates: readonly Candidate[], warnings: string[]): TableRead[] {
+function readTables(candidates: readonly Candidate[], warnings: Warnings): TableRead[] {
   const db = new DatabaseSync(":memory:", { allowExtension: false });
   const origin = new Map<string, string>();
 
@@ -113,7 +156,9 @@ function readTables(candidates: readonly Candidate[], warnings: string[]): Table
         db.exec(candidate.text);
       } catch (err) {
         warnings.push(
+          "ddl-candidate-failed",
           `${candidate.file}: a CREATE TABLE literal did not execute (${(err as Error).message})`,
+          { file: candidate.file },
         );
         continue;
       }
@@ -225,7 +270,7 @@ function deleteBehaviorOf(onDelete: string): "Cascade" | "SetNull" | "Restrict" 
  * Everything from 2 and 3 is marked `inferred`, drawn dashed, and barred from
  * delete-behavior questions, because nobody wrote it down.
  */
-function buildRelations(tables: readonly TableRead[], warnings: string[]): Relation[] {
+function buildRelations(tables: readonly TableRead[], warnings: Warnings): Relation[] {
   const byName = new Map(tables.map((t) => [t.name, t]));
   const byConcept = new Map<string, TableRead[]>();
   for (const t of tables) {
@@ -314,7 +359,9 @@ function buildRelations(tables: readonly TableRead[], warnings: string[]): Relat
     // six is a convention.
     if (candidates.length > MAX_SHARED_KEY_CLAIMANTS) {
       warnings.push(
+        "ddl-relation-ambiguous",
         `${column} is the identifying column of ${candidates.length} tables, so it reads as a naming convention; no relation inferred from it`,
+        { about: column },
       );
       continue;
     }
@@ -328,7 +375,9 @@ function buildRelations(tables: readonly TableRead[], warnings: string[]): Relat
     const runnerUp = ranked[1];
     if (runnerUp && runnerUp.columns.length === best.columns.length) {
       warnings.push(
+        "ddl-relation-ambiguous",
         `${column} identifies ${ranked.map((o) => o.name).join(" and ")} equally; no relation inferred from it`,
+        { about: column },
       );
       continue;
     }
@@ -351,7 +400,7 @@ export interface SchemaRead {
   relations: Relation[];
 }
 
-export function readSchema(candidates: readonly Candidate[], warnings: string[]): SchemaRead {
+export function readSchema(candidates: readonly Candidate[], warnings: Warnings): SchemaRead {
   if (candidates.length === 0) return { entities: [], relations: [] };
 
   const tables = readTables(candidates, warnings);
