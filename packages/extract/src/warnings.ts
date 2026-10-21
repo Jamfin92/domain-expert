@@ -1,4 +1,4 @@
-import type { WarningCode, WarningRecord } from "@psq/schema";
+import type { EntityGraph, WarningCode, WarningRecord } from "@psq/schema";
 
 /**
  * The one collector every reader fills (P2b).
@@ -80,4 +80,43 @@ function rebaseRecord(prefix: string, r: WarningRecord): WarningRecord {
  */
 export function countNoun(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Records that are safe to render beside `graph.warnings`: present AND one per
+ * string. Otherwise undefined (a hand-built graph, a pre-v9 envelope, or
+ * `warnings` mutated after extraction), and the consumer falls back to the
+ * strings. Texts are not compared element-wise: the extractor holds
+ * `warningRecords[i].text === warnings[i]` by construction, and the length
+ * check catches the drift consumers actually cause (a string pushed onto
+ * `warnings` afterwards). A string REPLACED in place would not be caught.
+ */
+export function recordsOf(
+  g: Pick<EntityGraph, "warnings" | "warningRecords">,
+): WarningRecord[] | undefined {
+  const recs = g.warningRecords;
+  if (recs === undefined || recs.length !== g.warnings.length) return undefined;
+  return recs;
+}
+
+/**
+ * Records grouped by code: count descending, then code ascending (code-unit
+ * order). `files` counts the distinct non-null `file`s in the group.
+ */
+export function byCode(
+  records: readonly WarningRecord[],
+): { code: WarningCode; count: number; files: number }[] {
+  const groups = new Map<WarningCode, { count: number; files: Set<string> }>();
+  for (const r of records) {
+    let grp = groups.get(r.code);
+    if (grp === undefined) {
+      grp = { count: 0, files: new Set() };
+      groups.set(r.code, grp);
+    }
+    grp.count += 1;
+    if (r.file !== null) grp.files.add(r.file);
+  }
+  return [...groups]
+    .map(([code, grp]) => ({ code, count: grp.count, files: grp.files.size }))
+    .sort((a, b) => b.count - a.count || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
 }

@@ -2,6 +2,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { WarningCode } from "@psq/schema";
 import { Workspace } from "../../server/src/workspace.js";
 import { INSTRUCTION } from "../src/brief.js";
 import { blindSpots, cap, LIMITS } from "../src/common.js";
@@ -205,10 +206,54 @@ describe("warnings", () => {
     const clean = tools.warnings.run(ctx, {}) as Json;
     expect(clean.count).toBe(0);
     expect(clean.cannotSee.join("\n")).toMatch(/mentions|MENTIONS/);
+    // The FALLBACK test, deliberately out of step: a string pushed after
+    // extraction leaves `warningRecords` one short, so no consumer may render
+    // the (now stale) records. The tool omits both keys; the brief prints the
+    // plain string with no code.
     ctx.workspace.get(id)!.graph.warnings.push("something psq did not understand");
     const w = tools.warnings.run(ctx, {}) as Json;
     expect(w.count).toBe(1);
     expect(w.warnings).toEqual(["something psq did not understand"]);
+    expect("records" in w).toBe(false);
+    expect("byCode" in w).toBe(false);
+    const b = tools.brief.run(ctx, {}) as string;
+    const lines = b.split("\n").filter((l) => l.startsWith("- warning"));
+    expect(lines).toEqual(["- warning: something psq did not understand"]);
+    expect(b).not.toContain("- by code:");
+  });
+
+  it("carries one typed record per warning, grouped by code", () => {
+    tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES });
+    const w = tools.warnings.run(ctx, {}) as Json;
+    expect(w.count).toBe(11);
+    expect(w.records).toHaveLength(w.count);
+    expect(w.records.map((r: Json) => r.text)).toEqual(w.warnings);
+    for (const r of w.records) expect(WarningCode.options).toContain(r.code);
+    // Independent of `byCode`: count per code, distinct non-null files, then
+    // count desc and code asc.
+    const acc = new Map<string, { count: number; files: Set<string> }>();
+    for (const r of w.records as Json[]) {
+      const e = acc.get(r.code) ?? { count: 0, files: new Set<string>() };
+      e.count++;
+      if (r.file !== null) e.files.add(r.file);
+      acc.set(r.code, e);
+    }
+    const expected = [...acc.entries()]
+      .map(([code, e]) => ({ code, count: e.count, files: e.files.size }))
+      .sort((a, b) => (a.count !== b.count ? b.count - a.count : a.code < b.code ? -1 : 1));
+    expect(expected).toHaveLength(10);
+    expect(expected[0]).toEqual({ code: "route-inherited-not-read", count: 2, files: 1 });
+    expect(w.byCode).toEqual(expected);
+  });
+
+  it("counts distinct files per code and ignores a null file", () => {
+    // No fixture has one code across two files; this one has a code whose file is null.
+    tools.open_repo.run(ctx, { path: resolve(FIXTURES, "mini-client-base") });
+    const w = tools.warnings.run(ctx, {}) as Json;
+    expect(w.byCode).toEqual([
+      { code: "client-base-unreadable", count: 2, files: 1 },
+      { code: "no-schema", count: 1, files: 0 },
+    ]);
   });
 
   it("only lists client blind spots for a repo with client code", () => {
@@ -605,6 +650,49 @@ describe("brief coverage", () => {
     const entities = c.split("\n").find((l) => l.startsWith("- entities:"))!;
     expect(entities).toMatch(/ — no CREATE TABLE literal among 2 TypeScript files$/);
     expect(c).toContain("\n- calls: not-read — no TypeScript reader for method calls\n");
+  });
+});
+
+describe("brief warnings", () => {
+  const warningLines = (b: string): string[] => b.split("\n").filter((l) => l.startsWith("- warning"));
+
+  it("tags each warning with its code, after one by-code line", () => {
+    tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES });
+    const b = tools.brief.run(ctx, {}) as string;
+    const byCodeLines = b.split("\n").filter((l) => l.startsWith("- by code: "));
+    expect(byCodeLines).toEqual([
+      "- by code: route-inherited-not-read 2, route-accept-verbs 1, route-action-name-undecided 1, " +
+        "route-any-verb 1, route-area-not-read 1, route-conventional 1, route-minimal-api 1, " +
+        "route-template-invalid 1, route-template-not-literal 1, route-verb-undecided 1",
+    ]);
+    const at = b.indexOf("- by code: ");
+    expect(at).toBeGreaterThan(b.indexOf("## Warnings"));
+    expect(at).toBeLessThan(b.indexOf("- warning ["));
+    const lines = warningLines(b);
+    expect(lines).toHaveLength(11);
+    for (const l of lines) expect(l).toMatch(/^- warning \[[a-z-]+\] /);
+    expect(b).not.toMatch(/more warnings not shown/);
+  });
+
+  it("pins the by-code line on a fullstack repo", () => {
+    tools.open_repo.run(ctx, { path: resolve(FIXTURES, "mini-fullstack-csharp") });
+    const b = tools.brief.run(ctx, {}) as string;
+    expect(b.split("\n").filter((l) => l.startsWith("- by code: "))).toEqual([
+      "- by code: no-schema 1, shapes-unpaired 1",
+    ]);
+  });
+
+  it("has no by-code line for one warning or none", () => {
+    tools.open_repo.run(ctx, { path: MINI_TYPES_ONLY });
+    const one = tools.brief.run(ctx, {}) as string;
+    expect(warningLines(one)).toHaveLength(1);
+    expect(warningLines(one)[0]).toMatch(/^- warning \[[a-z-]+\] /);
+    expect(one).not.toContain("- by code:");
+    ctx.workspace.closeAll();
+    openRefs();
+    const none = tools.brief.run(ctx, {}) as string;
+    expect(none).toContain("- extraction produced no warnings");
+    expect(none).not.toContain("- by code:");
   });
 });
 

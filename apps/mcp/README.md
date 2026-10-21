@@ -72,7 +72,7 @@ Twelve tools and one prompt:
 | `refs {entity, via?}` | where an entity is mentioned: `file:line`, enclosing `Type.method` |
 | `routes {prefix?}` | routes with `file:line`, the handler when psq knows it, and whether any client call matched; `next` |
 | `client_calls {component?}` | client HTTP calls with the component they attribute to and the route they matched |
-| `warnings` | extraction warnings plus `cannotSee`, the standing list of what psq cannot see in this repo; `coverage` |
+| `warnings` | extraction warnings plus `records` (`{code, file, line, about, text}` per warning) and `byCode` (count and distinct files per code; both absent on graphs stored before typed warnings), `cannotSee`, the standing list of what psq cannot see in this repo; `coverage` |
 | `mermaid` | `erDiagram` source; line 2 is `%% graphDigest <hex>` |
 | `flow {route? \| handler?, maxDepth?}` | a route or handler followed through resolved calls, hop by hop, with the entities each method mentions; `next` |
 | `areas` | route-derived feature areas with their routes, components and entities, shared entities, and cross-area edges |
@@ -123,7 +123,9 @@ invent one.
 `brief` renders areas, entities with their relations, routes, client-call wiring,
 hot spots (most-mentioned entities, methods touching the most entities, most
 connected entities), coverage (one line per facet with its status, readers,
-roots, files read and reason, then the provider basis; never cut) and warnings.
+roots, files read and reason, then the provider basis; never cut) and warnings
+(each `- warning [code] text`, preceded by one `- by code:` summary line when
+there are two or more).
 It opens and closes with the standing
 instruction:
 

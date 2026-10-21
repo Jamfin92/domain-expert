@@ -1,5 +1,6 @@
+import { byCode, recordsOf } from "@psq/extract";
 import { degrees, orphans, routeFlow, DEFAULT_FLOW_DEPTH } from "@psq/graph";
-import type { Coverage, EntityGraph } from "@psq/schema";
+import type { Coverage, EntityGraph, WarningRecord } from "@psq/schema";
 import type { Workspace, OpenRepo } from "../../server/src/workspace.js";
 import {
   blindSpots, cap, cite, cmp, handlerOf, headLabel, identityOf, methodKey, segmentOf,
@@ -307,9 +308,16 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
 
   // Blind spots
   out.push("## Warnings and what psq cannot see", "");
-  const warn = cap(g.warnings, L.warnings);
+  const recs = recordsOf(g);
   if (g.warnings.length === 0) out.push("- extraction produced no warnings");
-  for (const w of warn.items) out.push(`- warning: ${w}`);
+  if (recs && recs.length > 1) {
+    // One line, built from every record with no `L.*` limit: no scale cuts it.
+    const groups = byCode(recs).map((x) => `${x.code} ${x.count}${x.files > 1 ? ` (${x.files} files)` : ""}`);
+    out.push(`- by code: ${groups.join(", ")}`);
+  }
+  // Explicit T: inference from the `??` would pick `string` and reject the records.
+  const warn = cap<string | WarningRecord>(recs ?? g.warnings, L.warnings);
+  for (const w of warn.items) out.push(typeof w === "string" ? `- warning: ${w}` : `- warning [${w.code}] ${w.text}`);
   more(warn.omitted, "warnings");
   for (const b of blindSpots(g)) out.push(`- cannot see: ${b}`);
   out.push("", `> ${INSTRUCTION}`, "");

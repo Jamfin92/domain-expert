@@ -116,7 +116,7 @@ export interface RepoSummary {
  * Hoisted out of the single inline literal only so `open()` has a name to
  * resolve `rows` from before storing it. It does NOT de-duplicate the default:
  * `40` still appears in `packages/quiz/src/sql/seed.ts:233`,
- * `apps/cli/src/index.ts:95` and that file's help text at `:212`. What
+ * `apps/cli/src/index.ts:95` and that file's help text at `:219`. What
  * actually keeps the two shells from disagreeing is that `open()` resolves
  * `rows` once and STORES the resolved value, so a rehydrated repo is seeded
  * with the number it was opened with rather than whatever the default has

@@ -2,7 +2,7 @@
 import { createInterface } from "node:readline/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { extract } from "@psq/extract";
+import { byCode, extract, recordsOf } from "@psq/extract";
 import { invariants, mermaid, degrees, orphans } from "@psq/graph";
 import {
   buildBank as composeBank,
@@ -115,8 +115,15 @@ async function main(): Promise<void> {
         );
       }
       if (g.warnings.length > 0) {
+        const recs = recordsOf(g);
         console.log(`${YELLOW}${g.warnings.length} warning(s):${OFF}`);
-        for (const w of g.warnings) console.log(`  - ${w}`);
+        if (recs) {
+          for (const r of recs) console.log(`  - [${r.code}] ${r.text}`);
+          if (recs.length > 1)
+            console.log(`${DIM}by code: ${byCode(recs).map((x) => `${x.code}=${x.count}`).join("  ")}${OFF}`);
+        } else {
+          for (const w of g.warnings) console.log(`  - ${w}`);
+        }
       }
       const orph = orphans(g);
       if (orph.length > 0) console.log(`${DIM}unconnected: ${orph.join(", ")}${OFF}`);

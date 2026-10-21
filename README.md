@@ -76,6 +76,9 @@ pnpm psq selftest --repo <path>
 pnpm psq quiz --repo <path> --n 10
 ```
 
+Warnings print one per line tagged with their code (`[route-conventional] …`),
+followed by a `by code:` count line when there are two or more.
+
 Add `--seed <n>` to fix the generator seed, `--rows <n>` to change how many rows
 are seeded, and `--section entity,ds` to narrow the bank. The same repo and seed
 always give the same questions in the same order, and the same database down to

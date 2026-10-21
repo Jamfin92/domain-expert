@@ -8,7 +8,7 @@ import { extractDotnet } from "../src/dotnet.js";
 import { extractNode } from "../src/node.js";
 import { pairShapes } from "../src/pair.js";
 import type { Entity, Shape } from "@psq/schema";
-import { countNoun, Warnings } from "../src/warnings.js";
+import { byCode, countNoun, recordsOf, Warnings } from "../src/warnings.js";
 import { MINI_EFCORE, MINI_TYPES_ONLY } from "../../../test/fixtures.js";
 
 /**
@@ -57,6 +57,9 @@ describe("every extracted graph carries warningRecords, one per warning", () => 
         expect(r.file, at).not.toContain("\\");
       }
       if (r.line !== null) expect(r.line, at).toBeGreaterThanOrEqual(1);
+      // Consumers render `[code] text` without repeating the file (P2b-ii): a
+      // record with a file must already lead with it.
+      expect(r.file === null || r.text.startsWith(r.file + ":"), at).toBe(true);
       // Oracle only: production never parses its own text.
       const fileLine = /^(\S+?):(\d+): /.exec(r.text);
       if (fileLine) {
@@ -155,6 +158,57 @@ describe("pairShapes: an ambiguous mirror is a coded warning (no fixture emits i
       code: "shape-mirror-ambiguous", file: "web/order.ts", line: null, about: "Order",
       text: "web/order.ts: Order could mirror Order or Order; not paired",
     }]);
+  });
+});
+
+describe("recordsOf and byCode (P2b-ii consumers)", () => {
+  const rec = (code: WarningCode, file: string | null, text: string): WarningRecord =>
+    ({ code, file, line: null, about: null, text });
+
+  it("U1 returns the records when present and one per warning", () => {
+    const records = [rec("no-schema", null, "a"), rec("no-reader", null, "b")];
+    expect(recordsOf({ warnings: ["a", "b"], warningRecords: records })).toBe(records);
+  });
+
+  it("U2 is undefined when the graph carries no records", () => {
+    expect(recordsOf({ warnings: ["a"], warningRecords: undefined })).toBeUndefined();
+    expect(recordsOf({ warnings: [] })).toBeUndefined();
+  });
+
+  it("U3 is undefined when a warning was added after extraction (length mismatch)", () => {
+    const records = [rec("no-schema", null, "a")];
+    expect(recordsOf({ warnings: ["a", "pushed later"], warningRecords: records })).toBeUndefined();
+  });
+
+  it("U4 orders by count desc, then code asc on a tie", () => {
+    const out = byCode([
+      rec("route-regex", "a.ts", "1"),
+      rec("no-schema", null, "2"),
+      rec("route-regex", "a.ts", "3"),
+      rec("ddl-relation-ambiguous", null, "4"),
+      rec("no-schema", null, "5"),
+      rec("walk-limit", null, "6"),
+    ]);
+    expect(out.map((g) => [g.code, g.count])).toEqual([
+      ["no-schema", 2],
+      ["route-regex", 2],
+      ["ddl-relation-ambiguous", 1],
+      ["walk-limit", 1],
+    ]);
+  });
+
+  it("U5 files counts distinct non-null files only", () => {
+    const out = byCode([
+      rec("client-base-unreadable", "src/a.ts", "1"),
+      rec("client-base-unreadable", "src/a.ts", "2"),
+      rec("client-base-unreadable", "src/b.ts", "3"),
+      rec("client-base-unreadable", null, "4"),
+      rec("no-schema", null, "5"),
+    ]);
+    expect(out).toEqual([
+      { code: "client-base-unreadable", count: 4, files: 2 },
+      { code: "no-schema", count: 1, files: 0 },
+    ]);
   });
 });
 

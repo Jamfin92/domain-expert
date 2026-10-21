@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { z } from "zod";
-import { drift } from "@psq/extract";
+import { byCode, drift, recordsOf } from "@psq/extract";
 import { mermaid, refsFor, searchEntities, MATCH_FIELDS } from "@psq/graph";
 import { RefVia } from "@psq/schema";
 import type { Route } from "@psq/schema";
@@ -520,14 +520,19 @@ export const tools = {
   ),
 
   warnings: def(
-    "Extraction warnings plus the standing list of what psq cannot see. Read this before drawing conclusions.",
+    "Extraction warnings plus the standing list of what psq cannot see. Read this before drawing conclusions. " +
+      "`records` carries `{code, file, line, about, text}` per warning and `byCode` groups them (count, distinct " +
+      "files); both are absent when the stored graph predates typed warnings.",
     "runtime",
     { repo: repoArg },
     (ctx, { repo: ref }) => {
       const repo = resolveRepo(ctx, ref);
+      // Present only when the records match the strings one for one; never `records: undefined`.
+      const recs = recordsOf(repo.graph);
       return stamp(repo, {
         count: repo.graph.warnings.length,
         warnings: repo.graph.warnings,
+        ...(recs ? { records: recs, byCode: byCode(recs) } : {}),
         cannotSee: blindSpots(repo.graph),
         coverage: repo.graph.coverage,
       });

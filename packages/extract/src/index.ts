@@ -17,5 +17,5 @@ export { parseCSharp } from "./csharp/structure.js";
 export { walk, repoRelative, digestOf } from "./files.js";
 export { plural, singular, fieldKey, conceptKey } from "./names.js";
 export { pairShapes, drift, type Drift } from "./pair.js";
-export { Warnings, countNoun } from "./warnings.js";
+export { Warnings, byCode, countNoun, recordsOf } from "./warnings.js";
 export { DatabaseSync, type Database } from "./sqlite/driver.js";
