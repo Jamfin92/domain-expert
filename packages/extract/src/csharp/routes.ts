@@ -400,6 +400,9 @@ export function readAspNetRoutes(parses: FileParse[]): RouteReadResult {
                 path: toPath(sub.value),
                 file: parse.file,
                 line: sel.line,
+                // Every route reaching here is an attribute route built from
+                // literals; every other kind was refused with a warning above.
+                source: "attribute",
                 handler: { type: t.name, method: m.name, file: parse.file, line: m.line },
               });
             }

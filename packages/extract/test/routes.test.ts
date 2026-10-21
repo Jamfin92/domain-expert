@@ -167,9 +167,10 @@ describe("scanUnattributedRouting", () => {
 });
 
 describe("route/call path matching", () => {
-  const route = (method: string, path: string): Route => ({ method, path, file: "A.cs", line: 1 });
+  const route = (method: string, path: string): Route => ({ method, path, file: "A.cs", line: 1, source: "attribute" });
   const call = (method: string, path: string): ClientCall => ({
-    method, path, file: "a.ts", line: 1, enclosing: null, matches: null, components: [],
+    method, path, file: "a.ts", line: 1, enclosing: null, matches: null, matchSource: null,
+    components: [], componentsSource: null,
   });
 
   it.each([

@@ -400,18 +400,25 @@ function collectEdges(
   }
 }
 
+/** One call's attribution and how it was made; `source` is null exactly when `components` is empty. */
+interface Attribution {
+  components: string[];
+  source: "declared" | "inferred" | null;
+}
+
 /**
  * Nearest-component attribution for one call node. If the innermost owning
- * definition is itself a component, that component and nothing else.
- * Otherwise BFS over REVERSE edges, recording each component reached and not
- * expanding past it — attributing to every reaching component would make the
- * root App own every call, which is true and useless. `visited` kills
- * cycles; depth is capped at MAX_DEPTH, silently (a catalogued miss).
+ * definition is itself a component, that component and nothing else
+ * (`declared`: the call sits lexically inside it). Otherwise BFS over REVERSE
+ * edges, recording each component reached and not expanding past it —
+ * attributing to every reaching component would make the root App own every
+ * call, which is true and useless (`inferred`: reached by the walk). `visited`
+ * kills cycles; depth is capped at MAX_DEPTH, silently (a catalogued miss).
  */
-function attributeOne(callNode: ts.Node, graph: RefGraph, byKey: Map<DefKey, Def>): string[] {
+function attributeOne(callNode: ts.Node, graph: RefGraph, byKey: Map<DefKey, Def>): Attribution {
   const owner = owningDefForCall(callNode, graph);
-  if (!owner) return []; // module scope: genuinely unowned
-  if (owner.isComponent) return [owner.key];
+  if (!owner) return { components: [], source: null }; // module scope: genuinely unowned
+  if (owner.isComponent) return { components: [owner.key], source: "declared" };
 
   const found = new Set<DefKey>();
   const visited = new Set<DefKey>([owner.key]);
@@ -430,7 +437,8 @@ function attributeOne(callNode: ts.Node, graph: RefGraph, byKey: Map<DefKey, Def
     }
     frontier = next;
   }
-  return [...found].sort();
+  const components = [...found].sort();
+  return { components, source: components.length > 0 ? "inferred" : null };
 }
 
 /**
@@ -462,13 +470,17 @@ export function attributeComponents(
         file: call.file, line: call.line,
       });
       call.components = [];
+      call.componentsSource = null;
       continue;
     }
-    call.components = attributeOne(node, graph, byKey);
+    const { components, source } = attributeOne(node, graph, byKey);
+    call.components = components;
+    call.componentsSource = source;
   }
 
   return graph.defs
     .filter((d) => d.isComponent)
-    .map(({ key, name, file, line }) => ({ key, name, file, line }))
+    // `inferred`: componenthood is the JSX + PascalCase heuristic.
+    .map(({ key, name, file, line }) => ({ key, name, file, line, source: "inferred" as const }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }

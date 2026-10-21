@@ -12,7 +12,7 @@ import type { ClientCall, Component, EntityGraph } from "@psq/schema";
  */
 
 function component(name: string, file: string): Component {
-  return { key: `${file}#${name}`, name, file, line: 1 };
+  return { key: `${file}#${name}`, name, file, line: 1, source: "inferred" };
 }
 
 /** `n` calls attributed to `key`, all matched, at increasing lines. */
@@ -24,7 +24,9 @@ function calls(key: string, n: number): ClientCall[] {
     line: i + 1,
     enclosing: "load",
     matches: `GET /api/thing/${i}`,
+    matchSource: "inferred",
     components: [key],
+    componentsSource: "declared",
   }));
 }
 

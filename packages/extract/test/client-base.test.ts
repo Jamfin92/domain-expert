@@ -9,7 +9,7 @@ import { Warnings } from "../src/warnings.js";
 const FIXTURE = resolve(__dirname, "../../../test/fixtures/mini-client-base");
 
 const route = (method: string, path: string): Route => ({
-  method, path, file: "Controllers/X.cs", line: 9,
+  method, path, file: "Controllers/X.cs", line: 9, source: "attribute",
   handler: { type: "X", method: "M", file: "Controllers/X.cs", line: 10 },
 });
 
@@ -83,6 +83,14 @@ describe("client base prefix: matching through mergeGraphs", () => {
     ]);
   });
 
+  // P2c-i VALUE pin: no fixture extracted on its own reaches the merge-pass
+  // (`merge.ts:258`) or a base-prefixed match, so this is where both are seen.
+  it("stamps matchSource inferred on every merge-pass match, prefixed or literal, and null otherwise", () => {
+    expect(merged.clientCalls.map((c) => c.matchSource)).toEqual([
+      "inferred", "inferred", "inferred", "inferred", null, null, null,
+    ]);
+  });
+
   it("carries the unreadable-base warnings through the merge", () => {
     expect(merged.warnings.filter((w) => w.includes("calls through it may be unmatched"))).toHaveLength(2);
   });
@@ -95,7 +103,8 @@ describe("client base prefix: matching through mergeGraphs", () => {
 describe("linkCalls: literal first, prefix second", () => {
   const call = (path: string, prefix?: string): ClientCall => {
     const c: ClientCall = {
-      method: "GET", path, file: "a.ts", line: 1, enclosing: null, matches: null, components: [],
+      method: "GET", path, file: "a.ts", line: 1, enclosing: null, matches: null, matchSource: null,
+      components: [], componentsSource: null,
     };
     if (prefix !== undefined) setBasePrefix(c, prefix);
     return c;
@@ -112,6 +121,9 @@ describe("linkCalls: literal first, prefix second", () => {
     const [withBase, without] = linkCalls(routes, [call("/x", "/api"), call("/x")], new Warnings());
     expect(withBase!.matches).toBe("GET /api/x");
     expect(without!.matches).toBeNull();
+    // P2c-i: a base-prefixed match is path equality like any other.
+    expect(withBase!.matchSource).toBe("inferred");
+    expect(without!.matchSource).toBeNull();
   });
 
   it("warns, naming the effective path, when prefix + path is ambiguous", () => {

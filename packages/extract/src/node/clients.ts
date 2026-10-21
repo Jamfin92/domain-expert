@@ -343,9 +343,11 @@ export function readClientCalls(
               line: line + 1,
               enclosing: enclosingName(node),
               matches: null,
+              matchSource: null,
               // Overwritten for every call by the attribution pass; [] here
               // is "attribution has not run", not a finding.
               components: [],
+              componentsSource: null,
             };
             setBasePrefix(call, prefix);
             out.push(call);
@@ -399,6 +401,8 @@ export function linkCalls(
     if (candidates.length === 1) {
       const route = candidates[0]!;
       call.matches = `${route.method} ${route.path}`;
+      // Path equality, literal or base-prefixed: a match, never a proven wire.
+      call.matchSource = "inferred";
     } else if (candidates.length > 1) {
       warnings.push(
         "client-call-ambiguous",

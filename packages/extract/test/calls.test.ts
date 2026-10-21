@@ -263,3 +263,126 @@ class A { void Go() {} async void M() { await Go(); } }
     expect(r.edges).toEqual(["A.M->A.Go@2"]);
   });
 });
+
+/**
+ * Like `callsOf`, but each edge rendered with its provenance:
+ * `...@line:source`, then `!` when the edge carries an `ambiguous` KEY at all
+ * (any value), so an upgrade that left `ambiguous: false` behind still shows.
+ */
+function sourcesOf(...sources: string[]): string[] {
+  const parses = sources.map((s, i) => parseCSharp(s, `f${i}.cs`));
+  return collectCalls(parses).calls.map(
+    (c) =>
+      `${c.from.type}.${c.from.method}->${c.to.type}.${c.to.method}@${c.line}:${c.source}${"ambiguous" in c ? "!" : ""}`,
+  );
+}
+
+describe("call provenance (P2c-i)", () => {
+  it("stamps declared on this., typed-receiver, static and bare calls", () => {
+    expect(
+      sourcesOf(`
+class Dep { public void Go() {} public static void S() {} }
+class A {
+  private Dep _d;
+  void N() {}
+  void M() { this.N(); }
+  void O() { _d.Go(); }
+  void P() { Dep.S(); }
+  void Q() { N(); }
+}
+`),
+    ).toEqual([
+      "A.M->A.N@6:declared",
+      "A.O->Dep.Go@7:declared",
+      "A.P->Dep.S@8:declared",
+      "A.Q->A.N@9:declared",
+    ]);
+  });
+
+  it("an interface call: declared to the member, inferred to a LONE implementer (no ambiguous)", () => {
+    expect(
+      sourcesOf(`
+interface IFoo { void Do(); }
+class Impl : IFoo { public void Do() {} }
+class A { IFoo _f; void M() { _f.Do(); } }
+`),
+    ).toEqual(["A.M->IFoo.Do@4:declared", "A.M->Impl.Do@4:inferred"]);
+  });
+
+  it("an interface call with several implementers: inferred AND ambiguous on each", () => {
+    expect(
+      sourcesOf(`
+interface IFoo { void Do(); }
+class One : IFoo { public void Do() {} }
+class Two : IFoo { public void Do() {} }
+class A { IFoo _f; void M() { _f.Do(); } }
+`),
+    ).toEqual(["A.M->IFoo.Do@5:declared", "A.M->One.Do@5:inferred!", "A.M->Two.Do@5:inferred!"]);
+  });
+
+  // The same edge (same caller, target and call line) reached once by
+  // dispatch and once directly: the strongest evidence wins, in either order.
+  it("dedupe upgrade: dispatch first, then a direct call on the same line, ends declared", () => {
+    expect(
+      sourcesOf(`
+interface IFoo { void Do(); }
+class Impl : IFoo { public void Do() {} }
+class A { IFoo _f; Impl _i; void M() { _f.Do(); _i.Do(); } }
+`),
+    ).toEqual(["A.M->IFoo.Do@4:declared", "A.M->Impl.Do@4:declared"]);
+  });
+
+  it("dedupe upgrade: a direct call first, then dispatch on the same line, ends declared", () => {
+    expect(
+      sourcesOf(`
+interface IFoo { void Do(); }
+class Impl : IFoo { public void Do() {} }
+class A { IFoo _f; Impl _i; void M() { _i.Do(); _f.Do(); } }
+`),
+    ).toEqual(["A.M->IFoo.Do@4:declared", "A.M->Impl.Do@4:declared"]);
+  });
+
+  // With several implementers the dispatch edge is also `ambiguous`; the
+  // direct call names that target, so the upgraded edge drops `ambiguous` and
+  // `ambiguous => inferred` holds whichever link came first.
+  it("dedupe upgrade with several implementers: dispatch first, then direct, ends declared and not ambiguous", () => {
+    expect(
+      sourcesOf(`
+interface IFoo { void Do(); }
+class One : IFoo { public void Do() {} }
+class Two : IFoo { public void Do() {} }
+class A { IFoo _f; One _o; void M() { _f.Do(); _o.Do(); } }
+`),
+    ).toEqual(["A.M->IFoo.Do@5:declared", "A.M->One.Do@5:declared", "A.M->Two.Do@5:inferred!"]);
+  });
+
+  it("dedupe upgrade with several implementers: direct first, then dispatch, ends declared and not ambiguous", () => {
+    expect(
+      sourcesOf(`
+interface IFoo { void Do(); }
+class One : IFoo { public void Do() {} }
+class Two : IFoo { public void Do() {} }
+class A { IFoo _f; One _o; void M() { _o.Do(); _f.Do(); } }
+`),
+    ).toEqual(["A.M->IFoo.Do@5:declared", "A.M->One.Do@5:declared", "A.M->Two.Do@5:inferred!"]);
+  });
+
+  it("on the mini ASP.NET fixture, exactly the edges to an implementer are inferred", () => {
+    const g = extractDotnet(ROUTES);
+    const inferred = (g.calls ?? [])
+      .filter((c) => c.source === "inferred")
+      .map((c) => `${key(c.from)}->${key(c.to)}@${c.line}`)
+      .sort();
+    expect(inferred).toEqual(
+      [
+        `${C}/GadgetsController.cs:GadgetsController.Get@20->${S}/GadgetService.cs:GadgetService.Assemble@17@20`,
+        `${C}/GadgetsController.cs:GadgetsController.Retire@23->${S}/GadgetService.cs:GadgetService.Retire@24@25`,
+        `${S}/GadgetService.cs:GadgetService.Assemble@17->${R}/GadgetRepository.cs:GadgetRepository.Load@15@19`,
+        `${S}/GadgetService.cs:GadgetService.Retire@24->${S}/Notifiers.cs:EmailNotifier.Send@7@26`,
+        `${S}/GadgetService.cs:GadgetService.Retire@24->${S}/Notifiers.cs:SmsNotifier.Send@15@26`,
+        `${S}/GadgetService.cs:GadgetService.Retire@24->${R}/GadgetRepository.cs:GadgetRepository.Remove@17@27`,
+      ].sort(),
+    );
+    expect((g.calls ?? []).every((c) => c.source === "inferred" || c.source === "declared")).toBe(true);
+  });
+});

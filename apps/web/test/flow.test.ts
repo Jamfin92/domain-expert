@@ -16,7 +16,7 @@ import type { ClientCall, EntityRef, Route, UiComponent } from "../src/lib/api.j
 
 const comp = (file: string, name: string): UiComponent => ({ key: `${file}#${name}`, name, file, line: 3 });
 const route = (method: string, path: string, over: Partial<Route> = {}): Route => ({
-  method, path, file: "srv/routes.ts", line: 10, ...over,
+  method, path, file: "srv/routes.ts", line: 10, source: "declared", ...over,
 });
 const call = (over: Partial<ClientCall> & { file: string; line: number }): ClientCall => ({
   method: "GET", path: "/api/x", enclosing: null, matches: null, components: [], ...over,

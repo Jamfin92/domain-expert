@@ -16,6 +16,7 @@ import {
   listEnvelopeIds,
   readEnvelope,
   writeEnvelope,
+  type StoredHeader,
 } from "./store.js";
 
 /**
@@ -233,16 +234,28 @@ export class Workspace {
     let opened: SeededDb | undefined;
     try {
       const read = readEnvelope(stateDir, id);
-      if (!read.ok) {
-        // The file is KEPT. Three of these cases are unrepairable from here —
-        // `readEnvelope` validates the whole envelope and discards the payload,
-        // so `path` is gone and there is nothing to re-extract. They are
-        // repaired by the user re-opening the repo, or removed with DELETE.
+      let env: StoredHeader;
+      let graph: EntityGraph | null;
+      if (read.ok) {
+        env = read.envelope;
+        graph = read.envelope.graph;
+      } else if (read.header !== undefined && read.header.extractor !== EXTRACTOR_VERSION) {
+        // Only the graph failed, and an OLDER extractor wrote it: a schema
+        // that gained a required field (P2c-i provenance) rejects every
+        // earlier graph before the version check below could run. That is a
+        // stale envelope, not a broken one — re-extract it from `path`.
+        env = read.header;
+        graph = null;
+      } else {
+        // The file is KEPT. These cases are unrepairable from here: no header
+        // (so `path` is gone and there is nothing to re-extract), or a graph
+        // the CURRENT extractor's schema rejects, which is real corruption.
+        // They are repaired by the user re-opening the repo, or removed with
+        // DELETE.
         this.status.failed += 1;
         this.log(`psq rehydrate: ${id} failed — ${read.reason}`);
         return;
       }
-      const env = read.envelope;
 
       // The filename id, the envelope's own id, and the id the path hashes to
       // must all agree, or the store grows a permanent orphan.
@@ -286,7 +299,7 @@ export class Workspace {
         return;
       }
 
-      let reExtract = env.extractor !== EXTRACTOR_VERSION || invariants(env.graph).length > 0;
+      let reExtract = graph === null || env.extractor !== EXTRACTOR_VERSION || invariants(graph).length > 0;
 
       // Before any digest. See the ordering note on `rehydrate`.
       if (!existsSync(env.path) || !statSync(env.path).isDirectory()) {
@@ -301,7 +314,7 @@ export class Workspace {
 
       if (!reExtract && digestOf(env.path) !== env.fingerprint) reExtract = true;
 
-      if (reExtract) {
+      if (reExtract || graph === null) {
         // `open()` re-extracts, rebuilds, inserts and rewrites the envelope.
         this.open(env.path, { seed: env.seed, rows: env.rows });
         this.status.loaded += 1;
@@ -310,19 +323,19 @@ export class Workspace {
 
       // The same refusal `open()` makes: a graph with no entities must not be
       // materialized into a repo that can ask nothing.
-      if (env.graph.entities.length === 0) {
+      if (graph.entities.length === 0) {
         this.status.failed += 1;
         this.log(`psq rehydrate: ${id} failed — the stored graph has no entities`);
         return;
       }
 
-      const seeded = materialize(env.graph, { seed: env.seed, rows: env.rows });
+      const seeded = materialize(graph, { seed: env.seed, rows: env.rows });
       opened = seeded;
-      const questions = buildBank(env.graph, seeded, env.seed);
+      const questions = buildBank(graph, seeded, env.seed);
       this.repos.set(id, {
         id,
         path: env.path,
-        graph: env.graph,
+        graph,
         questions,
         seeded,
         seed: env.seed,
@@ -354,9 +367,10 @@ export class Workspace {
       }
       // The TOCTOU window between the directory check and the work: a repo
       // deleted in between is missing, not broken.
+      // A header-only envelope (P2c-i D2b) still names its path.
       const read = readEnvelope(stateDir, id);
-      const gone =
-        read.ok && (!existsSync(read.envelope.path) || !statSync(read.envelope.path).isDirectory());
+      const path = read.ok ? read.envelope.path : read.header?.path;
+      const gone = path !== undefined && (!existsSync(path) || !statSync(path).isDirectory());
       if (gone) this.status.missing += 1;
       else this.status.failed += 1;
       this.log(

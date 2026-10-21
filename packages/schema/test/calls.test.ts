@@ -16,9 +16,9 @@ describe("EntityGraph.calls", () => {
   });
 
   it("round-trips a call, with and without ambiguous", () => {
-    const plain = { from: site, to: { ...site, method: "N", line: 9 }, line: 4 };
+    const plain = { from: site, to: { ...site, method: "N", line: 9 }, line: 4, source: "declared" };
     expect(Call.parse(plain)).toEqual(plain);
-    const amb = { ...plain, ambiguous: true };
+    const amb = { ...plain, source: "inferred", ambiguous: true };
     expect(Call.parse(amb)).toEqual(amb);
     const g = EntityGraph.parse({ ...base, calls: [plain, amb], unresolvedCalls: [{ ...site, count: 2 }] });
     expect(g.calls).toEqual([plain, amb]);

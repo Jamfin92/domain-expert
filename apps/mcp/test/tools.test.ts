@@ -380,7 +380,7 @@ describe("next hints", () => {
   it("routes on a repo with no entities does not point at flow", () => {
     tools.open_repo.run(ctx, { path: MINI_TYPES_ONLY });
     const repo = resolveRepo(ctx);
-    repo.graph.routes.push({ method: "GET", path: "/x", file: "a.ts", line: 1, handler: { type: "a", method: "b", file: "a.ts", line: 1 } });
+    repo.graph.routes.push({ method: "GET", path: "/x", file: "a.ts", line: 1, source: "declared", handler: { type: "a", method: "b", file: "a.ts", line: 1 } });
     expect((tools.routes.run(ctx, {}) as Json).next).toEqual([]);
   });
 });

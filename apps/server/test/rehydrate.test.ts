@@ -567,9 +567,10 @@ describe("G23: the extractor bump", () => {
     // with the 3 -> 4 bump; H-d route fixes raised them to 4 with the 4 -> 5
     // bump; H-d route fixes 2 raised them to 5 with the 5 -> 6 bump; the C# call graph
     // raised them to 6 with the 6 -> 7 bump. The 7 -> 8 bump (P2a coverage)
-    // did NOT raise them; P2b's 8 -> 9 bump (warning records) raised them to 8.
+    // did NOT raise them; P2b's 8 -> 9 bump (warning records) raised them to 8;
+    // P2c-i's 9 -> 10 bump (provenance on every fact family) raised them to 9.
     // Raise them again on the next bump, or the gate silently stops gating.
-    expect(EXTRACTOR_VERSION).toBeGreaterThan(8);
+    expect(EXTRACTOR_VERSION).toBeGreaterThan(9);
 
     const state = tmp("state");
     const stale = copyOf(MINI_EFCORE_REFS);
@@ -580,7 +581,7 @@ describe("G23: the extractor bump", () => {
     const currentId = seeder.open(current).id;
     seeder.closeAll();
 
-    patch(state, staleId, { extractor: 8 });
+    patch(state, staleId, { extractor: 9 });
 
     calls.extractWithDigest = 0;
     const w = ws(state);
@@ -597,6 +598,125 @@ describe("G23: the extractor bump", () => {
     expect(env.ok && env.envelope.extractor).toBe(EXTRACTOR_VERSION);
     expect(w.get(staleId)!.graph.entityRefs.length).toBeGreaterThan(0);
     expect(w.get(currentId)!.graph.entityRefs.length).toBeGreaterThan(0);
+  });
+});
+
+describe("P2c-i D2b: a pre-v10 envelope re-extracts instead of failing", () => {
+  /**
+   * Rewrite a stored graph the way extractor 9 wrote it: no provenance keys
+   * on any fact family, and `mirrorSource: "inferred"` on every shape. The
+   * v10 schema rejects that graph, so without the header-only fallback the
+   * envelope fails `readEnvelope` BEFORE the version check can run.
+   */
+  function stripToV9(stateDir: string, id: string, extractor: number): void {
+    const p = envelopePath(stateDir, id);
+    const env = JSON.parse(readFileSync(p, "utf8")) as { graph: Record<string, unknown> } & Record<string, unknown>;
+    const g = env.graph as Record<string, Array<Record<string, unknown>> | undefined>;
+    const drop = (k: string, ...keys: string[]): void => {
+      for (const f of g[k] ?? []) for (const key of keys) delete f[key];
+    };
+    drop("routes", "source");
+    drop("calls", "source");
+    drop("entityRefs", "source");
+    drop("components", "source");
+    drop("clientCalls", "matchSource", "componentsSource");
+    for (const s of g["shapes"] ?? []) s["mirrorSource"] = "inferred";
+    writeFileSync(p, JSON.stringify({ ...env, extractor }, null, 2));
+  }
+
+  it("a stripped graph written by extractor 9 loads by re-extracting from path", async () => {
+    const state = tmp("state");
+    const repo = copyOf(MINI_EFCORE_REFS);
+    const seeder = ws(state);
+    const id = seeder.open(repo).id;
+    seeder.closeAll();
+    stripToV9(state, id, 9);
+    // Precondition, so the test is not vacuous: the v10 schema rejects it.
+    const before = readEnvelope(state, id);
+    expect(before.ok).toBe(false);
+
+    calls.extractWithDigest = 0;
+    const w = ws(state);
+    await w.rehydrate();
+
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0 });
+    expect(calls.extractWithDigest).toBe(1);
+    const g = w.get(id)!.graph;
+    expect(g.entityRefs.length).toBeGreaterThan(0);
+    expect(g.entityRefs.every((r) => r.source === "inferred")).toBe(true);
+    const after = readEnvelope(state, id);
+    expect(after.ok && after.envelope.extractor).toBe(EXTRACTOR_VERSION);
+  });
+
+  it("a v9 envelope with NO graph key re-extracts (StoredHeader accepts any graph, by design)", async () => {
+    const state = tmp("state");
+    const repo = copyOf(MINI_EFCORE_REFS);
+    const seeder = ws(state);
+    const id = seeder.open(repo).id;
+    seeder.closeAll();
+    const p = envelopePath(state, id);
+    const { graph: _graph, ...rest } = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
+    writeFileSync(p, JSON.stringify({ ...rest, extractor: 9 }, null, 2));
+
+    const w = ws(state);
+    await w.rehydrate();
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0 });
+    expect(w.get(id)!.graph.entityRefs.length).toBeGreaterThan(0);
+  });
+
+  it("a stripped envelope from a NEWER extractor (11) also re-extracts: any mismatch is stale", async () => {
+    const state = tmp("state");
+    const repo = copyOf(MINI_EFCORE_REFS);
+    const seeder = ws(state);
+    const id = seeder.open(repo).id;
+    seeder.closeAll();
+    stripToV9(state, id, EXTRACTOR_VERSION + 1);
+
+    calls.extractWithDigest = 0;
+    const w = ws(state);
+    await w.rehydrate();
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 1, failed: 0, missing: 0, emptied: 0 });
+    expect(calls.extractWithDigest).toBe(1);
+  });
+
+  it("a header-only envelope whose repo vanishes mid-re-extract counts missing, not failed (TOCTOU)", async () => {
+    const state = tmp("state");
+    const repo = copyOf(MINI_EFCORE_REFS);
+    const seeder = ws(state);
+    const id = seeder.open(repo).id;
+    seeder.closeAll();
+    stripToV9(state, id, 9);
+
+    // The directory check passes; the repo is then deleted inside the
+    // re-extract, which throws — the window the catch block re-classifies.
+    const spy = vi.spyOn(Workspace.prototype, "open").mockImplementation(() => {
+      rmSync(repo, { recursive: true, force: true });
+      throw new Error("ENOENT: repo vanished during re-extract");
+    });
+    try {
+      const w = ws(state);
+      await w.rehydrate();
+      expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 0, missing: 1, emptied: 0 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("the same stripped graph at the CURRENT extractor version stays failed (real corruption)", async () => {
+    const state = tmp("state");
+    const repo = copyOf(MINI_EFCORE_REFS);
+    const seeder = ws(state);
+    const id = seeder.open(repo).id;
+    seeder.closeAll();
+    stripToV9(state, id, EXTRACTOR_VERSION);
+
+    calls.extractWithDigest = 0;
+    const w = ws(state);
+    await w.rehydrate();
+
+    expect(w.rehydrateStatus()).toEqual({ state: "done", loaded: 0, failed: 1, missing: 0, emptied: 0 });
+    expect(calls.extractWithDigest).toBe(0);
+    expect(w.get(id)).toBeUndefined();
   });
 });
 

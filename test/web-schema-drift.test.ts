@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { EntityGraph, Route } from "@psq/schema";
+import { EntityGraph, FactSource, Route } from "@psq/schema";
 
 /**
  * A drift pin between the wire schema and the hand-written client mirror.
@@ -18,7 +18,9 @@ import { EntityGraph, Route } from "@psq/schema";
  * reads the client file as TEXT, never as a module.
  *
  * `Route` and `RouteHandler` are pinned the same way with no allowlist (cases
- * 5-6): `handler` is mirrored, so the gap there is zero both ways.
+ * 5-6): `handler` is mirrored, so the gap there is zero both ways. Case 7 is
+ * the first ENUM pin: the web `FactSource` union against the schema enum, and
+ * (7b) that the web `Route.source` is typed by it.
  *
  * The seven schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
  * identical" pin: the gap is real and deliberate today, so the assertion is
@@ -90,7 +92,7 @@ const ROUTE_MARKER = "export interface Route {";
 const HANDLER_MARKER = "export interface RouteHandler {";
 
 /** Field names declared by `Route` in `@psq/schema` / the web client. */
-const ROUTE_FIELDS = ["file", "handler", "line", "method", "path"].sort();
+const ROUTE_FIELDS = ["file", "handler", "line", "method", "path", "source"].sort();
 /** Field names of `Route.handler` in `@psq/schema` / `RouteHandler` in the web client. */
 const HANDLER_FIELDS = ["file", "line", "method", "type"].sort();
 
@@ -222,5 +224,26 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     expect(p.markerCount).toBe(1);
     expect(p.unparsed).toEqual([]);
     expect(p.fields).toEqual(HANDLER_FIELDS);
+  });
+
+  // The first ENUM drift check: `Route.source` is typed by the web's own
+  // `FactSource` union, so its members must be exactly the schema enum's. A
+  // one-line regex over quoted literals on the single `export type FactSource =`
+  // line; no brace parsing.
+  it("7. the web FactSource union lists exactly @psq/schema's FactSource values", () => {
+    const decl = /^export type FactSource =[^;]*;/m.exec(source);
+    expect(decl, "expected one `export type FactSource = ...;` in apps/web/src/lib/api.ts").not.toBeNull();
+    expect(source.match(/^export type FactSource =/gm)).toHaveLength(1);
+    const web = [...decl![0].matchAll(/"([^"]*)"/g)].map((m) => m[1]!).sort();
+    expect(web).toContain("inferred");
+    expect(web).toEqual([...FactSource.options].sort());
+  });
+
+  // Case 5 checks member NAMES only, so `source: string` would pass it. The
+  // web Route's `source` must be typed by the pinned union.
+  it("7b. the web Route's `source` is typed FactSource", () => {
+    const open = source.indexOf(ROUTE_MARKER);
+    const body = source.slice(open, source.indexOf("}", open));
+    expect(/^\s*source\s*:\s*FactSource\s*;/m.test(body)).toBe(true);
   });
 });

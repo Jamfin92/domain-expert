@@ -49,10 +49,19 @@ A guessed fact costs the premise of the tool.
 
 ## 4. Mark derived facts as derived
 
-`FactSource` records how psq came to know something: `fluent`/`attribute` (the
-repo wrote it in EF's configuration API), `declared` (the repo wrote it in raw
-DDL), `convention` (the framework implied it), `inferred` (psq worked it out
-from naming and says so).
+`FactSource` records how psq came to know something: `fluent` (the repo wrote
+it in EF's configuration API), `attribute` (a C# attribute the repo wrote: EF
+annotations, ASP.NET routing), `declared` (the repo wrote the fact out
+literally: raw DDL, a literal Express path, a call site lexically inside its
+owner), `convention` (the framework implied it), `inferred` (psq matched by
+name, path or reference walk; the repo never states the link, and psq says so).
+
+Provenance is stamped on a fact, never on the absence of one. Every route,
+call edge, entity ref and component carries a non-null `source`; every
+nullable fact carries a nullable source that is null exactly when the fact is:
+`ClientCall.matches`/`matchSource`, `ClientCall.components` (empty) /
+`componentsSource`, `Shape.mirrors`/`mirrorSource`. The fixture sweep in
+`packages/extract/test/provenance.test.ts` checks this on every fixture.
 
 Never present a derived value as if someone had written it. A delete-behavior
 question may only be asked about `fluent` or `declared`.

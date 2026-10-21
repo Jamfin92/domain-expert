@@ -67,6 +67,7 @@ describe("routeFlow on the fixture", () => {
       from: send,
       to: { type: "Smtp", method: "Open", file: "Services/Smtp.cs", line: 3 },
       line: 9,
+      source: "declared" as const,
     };
     const extended: EntityGraph = { ...g, calls: [...g.calls!, onward] };
     const f = routeFlow(extended, route("PUT", "/api/Gadgets/{id}/retire"))!;

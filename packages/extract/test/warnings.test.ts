@@ -149,7 +149,7 @@ describe("pairShapes: an ambiguous mirror is a coded warning (no fixture emits i
     const shape: Shape = {
       name: "Order", file: "web/order.ts", module: null, kind: "interface",
       fields: [{ name: "id", type: "number", baseType: "number", optional: false, isCollection: false }],
-      members: [], discriminator: null, mirrors: null, mirrorSource: "inferred",
+      members: [], discriminator: null, mirrors: null, mirrorSource: null,
     };
     const w = new Warnings();
     const [out] = pairShapes([entity("A"), entity("B")], [shape], w);
@@ -158,6 +158,25 @@ describe("pairShapes: an ambiguous mirror is a coded warning (no fixture emits i
       code: "shape-mirror-ambiguous", file: "web/order.ts", line: null, about: "Order",
       text: "web/order.ts: Order could mirror Order or Order; not paired",
     }]);
+  });
+
+  it("an ambiguous refusal leaves a PRODUCED shape unpaired with mirrorSource null (P2c-i)", () => {
+    // The input is a real reader's output (mini-types-only `Post`), not a
+    // hand-built literal, so this reddens if a producer stamps provenance on
+    // an unpaired shape, not only if pairShapes does.
+    const post = extract(MINI_TYPES_ONLY).shapes.find((s) => s.name === "Post")!;
+    expect(post.fields.length).toBeGreaterThan(0);
+    const entity = (ns: string): Entity => ({
+      name: "Post", namespace: ns, file: `${ns}/Post.cs`, tableName: "Posts", dbSetName: "Posts",
+      keys: ["Id"], indexes: [], isFramework: false,
+      properties: [{ name: "Id", type: "int", baseType: "int", nullable: false, isPrimaryKey: true,
+        isForeignKey: false, isNavigation: false, isCollection: false, column: "Id" }],
+    });
+    const w = new Warnings();
+    const [out] = pairShapes([entity("A"), entity("B")], [post], w);
+    expect(w.records.map((r) => r.code)).toEqual(["shape-mirror-ambiguous"]);
+    expect(out!.mirrors).toBeNull();
+    expect(out!.mirrorSource).toBeNull();
   });
 });
 

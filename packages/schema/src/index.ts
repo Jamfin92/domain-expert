@@ -32,10 +32,20 @@ export type DeleteBehavior = z.infer<typeof DeleteBehavior>;
 
 /**
  * How psq came to know a fact.
- *  - fluent/attribute: the repo wrote it, in EF's configuration API
- *  - declared: the repo wrote it, in raw DDL
+ *  - fluent: the repo wrote it, in EF's configuration API
+ *  - attribute: a C# attribute the repo wrote (EF annotations, ASP.NET routing)
+ *  - declared: the repo wrote the fact out literally: raw DDL, a literal
+ *    Express path (the receiver name `app`/`router`/`api` is guessed, the path
+ *    is not), a call site lexically inside its owner (the owner being a
+ *    component is a JSX + PascalCase heuristic; the containment is lexical)
  *  - convention: the framework implied it
- *  - inferred: psq guessed it from naming, and says so
+ *  - inferred: psq matched by name, path or reference walk; the repo never
+ *    states the link, and psq says so
+ *
+ * Provenance is stamped on a fact, never on the absence of one (P2c). For
+ * every nullable fact `X` with a provenance field `XSource`,
+ * `X === null` iff `XSource === null`; a non-nullable fact (a route, a call
+ * edge, an entity ref, a component) always carries a non-null `source`.
  */
 export const FactSource = z.enum([
   "fluent",
@@ -153,7 +163,13 @@ export const Shape = z.object({
    * pairing invents drift that is not there.
    */
   mirrors: z.string().nullable(),
-  mirrorSource: FactSource,
+  /**
+   * How the pairing was made (`inferred`: name + field overlap), or null
+   * exactly when `mirrors` is null. In a merged fullstack graph a TS shape's
+   * `mirrors: null` means "not computed cross-stack", not "no mirror"; its
+   * `mirrorSource` is null too, because there is no pairing to source.
+   */
+  mirrorSource: FactSource.nullable(),
 });
 export type Shape = z.infer<typeof Shape>;
 
@@ -163,6 +179,12 @@ export const Route = z.object({
   path: z.string(),
   file: z.string(),
   line: z.number().int().nonnegative(),
+  /**
+   * `attribute` for an ASP.NET attribute route (the only kind the .NET reader
+   * records); `declared` for an Express registration, which is recorded only
+   * when its path is a string literal.
+   */
+  source: FactSource,
   /**
    * The code the route dispatches to, when the reader can name it. Both the
    * .NET attribute-route reader and the Express reader set it. Express: the
@@ -288,6 +310,12 @@ export const ClientCall = z.object({
   /** The matched route's raw "METHOD path", or null when unmatched. */
   matches: z.string().nullable(),
   /**
+   * `inferred` when `matches` is set, null exactly when it is null. Both the
+   * literal-path match and the base-prefixed match are path equality, not a
+   * proven wire, so neither is stronger than `inferred`.
+   */
+  matchSource: FactSource.nullable(),
+  /**
    * Component keys (`Component.key`) this call attributes to, sorted;
    * resolved against `EntityGraph.components`. KEYS, not names: the same
    * component name recurs across directories in real repos, and a bare name
@@ -296,6 +324,14 @@ export const ClientCall = z.object({
    * through the reference graph).
    */
   components: z.array(z.string()),
+  /**
+   * How `components` was attributed; null exactly when it is empty.
+   * `declared`: the call site is lexically inside the component definition.
+   * `inferred`: the component was reached by the reference walk. `[]` with
+   * null also covers the `ref-no-ast` case, where attribution could not run
+   * (and said so in a warning).
+   */
+  componentsSource: FactSource.nullable(),
 });
 export type ClientCall = z.infer<typeof ClientCall>;
 
@@ -304,6 +340,11 @@ export type ClientCall = z.infer<typeof ClientCall>;
  * JSX + PascalCase, i.e. React). `key` is "<repo-relative file>#<name>" and
  * is what `ClientCall.components` stores — names alone are ambiguous in any
  * repo with two same-named components.
+ *
+ * `source` is always `inferred`: componenthood is the JSX + PascalCase
+ * heuristic, never something the repo states. The provenance of an
+ * ATTRIBUTION (which component owns a call) lives where that fact is, on
+ * `ClientCall.componentsSource`.
  */
 export const Component = z.object({
   key: z.string(),
@@ -311,6 +352,7 @@ export const Component = z.object({
   /** Repo-relative path of the declaring file. */
   file: z.string(),
   line: z.number().int().nonnegative(),
+  source: FactSource,
 });
 export type Component = z.infer<typeof Component>;
 
@@ -346,8 +388,9 @@ export type RefVia = z.infer<typeof RefVia>;
  *   - `#if` blocks and comments are dropped by the lexer, never tokens
  *   - the match is keyed by NAME, with no symbol table: a same-named class in
  *     a namespace the DbContext does not import is reported as a ref to the
- *     entity (D-Hb-13). `EntityRef` carries no `FactSource`, so the graph
- *     cannot label that; it is measured in the phase audit instead.
+ *     entity (D-Hb-13). That is why `source` is the constant `inferred`:
+ *     every ref is a name match, never a resolved symbol. `via` records which
+ *     of the two name rules hit; `source` records that both are inference.
  */
 export const EntityRef = z.object({
   /** `Entity.name`, always — never the DbSet property name. */
@@ -361,6 +404,8 @@ export const EntityRef = z.object({
   /** Name of the enclosing method. */
   method: z.string(),
   via: RefVia,
+  /** Always `inferred`: the match is keyed on names, with no symbol table. */
+  source: FactSource,
 });
 export type EntityRef = z.infer<typeof EntityRef>;
 
@@ -385,12 +430,21 @@ export type CallSite = z.infer<typeof CallSite>;
  * A call through an interface yields an edge to the interface member AND one to
  * each repo implementer that declares the method; when there are several
  * implementers those edges carry `ambiguous: true` (any one may run).
+ *
+ * `source`: `declared` for a call the code spells out (`this.M(`, a typed
+ * receiver, a static call, a bare `M(`, and the edge to the interface member
+ * itself); `inferred` for every edge to an implementer reached by interface
+ * dispatch. `inferred` WITHOUT `ambiguous` is a unique dispatch guess (one
+ * implementer). When the same edge is reached both ways, `declared` wins and
+ * the edge is no longer `ambiguous` (the code names that target directly), so
+ * `ambiguous` implies `inferred` in every order.
  */
 export const Call = z.object({
   from: CallSite,
   to: CallSite,
   /** 1-based line of the call site, inside `from.file`. */
   line: z.number().int().nonnegative(),
+  source: FactSource,
   ambiguous: z.boolean().optional(),
 });
 export type Call = z.infer<typeof Call>;

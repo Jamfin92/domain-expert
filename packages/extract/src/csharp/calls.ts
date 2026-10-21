@@ -256,7 +256,8 @@ export function collectCalls(parses: FileParse[]): CallGraph {
 
   // ---- the scan ---------------------------------------------------------
   const calls: Call[] = [];
-  const seenCalls = new Set<string>();
+  // Dedupe key -> the edge already emitted, so a later link can upgrade it.
+  const seenCalls = new Map<string, Call>();
   const unresolved: UnresolvedCalls[] = [];
 
   for (const parse of parses) {
@@ -271,18 +272,33 @@ export function collectCalls(parses: FileParse[]): CallGraph {
         const params = new Map(method.params.map((p) => [p.name, p.type]));
         let misses = 0;
 
-        const link = (found: Found, name: string, line: number, ambiguous: boolean): void => {
+        const link = (
+          found: Found, name: string, line: number, source: "declared" | "inferred", ambiguous: boolean,
+        ): void => {
           const key = [
             from.file, from.line, found.group.name, name, found.file, found.line, line,
           ].join("|");
-          if (seenCalls.has(key)) return;
-          seenCalls.add(key);
-          calls.push({
+          const seen = seenCalls.get(key);
+          if (seen) {
+            // Strongest evidence wins: a direct call to the same target on the
+            // same line makes a dispatch guess redundant, and a target the code
+            // names directly is not ambiguous. Upgrading drops `ambiguous` so
+            // `ambiguous => inferred` holds in either call order.
+            if (source === "declared" && seen.source !== "declared") {
+              seen.source = "declared";
+              delete seen.ambiguous;
+            }
+            return;
+          }
+          const call: Call = {
             from,
             to: { type: found.group.name, method: name, file: found.file, line: found.line },
             line,
+            source,
             ...(ambiguous ? { ambiguous: true } : {}),
-          });
+          };
+          seenCalls.set(key, call);
+          calls.push(call);
         };
 
         /** Call `name` on a receiver of declared type text `typeText`. */
@@ -292,10 +308,12 @@ export function collectCalls(parses: FileParse[]): CallGraph {
           if (!g) return false;
           const found = findMethod(g, name);
           if (!found) return false;
-          link(found, name, line, false);
+          link(found, name, line, "declared", false);
           if (g.keyword === "interface") {
+            // Dispatch: which implementer runs is a guess even when there is
+            // only one (`inferred`); several make it `ambiguous` as well.
             const impls = implementers(key, name);
-            for (const impl of impls) link(impl, name, line, impls.length > 1);
+            for (const impl of impls) link(impl, name, line, "inferred", impls.length > 1);
           }
           return true;
         };
@@ -326,7 +344,7 @@ export function collectCalls(parses: FileParse[]): CallGraph {
               if (recv.text === "this" && recv.kind === "keyword") {
                 const f = findMethod(self, tok.text);
                 if (f) {
-                  link(f, tok.text, tok.line, false);
+                  link(f, tok.text, tok.line, "declared", false);
                   ok = true;
                 }
               } else if (recv.kind === "ident") {
@@ -340,7 +358,7 @@ export function collectCalls(parses: FileParse[]): CallGraph {
                   const g = groups.get(recv.text);
                   const f = g ? findMethod(g, tok.text) : null;
                   if (f && f.method?.modifiers.includes("static")) {
-                    link(f, tok.text, tok.line, false);
+                    link(f, tok.text, tok.line, "declared", false);
                     ok = true;
                   }
                 }
@@ -364,7 +382,7 @@ export function collectCalls(parses: FileParse[]): CallGraph {
           if (self && !localFns.has(tok.text)) {
             const f = findMethod(self, tok.text);
             if (f) {
-              link(f, tok.text, tok.line, false);
+              link(f, tok.text, tok.line, "declared", false);
               ok = true;
             }
           }

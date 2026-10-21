@@ -15,7 +15,7 @@ import { MINI_FULLSTACK_REACT } from "./fixtures.js";
  */
 
 function component(name: string, file: string): Component {
-  return { key: `${file}#${name}`, name, file, line: 1 };
+  return { key: `${file}#${name}`, name, file, line: 1, source: "inferred" };
 }
 
 function graph(components: Component[]): EntityGraph {

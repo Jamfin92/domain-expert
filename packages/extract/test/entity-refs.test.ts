@@ -109,28 +109,28 @@ describe("G1/G2/G3/G8/G9/G10/G11/G16/G17: the whole ordered array", () => {
   //       units, which is what makes the localeCompare mutant reddenable.
   it("is exactly this, in exactly this order", () => {
     const expected: EntityRef[] = [
-      { entity: "Course", file: COURSES, line: 20, type: "CoursesController", method: "Slug", via: "entityName" },
-      { entity: "Course", file: COURSES, line: 35, type: "CoursesController", method: "Alpha", via: "entityName" },
-      { entity: "Course", file: COURSES, line: 35, type: "CoursesController", method: "Zulu", via: "entityName" },
-      { entity: "Course", file: COURSES, line: 47, type: "CourseAdmin", method: "Sync", via: "entityName" },
-      { entity: "Course", file: COURSES, line: 47, type: "CourseAudit", method: "Sync", via: "entityName" },
-      { entity: "Course", file: COURSES, line: DUP_LINE, type: "Dup", method: "Sync", via: "entityName" },
-      { entity: "Course", file: "Data/RefsDbContext.cs", line: 18, type: "RefsDbContext", method: "SeedFirstCourse", via: "entityName" },
-      { entity: "Course", file: SERVICE, line: 15, type: "EnrollmentService", method: "Enroll", via: "dbSetName" },
-      { entity: "Course", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName" },
-      { entity: "Course", file: SERVICE, line: DUP_LINE, type: "Dup", method: "Sync", via: "entityName" },
-      { entity: "Course", file: SERVICE, line: TERSE_LINE, type: "Terse", method: "Roster", via: "entityName" },
-      { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName" },
-      { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName" },
-      { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "entityName" },
-      { entity: "Student", file: STUDENTS, line: 30, type: "StudentsController", method: "Pair", via: "entityName" },
-      { entity: "Student", file: STUDENTS, line: 32, type: "StudentsController", method: "Pair", via: "entityName" },
-      { entity: "Student", file: STUDENTS, line: 55, type: "StudentsController", method: "Locals", via: "entityName" },
-      { entity: "Student", file: STUDENTS, line: 56, type: "StudentsController", method: "Locals", via: "dbSetName" },
-      { entity: "Student", file: SERVICE, line: 14, type: "EnrollmentService", method: "Enroll", via: "entityName" },
-      { entity: "Student", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName" },
-      { entity: "Student", file: SERVICE, line: PAIR_LINE, type: "Receiver", method: "Pair", via: "entityName" },
-      { entity: "Student", file: STALE, line: 24, type: "Student", method: "Touch", via: "entityName" },
+      { entity: "Course", file: COURSES, line: 20, type: "CoursesController", method: "Slug", via: "entityName", source: "inferred" },
+      { entity: "Course", file: COURSES, line: 35, type: "CoursesController", method: "Alpha", via: "entityName", source: "inferred" },
+      { entity: "Course", file: COURSES, line: 35, type: "CoursesController", method: "Zulu", via: "entityName", source: "inferred" },
+      { entity: "Course", file: COURSES, line: 47, type: "CourseAdmin", method: "Sync", via: "entityName", source: "inferred" },
+      { entity: "Course", file: COURSES, line: 47, type: "CourseAudit", method: "Sync", via: "entityName", source: "inferred" },
+      { entity: "Course", file: COURSES, line: DUP_LINE, type: "Dup", method: "Sync", via: "entityName", source: "inferred" },
+      { entity: "Course", file: "Data/RefsDbContext.cs", line: 18, type: "RefsDbContext", method: "SeedFirstCourse", via: "entityName", source: "inferred" },
+      { entity: "Course", file: SERVICE, line: 15, type: "EnrollmentService", method: "Enroll", via: "dbSetName", source: "inferred" },
+      { entity: "Course", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName", source: "inferred" },
+      { entity: "Course", file: SERVICE, line: DUP_LINE, type: "Dup", method: "Sync", via: "entityName", source: "inferred" },
+      { entity: "Course", file: SERVICE, line: TERSE_LINE, type: "Terse", method: "Roster", via: "entityName", source: "inferred" },
+      { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName", source: "inferred" },
+      { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName", source: "inferred" },
+      { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "entityName", source: "inferred" },
+      { entity: "Student", file: STUDENTS, line: 30, type: "StudentsController", method: "Pair", via: "entityName", source: "inferred" },
+      { entity: "Student", file: STUDENTS, line: 32, type: "StudentsController", method: "Pair", via: "entityName", source: "inferred" },
+      { entity: "Student", file: STUDENTS, line: 55, type: "StudentsController", method: "Locals", via: "entityName", source: "inferred" },
+      { entity: "Student", file: STUDENTS, line: 56, type: "StudentsController", method: "Locals", via: "dbSetName", source: "inferred" },
+      { entity: "Student", file: SERVICE, line: 14, type: "EnrollmentService", method: "Enroll", via: "entityName", source: "inferred" },
+      { entity: "Student", file: SERVICE, line: 24, type: "EnrollmentService", method: "Both", via: "entityName", source: "inferred" },
+      { entity: "Student", file: SERVICE, line: PAIR_LINE, type: "Receiver", method: "Pair", via: "entityName", source: "inferred" },
+      { entity: "Student", file: STALE, line: 24, type: "Student", method: "Touch", via: "entityName", source: "inferred" },
     ];
     expect(refs).toEqual(expected);
   });
@@ -261,7 +261,7 @@ describe("G7: OnModelCreating on the detected context contributes nothing", () =
     // NAME instead and this ref disappears — and before review round 1 there
     // was no such class in the fixture, so that rewrite left the suite green.
     expect(refs.filter((r) => r.file === STALE && r.method === "OnModelCreating")).toEqual([
-      { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName" },
+      { entity: "Course", file: STALE, line: 41, type: "RefsDbContext", method: "OnModelCreating", via: "entityName", source: "inferred" },
     ]);
   });
 });
@@ -297,7 +297,7 @@ describe("G15: a non-entity class in the repo's type index yields nothing", () =
   it("`CourseSlug` on line 19 is not a ref; `Course` on line 20 is", () => {
     const inSlug = refs.filter((r) => r.file === COURSES && r.method === "Slug");
     expect(inSlug).toEqual([
-      { entity: "Course", file: COURSES, line: 20, type: "CoursesController", method: "Slug", via: "entityName" },
+      { entity: "Course", file: COURSES, line: 20, type: "CoursesController", method: "Slug", via: "entityName", source: "inferred" },
     ]);
   });
 });
@@ -325,7 +325,7 @@ describe("G19: D-Hb-13 — name-keying, made visible rather than hidden", () => 
     expect(graph.entities.find((e) => e.name === "Student")!.file)
       .toBe("Models/Student.cs");
     expect(refs.filter((r) => r.file === STALE && r.type === "Student")).toEqual([
-      { entity: "Student", file: STALE, line: 24, type: "Student", method: "Touch", via: "entityName" },
+      { entity: "Student", file: STALE, line: 24, type: "Student", method: "Touch", via: "entityName", source: "inferred" },
     ]);
     // In-scope refs are unaffected.
     expect(refs.filter((r) => r.file === STUDENTS).length).toBe(6);
@@ -425,7 +425,7 @@ describe("G38: the receiver-position rule — H-e's Gap-1 positive control", () 
     // occurrence was already there.
     expect(refs.filter((r) => r.file === STUDENTS && r.line === 23 && r.via === "dbSetName"))
       .toEqual([
-        { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName" },
+        { entity: "Student", file: STUDENTS, line: 23, type: "StudentsController", method: "Create", via: "dbSetName", source: "inferred" },
       ]);
   });
 });
@@ -442,7 +442,7 @@ describe("G39: D-Hb-10 — refs inside an expression-bodied method body", () => 
     //   M6 drop the `depth <= 0` conjunct        -> the scan stops at the
     //      lambda's inner `;` and `Course` falls outside the captured body
     expect(refs.filter((r) => r.type === "Terse")).toEqual([
-      { entity: "Course", file: SERVICE, line: TERSE_LINE, type: "Terse", method: "Roster", via: "entityName" },
+      { entity: "Course", file: SERVICE, line: TERSE_LINE, type: "Terse", method: "Roster", via: "entityName", source: "inferred" },
     ]);
 
     // The source control: the mention really is after an inner `;`, and it is
@@ -470,7 +470,7 @@ describe("G40: the receiver rule drops BEFORE the dedupe key is claimed", () => 
     // claimed; drop second and the receiver claims it and the genuine
     // mention dedupes away to nothing.
     expect(refs.filter((r) => r.type === "Receiver" && r.method === "Pair")).toEqual([
-      { entity: "Student", file: SERVICE, line: PAIR_LINE, type: "Receiver", method: "Pair", via: "entityName" },
+      { entity: "Student", file: SERVICE, line: PAIR_LINE, type: "Receiver", method: "Pair", via: "entityName", source: "inferred" },
     ]);
 
     // The structural control. This gate is worth nothing unless the line

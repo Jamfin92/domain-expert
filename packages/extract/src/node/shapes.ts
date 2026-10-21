@@ -119,7 +119,8 @@ function shapeFrom(
     members,
     discriminator: members.length > 0 ? null : discriminatorOf(checker, type, at),
     mirrors: null,
-    mirrorSource: "inferred",
+    // No pairing yet; `pairShapes` stamps provenance only on a pairing.
+    mirrorSource: null,
   };
 }
 
@@ -191,7 +192,7 @@ export function readShapes(
             ),
             discriminator: null,
             mirrors: null,
-            mirrorSource: "inferred",
+            mirrorSource: null,
           });
         } else if (ts.isVariableStatement(statement)) {
           for (const decl of statement.declarationList.declarations) {

@@ -78,9 +78,9 @@ describe("reading a Node backend", () => {
 
   it("reads routes registered inside a factory body", () => {
     expect(g.routes).toEqual([
-      { method: "GET", path: "/crews/:callsign", file: "server.ts", line: 14, handler: { type: "server", method: "<inline>", file: "server.ts", line: 14 } },
-      { method: "GET", path: "/health", file: "server.ts", line: 10, handler: { type: "server", method: "<inline>", file: "server.ts", line: 10 } },
-      { method: "POST", path: "/voyages", file: "server.ts", line: 18, handler: { type: "server", method: "<inline>", file: "server.ts", line: 18 } },
+      { method: "GET", path: "/crews/:callsign", file: "server.ts", line: 14, source: "declared", handler: { type: "server", method: "<inline>", file: "server.ts", line: 14 } },
+      { method: "GET", path: "/health", file: "server.ts", line: 10, source: "declared", handler: { type: "server", method: "<inline>", file: "server.ts", line: 10 } },
+      { method: "POST", path: "/voyages", file: "server.ts", line: 18, source: "declared", handler: { type: "server", method: "<inline>", file: "server.ts", line: 18 } },
     ]);
   });
 });
@@ -152,6 +152,19 @@ describe("pairing a shape with the table it mirrors", () => {
     expect(unpaired).toContain("Manifest");
     expect(unpaired).toContain("Leg");
     expect(g.shapes.filter((s) => s.mirrors)).toHaveLength(3);
+  });
+
+  it("stamps mirrorSource on a pairing and never on a refusal (P2c-i)", () => {
+    // Provenance belongs to the fact: a paired shape says how psq knows it
+    // (inferred, by name + overlap); an unpaired one has no fact to source.
+    expect(g.shapes.filter((s) => s.mirrors !== null).map((s) => [s.name, s.mirrorSource])).toEqual([
+      ["Crew", "inferred"],
+      ["Voyage", "inferred"],
+      ["VoyageRow", "inferred"],
+    ]);
+    const unpaired = g.shapes.filter((s) => s.mirrors === null);
+    expect(unpaired).toHaveLength(9);
+    expect(unpaired.map((s) => s.mirrorSource)).toEqual(Array(9).fill(null));
   });
 
   it("finds the gap in both directions", () => {

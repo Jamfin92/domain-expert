@@ -36,6 +36,21 @@ export const StoredRepo = z.object({
 export type StoredRepo = z.infer<typeof StoredRepo>;
 
 /**
+ * The envelope with its graph unchecked: what `readEnvelope` falls back to when
+ * the whole-envelope parse fails. An envelope written by an older extractor
+ * can hold a graph the current schema rejects (P2c-i made provenance fields
+ * required), and without its header the `path` to re-extract from is lost.
+ *
+ * `graph: z.unknown()` accepts ANY graph, including a missing one, so two edge
+ * cases also re-extract rather than fail, both deliberately: an older envelope
+ * with no `graph` key at all, and an envelope whose `extractor` is NEWER than
+ * this build's (any version mismatch is stale; re-extracting from `path` is
+ * the safe answer either way).
+ */
+export const StoredHeader = StoredRepo.extend({ graph: z.unknown() });
+export type StoredHeader = z.infer<typeof StoredHeader>;
+
+/**
  * `${XDG_DATA_HOME:-$HOME/.local/share}/psq`.
  *
  * The environment is read at CALL time, never at module load: the boot gate
@@ -136,7 +151,12 @@ export function writeEnvelope(stateDir: string, envelope: StoredRepo): void {
 
 export type ReadResult =
   | { ok: true; envelope: StoredRepo }
-  | { ok: false; reason: string };
+  /**
+   * `header` is present when only the GRAPH failed validation: the rest of
+   * the envelope parsed, so the caller can still decide by `extractor` and
+   * re-extract from `path`. It is never a usable graph.
+   */
+  | { ok: false; reason: string; header?: StoredHeader };
 
 /**
  * Read and validate one envelope.
@@ -163,7 +183,9 @@ export function readEnvelope(stateDir: string, id: string): ReadResult {
   }
   const result = StoredRepo.safeParse(parsed);
   if (!result.success) {
-    return { ok: false, reason: result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+    const reason = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    const header = StoredHeader.safeParse(parsed);
+    return header.success ? { ok: false, reason, header: header.data } : { ok: false, reason };
   }
   return { ok: true, envelope: result.data };
 }

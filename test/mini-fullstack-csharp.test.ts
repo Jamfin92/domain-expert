@@ -66,6 +66,7 @@ describe("a full-stack C# + React repo", () => {
         name: "ProductList",
         file: "client/src/components/ProductList.tsx",
         line: 11,
+        source: "inferred",
       },
     ]);
     const keys = new Set(g.components.map((c) => c.key));

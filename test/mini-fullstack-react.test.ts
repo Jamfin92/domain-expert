@@ -47,8 +47,8 @@ describe("a full-stack React fixture", () => {
 
   it("reads the express half as routes, never as client calls", () => {
     expect(g.routes).toEqual([
-      { method: "POST", path: "/api/admin/cards", file: "server.ts", line: 25, handler: { type: "server", method: "<inline>", file: "server.ts", line: 25 } },
-      { method: "GET", path: "/api/cards", file: "server.ts", line: 30, handler: { type: "server", method: "<inline>", file: "server.ts", line: 30 } },
+      { method: "POST", path: "/api/admin/cards", file: "server.ts", line: 25, source: "declared", handler: { type: "server", method: "<inline>", file: "server.ts", line: 25 } },
+      { method: "GET", path: "/api/cards", file: "server.ts", line: 30, source: "declared", handler: { type: "server", method: "<inline>", file: "server.ts", line: 30 } },
     ]);
     // Positive control on the every(): an empty list would satisfy it.
     expect(g.clientCalls.length).toBeGreaterThan(0);
@@ -62,24 +62,28 @@ describe("a full-stack React fixture", () => {
         name: "Card",
         file: "src/components/admin/Card.tsx",
         line: 11,
+        source: "inferred",
       },
       {
         key: "src/components/admin/Panel.tsx#Panel",
         name: "Panel",
         file: "src/components/admin/Panel.tsx",
         line: 11,
+        source: "inferred",
       },
       {
         key: "src/components/shop/Card.tsx#Card",
         name: "Card",
         file: "src/components/shop/Card.tsx",
         line: 11,
+        source: "inferred",
       },
       {
         key: "src/components/shop/Panel.tsx#Panel",
         name: "Panel",
         file: "src/components/shop/Panel.tsx",
         line: 6,
+        source: "inferred",
       },
     ]);
     // Four components, two names: EVERY component here shares its name with
@@ -99,8 +103,8 @@ describe("a full-stack React fixture", () => {
         file: "src/components/admin/Card.tsx",
         line: 13,
         enclosing: "save",
-        matches: "POST /api/admin/cards",
-        components: ["src/components/admin/Card.tsx#Card"],
+        matches: "POST /api/admin/cards", matchSource: "inferred",
+        components: ["src/components/admin/Card.tsx#Card"], componentsSource: "declared",
       },
       // The three calls that make admin/Panel the busiest component, which is
       // what `client.busiest` is graded on. Sorted by file then line, so they
@@ -111,8 +115,8 @@ describe("a full-stack React fixture", () => {
         file: "src/components/admin/Panel.tsx",
         line: 13,
         enclosing: "load",
-        matches: "POST /api/admin/cards",
-        components: ["src/components/admin/Panel.tsx#Panel"],
+        matches: "POST /api/admin/cards", matchSource: "inferred",
+        components: ["src/components/admin/Panel.tsx#Panel"], componentsSource: "declared",
       },
       {
         method: "GET",
@@ -120,8 +124,8 @@ describe("a full-stack React fixture", () => {
         file: "src/components/admin/Panel.tsx",
         line: 14,
         enclosing: "load",
-        matches: "GET /api/cards",
-        components: ["src/components/admin/Panel.tsx#Panel"],
+        matches: "GET /api/cards", matchSource: "inferred",
+        components: ["src/components/admin/Panel.tsx#Panel"], componentsSource: "declared",
       },
       // The second unmatched row, deliberately a path the server does not
       // declare rather than a repeat of an existing (method, path) pair.
@@ -131,8 +135,8 @@ describe("a full-stack React fixture", () => {
         file: "src/components/admin/Panel.tsx",
         line: 15,
         enclosing: "load",
-        matches: null,
-        components: ["src/components/admin/Panel.tsx#Panel"],
+        matches: null, matchSource: null,
+        components: ["src/components/admin/Panel.tsx#Panel"], componentsSource: "declared",
       },
       // attributed, unmatched: the server declares no such path
       {
@@ -141,8 +145,8 @@ describe("a full-stack React fixture", () => {
         file: "src/components/shop/Card.tsx",
         line: 13,
         enclosing: "load",
-        matches: null,
-        components: ["src/components/shop/Card.tsx#Card"],
+        matches: null, matchSource: null,
+        components: ["src/components/shop/Card.tsx#Card"], componentsSource: "declared",
       },
       // the single-call component, which keeps the busiest one strictly ahead
       {
@@ -151,8 +155,8 @@ describe("a full-stack React fixture", () => {
         file: "src/components/shop/Panel.tsx",
         line: 8,
         enclosing: "refresh",
-        matches: "GET /api/cards",
-        components: ["src/components/shop/Panel.tsx#Panel"],
+        matches: "GET /api/cards", matchSource: "inferred",
+        components: ["src/components/shop/Panel.tsx#Panel"], componentsSource: "declared",
       },
       // unattributed, matched: module scope, reached by no component
       {
@@ -161,8 +165,8 @@ describe("a full-stack React fixture", () => {
         file: "src/lib/boot.ts",
         line: 5,
         enclosing: null,
-        matches: "GET /api/cards",
-        components: [],
+        matches: "GET /api/cards", matchSource: "inferred",
+        components: [], componentsSource: null,
       },
       // attributed to TWO components at once: a shared non-component helper
       // both Cards import, reached through the owner walk's reverse BFS
@@ -172,11 +176,11 @@ describe("a full-stack React fixture", () => {
         file: "src/lib/save-card.ts",
         line: 7,
         enclosing: "saveCard",
-        matches: "GET /api/cards",
+        matches: "GET /api/cards", matchSource: "inferred",
         components: [
           "src/components/admin/Card.tsx#Card",
           "src/components/shop/Card.tsx#Card",
-        ],
+        ], componentsSource: "inferred",
       },
     ]);
     // Per-component call counts, which `client.busiest` reads: admin/Panel 3,

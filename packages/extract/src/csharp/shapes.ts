@@ -75,7 +75,8 @@ export function csharpShapes(
         members: [],
         discriminator: null,
         mirrors: null,
-        mirrorSource: "inferred",
+        // No pairing yet; `pairShapes` stamps provenance only on a pairing.
+        mirrorSource: null,
       });
     }
   }

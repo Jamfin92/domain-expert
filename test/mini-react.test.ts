@@ -39,45 +39,45 @@ describe("reading a React client", () => {
     expect(g.components).toEqual([
       // Consumes the session context; a component even though it owns no call.
       { key: "src/components/AccountMenu.tsx#AccountMenu",
-        name: "AccountMenu", file: "src/components/AccountMenu.tsx", line: 4 },
+        name: "AccountMenu", file: "src/components/AccountMenu.tsx", line: 4, source: "inferred" },
       // Two components named Card: only the key tells them apart.
       { key: "src/components/admin/Card.tsx#Card",
-        name: "Card", file: "src/components/admin/Card.tsx", line: 2 },
+        name: "Card", file: "src/components/admin/Card.tsx", line: 2, source: "inferred" },
       // Touches only the plain member of the exotic service.
       { key: "src/components/ExoticPanel.tsx#ExoticPanel",
-        name: "ExoticPanel", file: "src/components/ExoticPanel.tsx", line: 7 },
+        name: "ExoticPanel", file: "src/components/ExoticPanel.tsx", line: 7, source: "inferred" },
       // export default function HomePage(): named default export.
       { key: "src/components/HomePage.tsx#HomePage",
-        name: "HomePage", file: "src/components/HomePage.tsx", line: 4 },
+        name: "HomePage", file: "src/components/HomePage.tsx", line: 4, source: "inferred" },
       // Owner of a call inside a two-member options object: the
       // sibling-bearing rule keeps a COMPONENT owner.
       { key: "src/components/MutatingPanel.tsx#MutatingPanel",
-        name: "MutatingPanel", file: "src/components/MutatingPanel.tsx", line: 8 },
+        name: "MutatingPanel", file: "src/components/MutatingPanel.tsx", line: 8, source: "inferred" },
       // References the class holding the collision loser, the property
       // arrow, and the class expression.
       { key: "src/components/SchedulerPanel.tsx#SchedulerPanel",
-        name: "SchedulerPanel", file: "src/components/SchedulerPanel.tsx", line: 8 },
+        name: "SchedulerPanel", file: "src/components/SchedulerPanel.tsx", line: 8, source: "inferred" },
       { key: "src/components/shop/Card.tsx#Card",
-        name: "Card", file: "src/components/shop/Card.tsx", line: 2 },
+        name: "Card", file: "src/components/shop/Card.tsx", line: 2, source: "inferred" },
       { key: "src/components/StatusPanel.tsx#StatusPanel",
-        name: "StatusPanel", file: "src/components/StatusPanel.tsx", line: 4 },
+        name: "StatusPanel", file: "src/components/StatusPanel.tsx", line: 4, source: "inferred" },
       // References the factory-made store whose member calls must not spill.
       { key: "src/components/StorePanel.tsx#StorePanel",
-        name: "StorePanel", file: "src/components/StorePanel.tsx", line: 7 },
+        name: "StorePanel", file: "src/components/StorePanel.tsx", line: 7, source: "inferred" },
       { key: "src/components/ThingList.tsx#ThingList",
-        name: "ThingList", file: "src/components/ThingList.tsx", line: 4 },
+        name: "ThingList", file: "src/components/ThingList.tsx", line: 4, source: "inferred" },
       { key: "src/components/ThingRemover.tsx#ThingRemover",
-        name: "ThingRemover", file: "src/components/ThingRemover.tsx", line: 8 },
+        name: "ThingRemover", file: "src/components/ThingRemover.tsx", line: 8, source: "inferred" },
       // The shadcn shape: a const whose initializer is React.forwardRef(...).
       { key: "src/components/ui/Button.tsx#Button",
-        name: "Button", file: "src/components/ui/Button.tsx", line: 4 },
+        name: "Button", file: "src/components/ui/Button.tsx", line: 4, source: "inferred" },
       // Each touches ONE member of the nested grouped client.
       { key: "src/components/UserFinder.tsx#UserFinder",
-        name: "UserFinder", file: "src/components/UserFinder.tsx", line: 4 },
+        name: "UserFinder", file: "src/components/UserFinder.tsx", line: 4, source: "inferred" },
       { key: "src/components/UserList.tsx#UserList",
-        name: "UserList", file: "src/components/UserList.tsx", line: 4 },
+        name: "UserList", file: "src/components/UserList.tsx", line: 4, source: "inferred" },
       { key: "src/providers/session-provider.tsx#SessionProvider",
-        name: "SessionProvider", file: "src/providers/session-provider.tsx", line: 17 },
+        name: "SessionProvider", file: "src/providers/session-provider.tsx", line: 17, source: "inferred" },
       // ABSENT on purpose: FormatDate (src/lib/format.ts) — PascalCase but no
       // JSX, so the detector refuses it.
       // ABSENT on purpose: Refresh/RefreshScheduler — no JSX either; the
@@ -89,113 +89,138 @@ describe("reading a React client", () => {
     expect(g.clientCalls).toEqual([
       // Direct call in a component: the component itself, and nothing above.
       { method: "POST", path: "/api/admin/cards", file: "src/components/admin/Card.tsx",
-        line: 4, enclosing: "save", matches: null,
-        components: ["src/components/admin/Card.tsx#Card"] },
+        line: 4, enclosing: "save", matches: null, matchSource: null,
+        components: ["src/components/admin/Card.tsx#Card"], componentsSource: "declared" },
       // Direct call in the named default export.
       { method: "GET", path: "/api/home", file: "src/components/HomePage.tsx",
-        line: 6, enclosing: "boot", matches: null,
-        components: ["src/components/HomePage.tsx#HomePage"] },
+        line: 6, enclosing: "boot", matches: null, matchSource: null,
+        components: ["src/components/HomePage.tsx#HomePage"], componentsSource: "declared" },
       // A call inside a TWO-member options object whose owner is the
       // component itself: the sibling-bearing rule refuses only
       // non-component owners, so this stays attributed — the regression
       // guard for the useMutation({ mutationFn, ... }) shape.
       { method: "GET", path: "/api/mutate", file: "src/components/MutatingPanel.tsx",
-        line: 11, enclosing: "mutationFn", matches: null,
-        components: ["src/components/MutatingPanel.tsx#MutatingPanel"] },
+        line: 11, enclosing: "mutationFn", matches: null, matchSource: null,
+        components: ["src/components/MutatingPanel.tsx#MutatingPanel"], componentsSource: "declared" },
       // The other Card: same component name, different key.
       { method: "GET", path: "/api/shop/cards", file: "src/components/shop/Card.tsx",
-        line: 4, enclosing: "load", matches: null,
-        components: ["src/components/shop/Card.tsx#Card"] },
+        line: 4, enclosing: "load", matches: null, matchSource: null,
+        components: ["src/components/shop/Card.tsx#Card"], componentsSource: "declared" },
       // Module scope: inside no definition, so genuinely unattributed.
       { method: "GET", path: "/api/boot", file: "src/lib/boot.ts",
-        line: 2, enclosing: null, matches: null, components: [] },
+        line: 2, enclosing: null, matches: null, matchSource: null, components: [], componentsSource: null },
       // pingA <-> pingB is a reference cycle reaching no component; the
       // visited set terminates the walk and the call stays unattributed.
       { method: "GET", path: "/api/ping", file: "src/lib/cycle.ts",
-        line: 3, enclosing: "pingA", matches: null, components: [] },
+        line: 3, enclosing: "pingA", matches: null, matchSource: null, components: [], componentsSource: null },
       // The CONSTRUCTOR is dropped like every other non-method member:
       // SchedulerPanel does `new RefreshScheduler()`, but a type annotation
       // or instanceof would look identical to the edge walk, so "references
       // the class" cannot prove the constructor ran.
       { method: "GET", path: "/api/ctor", file: "src/lib/refresh.ts",
-        line: 19, enclosing: "constructor", matches: null, components: [] },
+        line: 19, enclosing: "constructor", matches: null, matchSource: null, components: [], componentsSource: null },
       // A class PROPERTY ARROW is not a definition; its call is dropped,
       // never handed to the class and SchedulerPanel.
       { method: "GET", path: "/api/poll", file: "src/lib/refresh.ts",
-        line: 26, enclosing: "poll", matches: null, components: [] },
+        line: 26, enclosing: "poll", matches: null, matchSource: null, components: [], componentsSource: null },
       // The collision LOSER owns this call. SchedulerPanel references the
       // class, but ownership must not spill outward from the dropped method
       // to RefreshScheduler — unattributed, never mis-attributed.
       { method: "GET", path: "/api/refresh", file: "src/lib/refresh.ts",
-        line: 29, enclosing: "Refresh", matches: null, components: [] },
+        line: 29, enclosing: "Refresh", matches: null, matchSource: null, components: [], componentsSource: null },
       // A class EXPRESSION's members are never indexed; the whole expression
       // is dropped, so tick()'s call cannot spill to Poller's referencers.
       { method: "GET", path: "/api/klass", file: "src/lib/refresh.ts",
-        line: 40, enclosing: "tick", matches: null, components: [] },
+        line: 40, enclosing: "tick", matches: null, matchSource: null, components: [], componentsSource: null },
       // The provider swallow, pinned: SessionProvider references the service,
       // so the call is its. AccountMenu consumes the context hook and is
       // ABSENT on purpose — no reference edge connects it to the call, and
       // guessing one would be worse than missing it.
       { method: "GET", path: "/api/session", file: "src/providers/session-provider.tsx",
-        line: 5, enclosing: "me", matches: null,
-        components: ["src/providers/session-provider.tsx#SessionProvider"] },
+        line: 5, enclosing: "me", matches: null, matchSource: null,
+        components: ["src/providers/session-provider.tsx#SessionProvider"], componentsSource: "inferred" },
       // The NESTED grouped client (api.users.list / api.users.find): each
       // call attributes only through its own member's caller. If the nested
       // members were not definitions of their own, both calls would fan out
       // to both components through `api.users`.
       { method: "GET", path: "/api/users", file: "src/services/api.ts",
-        line: 9, enclosing: "list", matches: null,
-        components: ["src/components/UserList.tsx#UserList"] },
+        line: 9, enclosing: "list", matches: null, matchSource: null,
+        components: ["src/components/UserList.tsx#UserList"], componentsSource: "inferred" },
       { method: "GET", path: "/api/users/*", file: "src/services/api.ts",
-        line: 13, enclosing: "find", matches: null,
-        components: ["src/components/UserFinder.tsx#UserFinder"] },
+        line: 13, enclosing: "find", matches: null, matchSource: null,
+        components: ["src/components/UserFinder.tsx#UserFinder"], componentsSource: "inferred" },
       // Members that cannot be definitions — computed key, accessor,
       // spread — each hold a call. Only the plain sibling attributes; the
       // other three are DROPPED, not spilled to exoticService and fanned
       // out to ExoticPanel. (The computed member's enclosing is null — a
       // computed name is no more knowable to enclosingName than to refs.)
       { method: "GET", path: "/api/exotic/plain", file: "src/services/exotic.service.ts",
-        line: 10, enclosing: "plain", matches: null,
-        components: ["src/components/ExoticPanel.tsx#ExoticPanel"] },
+        line: 10, enclosing: "plain", matches: null, matchSource: null,
+        components: ["src/components/ExoticPanel.tsx#ExoticPanel"], componentsSource: "inferred" },
       { method: "GET", path: "/api/exotic/computed", file: "src/services/exotic.service.ts",
-        line: 14, enclosing: null, matches: null, components: [] },
+        line: 14, enclosing: null, matches: null, matchSource: null, components: [], componentsSource: null },
       { method: "GET", path: "/api/exotic/accessor", file: "src/services/exotic.service.ts",
-        line: 17, enclosing: "lazy", matches: null, components: [] },
+        line: 17, enclosing: "lazy", matches: null, matchSource: null, components: [], componentsSource: null },
       { method: "GET", path: "/api/exotic/spread", file: "src/services/exotic.service.ts",
-        line: 21, enclosing: "inlineSpread", matches: null, components: [] },
+        line: 21, enclosing: "inlineSpread", matches: null, matchSource: null, components: [], componentsSource: null },
       // 3-hop: StatusPanel -> useStatus -> statusService.load, where the
       // hook holds a BARE method reference (a value, not a call).
       { method: "GET", path: "/api/status", file: "src/services/status.service.ts",
-        line: 3, enclosing: "load", matches: null,
-        components: ["src/components/StatusPanel.tsx#StatusPanel"] },
+        line: 3, enclosing: "load", matches: null, matchSource: null,
+        components: ["src/components/StatusPanel.tsx#StatusPanel"], componentsSource: "inferred" },
       // A sibling-bearing container that is not a set of definitions: the
       // object lives inside a factory CALL, so neither member is indexed,
       // and the owner (store) is not a component. Both calls are refused
       // rather than fanned out to StorePanel through the variable.
       { method: "GET", path: "/api/store/a", file: "src/services/store.ts",
-        line: 13, enclosing: "loadA", matches: null, components: [] },
+        line: 13, enclosing: "loadA", matches: null, matchSource: null, components: [], componentsSource: null },
       { method: "GET", path: "/api/store/b", file: "src/services/store.ts",
-        line: 16, enclosing: "loadB", matches: null, components: [] },
+        line: 16, enclosing: "loadB", matches: null, matchSource: null, components: [], componentsSource: null },
       // The sibling count is ALL properties: one named + one computed-key
       // member is still two siblings, so both calls are refused. Under a
       // named-members-only count this literal read as single-member and
       // both fanned out to StorePanel.
       { method: "GET", path: "/api/mixed/named", file: "src/services/store.ts",
-        line: 31, enclosing: "named", matches: null, components: [] },
+        line: 31, enclosing: "named", matches: null, matchSource: null, components: [], componentsSource: null },
       { method: "GET", path: "/api/mixed/computed", file: "src/services/store.ts",
-        line: 34, enclosing: null, matches: null, components: [] },
+        line: 34, enclosing: null, matches: null, matchSource: null, components: [], componentsSource: null },
       // 2-hop through one method of the two-method service. ThingRemover
       // touches only removeThing, so it must NOT appear here: ownerDef is the
       // innermost definition (thingsService.getThings), never the holding
       // object, or every component touching any method would own every call.
       { method: "GET", path: "/api/things", file: "src/services/things.service.ts",
-        line: 8, enclosing: "getThings", matches: null,
-        components: ["src/components/ThingList.tsx#ThingList"] },
+        line: 8, enclosing: "getThings", matches: null, matchSource: null,
+        components: ["src/components/ThingList.tsx#ThingList"], componentsSource: "inferred" },
       // ...and the DELETE attributes only through the barrel importer.
       { method: "DELETE", path: "/api/things/*", file: "src/services/things.service.ts",
-        line: 12, enclosing: "removeThing", matches: null,
-        components: ["src/components/ThingRemover.tsx#ThingRemover"] },
+        line: 12, enclosing: "removeThing", matches: null, matchSource: null,
+        components: ["src/components/ThingRemover.tsx#ThingRemover"], componentsSource: "inferred" },
     ]);
+  });
+});
+
+describe("component attribution provenance (P2c-i)", () => {
+  const by = (src: "declared" | "inferred" | null): string[] =>
+    g.clientCalls.filter((c) => c.componentsSource === src).map((c) => `${c.method} ${c.path}`);
+
+  it("declared when the call sits lexically inside the component", () => {
+    expect(by("declared")).toEqual([
+      "POST /api/admin/cards", "GET /api/home", "GET /api/mutate", "GET /api/shop/cards",
+    ]);
+  });
+
+  it("inferred when the component is reached by the reference walk", () => {
+    expect(by("inferred")).toEqual([
+      "GET /api/session", "GET /api/users", "GET /api/users/*", "GET /api/exotic/plain",
+      "GET /api/status", "GET /api/things", "DELETE /api/things/*",
+    ]);
+  });
+
+  it("null, with [], when no component owns the call (module scope, cycle, dropped owner)", () => {
+    const none = g.clientCalls.filter((c) => c.componentsSource === null);
+    expect(none).toHaveLength(13);
+    expect(none.every((c) => c.components.length === 0)).toBe(true);
+    expect(g.clientCalls.filter((c) => c.components.length === 0)).toHaveLength(13);
   });
 });
 
@@ -217,7 +242,7 @@ describe("solution-style tiebreak", () => {
   it("reads only the winner's file", () => {
     expect(tie.clientCalls).toEqual([
       { method: "GET", path: "/api/a", file: "a.ts", line: 2,
-        enclosing: null, matches: null, components: [] },
+        enclosing: null, matches: null, matchSource: null, components: [], componentsSource: null },
     ]);
     expect(tie.entities).toEqual([]);
     expect(tie.components).toEqual([]);

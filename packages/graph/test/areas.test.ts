@@ -13,6 +13,7 @@ const route = (method: string, path: string, handler?: [string, string, string])
   path,
   file: "Program.cs",
   line: 1,
+  source: "attribute",
   ...(handler ? { handler: { type: handler[0], method: handler[1], file: handler[2], line: 1 } } : {}),
 });
 const ref = (entity: string, type: string, method: string, file: string) => ({
@@ -22,6 +23,7 @@ const ref = (entity: string, type: string, method: string, file: string) => ({
   type,
   method,
   via: "entityName" as const,
+  source: "inferred" as const,
 });
 const call = (matches: string | null, components: string[]) => ({
   method: "GET",
@@ -30,7 +32,9 @@ const call = (matches: string | null, components: string[]) => ({
   line: 1,
   enclosing: null,
   matches,
+  matchSource: matches === null ? null : ("inferred" as const),
   components,
+  componentsSource: components.length > 0 ? ("declared" as const) : null,
 });
 
 function graph(over: Partial<EntityGraph>): EntityGraph {
@@ -86,9 +90,9 @@ const base = graph({
     ref("Course", "Other", "Get", HC), // same file, wrong type: no join
   ],
   components: [
-    { key: "web/pages/EnrollPage.tsx#EnrollPage", name: "EnrollPage", file: "web/pages/EnrollPage.tsx", line: 1 },
-    { key: "web/courses/List.tsx#List", name: "List", file: "web/courses/List.tsx", line: 1 },
-    { key: "web/Idle.tsx#Idle", name: "Idle", file: "web/Idle.tsx", line: 1 },
+    { key: "web/pages/EnrollPage.tsx#EnrollPage", name: "EnrollPage", file: "web/pages/EnrollPage.tsx", line: 1, source: "inferred" },
+    { key: "web/courses/List.tsx#List", name: "List", file: "web/courses/List.tsx", line: 1, source: "inferred" },
+    { key: "web/Idle.tsx#Idle", name: "Idle", file: "web/Idle.tsx", line: 1, source: "inferred" },
   ],
   clientCalls: [
     call("GET /api/v1/courses/:id", ["web/pages/EnrollPage.tsx#EnrollPage"]),
@@ -137,7 +141,7 @@ describe("areasFor: partition", () => {
 });
 
 describe("areasFor: component placement precedence", () => {
-  const comp = (file: string, name = "C") => ({ key: `${file}#${name}`, name, file, line: 1 });
+  const comp = (file: string, name = "C") => ({ key: `${file}#${name}`, name, file, line: 1, source: "inferred" as const });
   const g = (components: ReturnType<typeof comp>[], calls: ReturnType<typeof call>[]) =>
     graph({
       routes: [route("GET", "/api/courses"), route("GET", "/api/orders"), route("GET", "/api/users")],
@@ -216,7 +220,7 @@ describe("areasFor: cross-area edges", () => {
     const one = graph({
       routes: [route("GET", "/api/a", ["A", "m", "A.cs"])],
       entityRefs: [ref("X", "A", "m", "A.cs")],
-      components: [{ key: "w/a/C.tsx#C", name: "C", file: "w/a/C.tsx", line: 1 }],
+      components: [{ key: "w/a/C.tsx#C", name: "C", file: "w/a/C.tsx", line: 1, source: "inferred" }],
       clientCalls: [call("GET /api/a", ["w/a/C.tsx#C"])],
     });
     expect(areasFor(one).edges).toEqual([]);

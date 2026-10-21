@@ -87,8 +87,13 @@ export function detectStack(repoRoot: string): { provider: Provider; basis: Prov
  * unreadable`, partial) and a walk-limit hit warns in both readers; (5) every
  * entry point resolves its path first, so a relative root reads the same facts
  * as its absolute twin; (6) "1 file"/"1 shape" grammar.
+ *
+ * 10: provenance on routes/calls/refs/client matches/component attribution
+ * (`Route.source`, `Call.source`, `EntityRef.source`, `Component.source`,
+ * `ClientCall.matchSource`, `ClientCall.componentsSource`); `mirrorSource` null
+ * when unpaired.
  */
-export const EXTRACTOR_VERSION = 9;
+export const EXTRACTOR_VERSION = 10;
 
 /**
  * Extract whatever this repo is, alongside a fingerprint of the files that

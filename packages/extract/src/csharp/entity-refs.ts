@@ -61,9 +61,10 @@ function cmp(a: string, b: string): number {
 /**
  * `entity -> file -> line -> via -> type -> method`.
  *
- * Six keys, which is every field of `EntityRef` — so the order really is
- * total over the emitted tuple, and the comparator's key set is exactly the
- * dedupe key's. Before review round 1 the comment said "total" over five
+ * Six keys, which is every field of `EntityRef` except `source` — so the
+ * order really is total over the emitted tuple, and the comparator's key set
+ * is exactly the dedupe key's. `source` (P2c) is the constant `inferred` on
+ * every ref, so leaving it out of both keys changes no order and no dedupe. Before review round 1 the comment said "total" over five
  * keys, with `type` deduped on but never compared: two refs differing only in
  * `type` tied completely and fell back to `Array.prototype.sort` stability,
  * i.e. to source order. `type` was inserted rather than appended so the
@@ -201,6 +202,8 @@ export function collectEntityRefs(
             type: decl.name,
             method: method.name,
             via,
+            // Constant: every ref is a name match (D-Hb-13), never a resolved symbol.
+            source: "inferred",
           };
 
           // Two mentions on one line collapse; two on different lines do not.

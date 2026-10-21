@@ -24,7 +24,7 @@ function shape(name: string, file: string): Shape {
     members: [],
     discriminator: null,
     mirrors: null,
-    mirrorSource: "inferred",
+    mirrorSource: null,
   };
 }
 

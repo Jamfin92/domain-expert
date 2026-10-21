@@ -47,18 +47,19 @@ function shape(name: string, file: string, mirrors: string | null = null): Shape
   return {
     name, file, module: null, kind: "interface",
     fields: [{ name: "id", type: "number", baseType: "number", optional: false, isCollection: false }],
-    members: [], discriminator: null, mirrors, mirrorSource: "inferred",
+    members: [], discriminator: null, mirrors, mirrorSource: mirrors === null ? null : "inferred",
   };
 }
 
 function component(name: string, file: string): Component {
-  return { key: `${file}#${name}`, name, file, line: 1 };
+  return { key: `${file}#${name}`, name, file, line: 1, source: "inferred" };
 }
 
 function call(file: string, components: string[]): ClientCall {
   return {
     method: "GET", path: "/api/x", file, line: 3,
-    enclosing: null, matches: null, components,
+    enclosing: null, matches: null, matchSource: null,
+    components, componentsSource: components.length > 0 ? "declared" : null,
   };
 }
 
@@ -71,7 +72,7 @@ describe("mergeGraphs: re-prefixing node-side paths", () => {
     provider: "sqlite-ddl",
     entities: [entity("audit", "db/schema.sql")],
     shapes: [shape("Widget", "src/types.ts")],
-    routes: [{ method: "GET", path: "/api/x", file: "src/server.ts", line: 2 }],
+    routes: [{ method: "GET", path: "/api/x", file: "src/server.ts", line: 2, source: "declared" }],
     components: [component("Panel", "src/Panel.tsx")],
     clientCalls: [call("src/api.ts", ["src/Panel.tsx#Panel"])],
   });
@@ -130,18 +131,19 @@ describe("mergeGraphs: nested file-bearing fields are re-prefixed too", () => {
   const ref = {
     entity: "Widget", file: "src/a.ts", line: 2, type: "A", method: "M",
     via: "entityName" as const,
+    source: "inferred" as const,
   };
   const node = graph({
     provider: "sqlite-ddl",
     routes: [
       {
-        method: "GET", path: "/api/x", file: "src/server.ts", line: 2,
+        method: "GET", path: "/api/x", file: "src/server.ts", line: 2, source: "declared",
         handler: { type: "h", method: "<inline>", file: "src/handlers/h.ts", line: 7 },
       },
-      { method: "GET", path: "/api/y", file: "src/server.ts", line: 3 },
+      { method: "GET", path: "/api/y", file: "src/server.ts", line: 3, source: "declared" },
     ],
     entityRefs: [ref],
-    calls: [{ from: site, to: { ...site, method: "N", file: "src/b.ts", line: 9 }, line: 4 }],
+    calls: [{ from: site, to: { ...site, method: "N", file: "src/b.ts", line: 9 }, line: 4, source: "declared" }],
     unresolvedCalls: [{ ...site, count: 2 }],
   });
   const merged = mergeGraphs(graph({}), node, "client");
@@ -445,6 +447,7 @@ describe("G20: mergeGraphs carries entityRefs through from the .NET side", () =>
     type: "StudentsController",
     method: "Create",
     via: "entityName" as const,
+    source: "inferred" as const,
   };
 
   it("the merged graph holds the .NET side's refs, unmodified", () => {
@@ -486,7 +489,7 @@ describe("G20: mergeGraphs carries entityRefs through from the .NET side", () =>
 
 describe("mergeGraphs carries the C# call graph through from the .NET side", () => {
   const site = { type: "A", method: "M", file: "Services/A.cs", line: 3 };
-  const call = { from: site, to: { ...site, method: "N", line: 9 }, line: 4 };
+  const call = { from: site, to: { ...site, method: "N", line: 9 }, line: 4, source: "declared" as const };
   const unresolved = { ...site, count: 2 };
 
   it("holds the .NET side's calls and unresolved counts, unmodified", () => {
@@ -508,11 +511,12 @@ describe("mergeGraphs carries the C# call graph through from the .NET side", () 
 
 describe("mergeGraphs: client calls are matched to .NET routes", () => {
   const route = (method: string, path: string): Route => ({
-    method, path, file: "Controllers/XController.cs", line: 9,
+    method, path, file: "Controllers/XController.cs", line: 9, source: "attribute",
     handler: { type: "XController", method: "Get", file: "Controllers/XController.cs", line: 10 },
   });
   const apiCall = (method: string, path: string, matches: string | null = null): ClientCall => ({
-    method, path, file: "src/api.ts", line: 3, enclosing: null, matches, components: [],
+    method, path, file: "src/api.ts", line: 3, enclosing: null, matches,
+    matchSource: matches === null ? null : "inferred", components: [], componentsSource: null,
   });
 
   it("matches a TS call to a .NET route across {id:int}, casing and the root prefix", () => {
@@ -529,6 +533,8 @@ describe("mergeGraphs: client calls are matched to .NET routes", () => {
       "POST /api/Widgets",
       null,
     ]);
+    // P2c-i VALUE pin: the merge-pass (`merge.ts:258`) match carries provenance.
+    expect(g.clientCalls.map((c) => c.matchSource)).toEqual(["inferred", "inferred", null]);
   });
 
   it("never overrides a match the node reader already made", () => {

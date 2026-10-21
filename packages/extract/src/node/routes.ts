@@ -100,7 +100,10 @@ export function readRoutes(
           const first = node.arguments[0]!;
           const { line } = source.getLineAndCharacterOfPosition(node.getStart());
           if (ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first)) {
-            const route: Route = { method: method.toUpperCase(), path: first.text, file: rel, line: line + 1 };
+            // `declared`: the path is a literal the repo wrote out.
+            const route: Route = {
+              method: method.toUpperCase(), path: first.text, file: rel, line: line + 1, source: "declared",
+            };
             const handler = resolveHandler(root, checker, source, rel, line + 1, node.arguments);
             if (handler) route.handler = handler;
             out.push(route);

@@ -159,8 +159,14 @@ export interface Shape {
 export interface RouteHandler {
   type: string; method: string; file: string; line: number;
 }
+/**
+ * How psq came to know a fact; mirrors `FactSource` in `@psq/schema`.
+ * test/web-schema-drift.test.ts pins this union's members against the enum.
+ */
+export type FactSource = "fluent" | "attribute" | "declared" | "convention" | "inferred";
 export interface Route {
   method: string; path: string; file: string; line: number;
+  source: FactSource;
   handler?: RouteHandler;
 }
 export interface EntityRef {

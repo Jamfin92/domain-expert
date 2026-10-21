@@ -221,6 +221,7 @@ describe("entity refs", () => {
       type: "CoursesController",
       method: "Slug",
       via: "entityName",
+      source: "inferred",
     });
     // `via` filters through the route, and narrows to a strict subset.
     const one = await request(app).get(`/api/repos/${id}/refs`).query({ entity: "Course", via: "dbSetName" });
