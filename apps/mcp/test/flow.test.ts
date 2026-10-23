@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../../server/src/workspace.js";
 import { BRIEF_BUDGET } from "../src/brief.js";
+import { flowView } from "../src/flow.js";
 import { tools, type Ctx } from "../src/tools.js";
 import { MINI_FULLSTACK_REACT } from "../../../test/fixtures.js";
 
@@ -84,6 +85,49 @@ describe("flow tool", () => {
     expect(f.omittedNodes).toBeGreaterThan(0);
     expect(f.truncated).toBe(true);
     expect(f.truncatedByDepth).toBe(false);
+  });
+
+  it("carries the provenance of the edge that reached each hop", () => {
+    open();
+    const get = flow({ route: "GET /api/Gadgets/{id}" });
+    const at = (f: Json, m: string): Json => f.hops.find((x: Json) => x.method === m);
+    expect(get.hops[0]).toMatchObject({ depth: 0, calledAt: null, calledSource: null });
+    // The call site names the interface member: declared.
+    expect(at(get, "IGadgetService.Assemble")).toMatchObject({
+      calledAt: "Controllers/GadgetsController.cs:20", calledSource: "declared",
+    });
+    expect(at(get, "GadgetService.Rebalance")).toMatchObject({
+      calledAt: "Services/GadgetService.cs:20", calledSource: "declared",
+    });
+    // An implementer reached by interface dispatch: inferred, and here ambiguous.
+    const retire = flow({ route: "PUT /api/Gadgets/{id}/retire" });
+    expect(at(retire, "SmsNotifier.Send")).toMatchObject({
+      calledAt: "Services/GadgetService.cs:26", calledSource: "inferred", ambiguous: true,
+    });
+    expect(get.notes).toContain(
+      "`calledSource` is the provenance of the edge that reached a hop: `declared` = the call site names this " +
+        "method (including an interface member); `inferred` = an implementer reached by interface dispatch.",
+    );
+  });
+
+  it("takes calledSource from the same edge as calledAt", () => {
+    // Three edges A.a -> B.b. The chosen one is the lowest line (5, inferred);
+    // the first and the last in array order are both declared, so reading the
+    // source from any edge but the chosen one changes the answer.
+    const edge = (line: number, source: string): Json => ({
+      from: { type: "A", method: "a", file: "A.cs" }, to: { type: "B", method: "b" }, line, source,
+    });
+    const g: Json = { calls: [edge(9, "declared"), edge(5, "inferred"), edge(7, "declared")] };
+    const node = (type: string, method: string, depth: number, path: string[]): Json => ({
+      type, method, file: `${type}.cs`, line: 1, depth, path, ambiguous: false, entities: [], unresolvedCalls: 0,
+    });
+    const f: Json = {
+      start: { type: "A", method: "a" }, maxDepth: 4, truncated: false, entities: [],
+      nodes: [node("A", "a", 0, ["A.a"]), node("B", "b", 1, ["A.a", "B.b"])],
+    };
+    const hops = (flowView(g, f) as Json).hops;
+    expect(hops[0]).toMatchObject({ calledAt: null, calledSource: null });
+    expect(hops[1]).toMatchObject({ calledAt: "A.cs:5", calledSource: "inferred" });
   });
 
   it("says an inline handler is not followed", () => {

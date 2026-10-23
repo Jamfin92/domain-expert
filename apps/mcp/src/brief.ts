@@ -1,5 +1,6 @@
 import { byCode, recordsOf } from "@psq/extract";
 import { degrees, orphans, routeFlow, DEFAULT_FLOW_DEPTH } from "@psq/graph";
+import { FactSource } from "@psq/schema";
 import type { Coverage, EntityGraph, WarningRecord } from "@psq/schema";
 import type { Workspace, OpenRepo } from "../../server/src/workspace.js";
 import {
@@ -63,6 +64,7 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
       `${g.entities.length} entities, ${g.relations.length} relations, ${g.routes.length} routes, ` +
       `${g.clientCalls.length} client calls, ${g.components.length} components, ` +
       `${g.entityRefs.length} entity refs, ${g.warnings.length} warnings.`,
+    provenanceLine(g),
     "",
   );
 
@@ -322,6 +324,49 @@ function renderAt(ws: Workspace, repo: OpenRepo, scale: number): string {
   for (const b of blindSpots(g)) out.push(`- cannot see: ${b}`);
   out.push("", `> ${INSTRUCTION}`, "");
   return out.join("\n");
+}
+
+/**
+ * One line saying how psq knows what the brief lists, COUNTED from the graph's
+ * own `source` fields: a family appears only when it has a fact (provenance is
+ * stamped on facts, never on their absence), sources in `FactSource` order,
+ * zero buckets omitted. Never starts with `- ` and is never a header.
+ */
+export function provenanceLine(
+  g: Pick<EntityGraph, "routes" | "calls" | "clientCalls" | "components" | "entityRefs">,
+): string {
+  let inferred = false;
+  const group = (sources: ReadonlyArray<FactSource | null>): string =>
+    FactSource.options
+      .flatMap((src) => {
+        const n = sources.filter((x) => x === src).length;
+        if (n > 0 && src === "inferred") inferred = true;
+        return n > 0 ? [`${n} ${src}`] : [];
+      })
+      .join(", ");
+  const families: string[] = [];
+  if (g.routes.length > 0) families.push(`routes ${group(g.routes.map((r) => r.source))}`);
+  const calls = g.calls ?? [];
+  if (calls.length > 0) {
+    const k = calls.filter((c) => c.ambiguous).length;
+    families.push(`calls ${group(calls.map((c) => c.source))}${k > 0 ? ` (${k} of them ambiguous)` : ""}`);
+  }
+  if (g.clientCalls.length > 0) {
+    const matched = g.clientCalls.filter((c) => c.matches !== null);
+    families.push(
+      `client calls ${matched.length} of ${g.clientCalls.length} matched` +
+        (matched.length > 0 ? ` (${group(matched.map((c) => c.matchSource))})` : ""),
+    );
+  }
+  const attributed = g.clientCalls.filter((c) => c.componentsSource !== null);
+  if (attributed.length > 0) families.push(`component attribution ${group(attributed.map((c) => c.componentsSource))}`);
+  if (g.components.length > 0) families.push(`components ${group(g.components.map((c) => c.source))}`);
+  if (g.entityRefs.length > 0) families.push(`entity refs ${group(g.entityRefs.map((r) => r.source))}`);
+  if (families.length === 0) return "Provenance: no routes, calls, client calls, components or entity refs.";
+  return (
+    `Provenance: ${families.join("; ")}.` +
+    (inferred ? " Cite `inferred` facts as psq's inference, never as what the repo states." : "")
+  );
 }
 
 const FACETS: ReadonlyArray<keyof Coverage> = [

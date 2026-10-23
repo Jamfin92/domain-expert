@@ -1,6 +1,6 @@
 import { areasFor, flowFor, routeFlow, DEFAULT_FLOW_DEPTH } from "@psq/graph";
 import type { Flow, FlowNode } from "@psq/graph";
-import type { EntityGraph, Route } from "@psq/schema";
+import type { EntityGraph, FactSource, Route } from "@psq/schema";
 import { cap, cite, cmp } from "./common.js";
 
 /**
@@ -40,19 +40,19 @@ export function reachedEntities(f: Flow): Reached[] {
 export const unresolvedTotal = (g: EntityGraph): number =>
   (g.unresolvedCalls ?? []).reduce((n, u) => n + u.count, 0);
 
-/** The call-site line of the edge that first reached `node`, from its parent. */
-function callSite(g: EntityGraph, node: FlowNode): string | null {
+/** The call-site line and provenance of the edge that first reached `node`, from its parent. */
+function callSite(g: EntityGraph, node: FlowNode): { cite: string; source: FactSource } | null {
   if (node.path.length < 2) return null;
   const parent = node.path[node.path.length - 2]!;
   const me = node.path[node.path.length - 1]!;
-  let best: { file: string; line: number } | null = null;
+  let best: { file: string; line: number; source: FactSource } | null = null;
   for (const c of g.calls ?? []) {
     if (`${c.from.type}.${c.from.method}` !== parent || `${c.to.type}.${c.to.method}` !== me) continue;
     if (!best || c.line < best.line || (c.line === best.line && cmp(c.from.file, best.file) < 0)) {
-      best = { file: c.from.file, line: c.line };
+      best = { file: c.from.file, line: c.line, source: c.source };
     }
   }
-  return best ? cite(best.file, best.line) : null;
+  return best ? { cite: cite(best.file, best.line), source: best.source } : null;
 }
 
 export function flowView(g: EntityGraph, f: Flow, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -68,16 +68,20 @@ export function flowView(g: EntityGraph, f: Flow, extra: Record<string, unknown>
     entities: f.entities,
     reached: reachedEntities(f),
     unresolvedCalls: f.nodes.reduce((n, x) => n + x.unresolvedCalls, 0),
-    hops: shown.items.map((n) => ({
-      depth: n.depth,
-      method: `${n.type}.${n.method}`,
-      cite: cite(n.file, n.line),
-      calledAt: callSite(g, n),
-      path: n.path,
-      ambiguous: n.ambiguous,
-      entities: n.entities,
-      unresolvedCalls: n.unresolvedCalls,
-    })),
+    hops: shown.items.map((n) => {
+      const site = callSite(g, n);
+      return {
+        depth: n.depth,
+        method: `${n.type}.${n.method}`,
+        cite: cite(n.file, n.line),
+        calledAt: site?.cite ?? null,
+        calledSource: site?.source ?? null,
+        path: n.path,
+        ambiguous: n.ambiguous,
+        entities: n.entities,
+        unresolvedCalls: n.unresolvedCalls,
+      };
+    }),
     notes: [
       ...(inline
         ? ["Inline handler: psq reads no calls inside it, so the flow is only what it mentions by name."]
@@ -87,6 +91,8 @@ export function flowView(g: EntityGraph, f: Flow, extra: Record<string, unknown>
       "Calls are resolved syntactically (DI fields typed by repo interfaces, this/static calls); " +
         "unresolved calls are counted, not followed. Overloads are not distinguished. " +
         "`ambiguous` marks a path through an interface with several implementers: any of them may run.",
+      "`calledSource` is the provenance of the edge that reached a hop: `declared` = the call site names this " +
+        "method (including an interface member); `inferred` = an implementer reached by interface dispatch.",
     ],
   };
 }

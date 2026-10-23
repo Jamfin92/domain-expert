@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { z } from "zod";
 import { byCode, drift, recordsOf } from "@psq/extract";
 import { mermaid, refsFor, searchEntities, MATCH_FIELDS } from "@psq/graph";
-import { RefVia } from "@psq/schema";
+import { RefVia, ShapeKind } from "@psq/schema";
 import type { Route } from "@psq/schema";
 // `@psq/server` exports only its app; the Workspace (open, extract, id,
 // layout, mermaid) is the existing store of opened repos and is reused as-is.
@@ -10,7 +10,7 @@ import { Workspace, type OpenRepo } from "../../server/src/workspace.js";
 import { renderBrief } from "./brief.js";
 import { areasView, findFlow, flowView } from "./flow.js";
 import {
-  cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots, identityOf, withLimit,
+  cap, cite, cmp, handlerOf, methodKey, segmentOf, blindSpots, identityOf, withLimit, LIMITS,
   type LimitId,
 } from "./common.js";
 
@@ -39,6 +39,7 @@ export const CAP = {
   refs: 100,
   routes: 200,
   calls: 200,
+  shapes: 200,
 } as const;
 
 /**
@@ -114,6 +115,7 @@ function routeItem(r: Route): Record<string, unknown> {
     method: r.method,
     path: r.path,
     cite: cite(r.file, r.line),
+    source: r.source,
     ...(h ? { handler: h, handlerCite: cite(h.file, h.line) } : {}),
   };
 }
@@ -197,7 +199,10 @@ export const tools = {
       for (const c of g.clientCalls) {
         for (const key of c.components) {
           const list = callsByComponent.get(key) ?? [];
-          list.push({ method: c.method, path: c.path, matches: c.matches, cite: cite(c.file, c.line) });
+          list.push({
+            method: c.method, path: c.path, matches: c.matches, matchSource: c.matchSource,
+            componentsSource: c.componentsSource, cite: cite(c.file, c.line),
+          });
           callsByComponent.set(key, list);
         }
       }
@@ -210,6 +215,7 @@ export const tools = {
           key: c.key,
           name: c.name,
           cite: cite(c.file, c.line),
+          source: c.source,
           clientCalls: calls.items,
           clientCallCount: (callsByComponent.get(c.key) ?? []).length,
         };
@@ -426,8 +432,57 @@ export const tools = {
         total: all.length,
         truncated: shown.omitted > 0,
         refs: shown.items.map((r) => ({
-          cite: cite(r.file, r.line), type: r.type, method: r.method, via: r.via,
+          cite: cite(r.file, r.line), type: r.type, method: r.method, via: r.via, source: r.source,
         })),
+      });
+    },
+  ),
+
+  shapes: def(
+    "TYPE SHAPES the repo declares (classes, interfaces, type aliases, enums, zod schemas) and which entity " +
+      "each MIRRORS, with field drift. Works on repos with no entities.",
+    "mirrors",
+    {
+      repo: repoArg,
+      mirrors: z.string().optional().describe("Exact entity name a shape mirrors"),
+      paired: z.boolean().optional(),
+      kind: ShapeKind.optional(),
+      prefix: z.string().optional().describe("Shape name prefix"),
+    },
+    (ctx, { repo: ref, mirrors, paired, kind, prefix }) => {
+      // No `noEntities` guard: a repo with no schema still declares shapes.
+      const repo = resolveRepo(ctx, ref);
+      const g = repo.graph;
+      const all = g.shapes
+        .filter((s) => mirrors === undefined || s.mirrors === mirrors)
+        .filter((s) => paired === undefined || (s.mirrors !== null) === paired)
+        .filter((s) => kind === undefined || s.kind === kind)
+        .filter((s) => prefix === undefined || s.name.startsWith(prefix))
+        .sort((a, b) => cmp(a.name, b.name) || cmp(a.file, b.file));
+      const shown = cap(all, CAP.shapes);
+      // "Not computed cross-stack" vs "paired and found none": `counts.unpaired` mixes both.
+      const note = LIMITS.mirrors.see(g);
+      return stamp(repo, {
+        mirrors: mirrors ?? null,
+        paired: paired ?? null,
+        kind: kind ?? null,
+        prefix: prefix ?? null,
+        total: all.length,
+        counts: {
+          paired: all.filter((s) => s.mirrors !== null).length,
+          unpaired: all.filter((s) => s.mirrors === null).length,
+        },
+        truncated: shown.omitted > 0,
+        ...(typeof note === "string" ? { note } : {}),
+        shapes: shown.items.map((s) => {
+          // A mirror is always one of `g.entities` (pairing picks from them); the fallback is defensive.
+          const e = s.mirrors === null ? undefined : g.entities.find((x) => x.name === s.mirrors);
+          return {
+            name: s.name, kind: s.kind, module: s.module, cite: s.file,
+            fieldCount: s.fields.length, memberCount: s.members.length, discriminator: s.discriminator,
+            mirrors: s.mirrors, mirrorSource: s.mirrorSource, drift: e ? drift(e, s) : null,
+          };
+        }),
       });
     },
   ),
@@ -513,7 +568,8 @@ export const tools = {
         truncated: shown.omitted > 0,
         calls: shown.items.map((c) => ({
           method: c.method, path: c.path, cite: cite(c.file, c.line), enclosing: c.enclosing,
-          matches: c.matches, components: c.components,
+          matches: c.matches, matchSource: c.matchSource,
+          components: c.components, componentsSource: c.componentsSource,
         })),
       });
     },

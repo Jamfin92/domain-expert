@@ -27,6 +27,7 @@ describe("psq MCP server over an in-memory transport", () => {
     const client = await connect();
     const listed = await client.listTools();
     expect(listed.tools.map((t) => t.name).sort()).toEqual(Object.keys(tools).sort());
+    expect(listed.tools.map((t) => t.name)).toContain("shapes");
     expect(listed.tools.find((t) => t.name === "refs")?.inputSchema.properties).toHaveProperty("entity");
     const prompts = await client.listPrompts();
     expect(prompts.prompts.map((p) => p.name)).toEqual(["brief"]);

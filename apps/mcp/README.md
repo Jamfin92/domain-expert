@@ -61,7 +61,7 @@ and may not have your `PATH`. Node 24 or later.
 Every tool takes an optional `repo` (an id from `open_repo`, or a path). It may
 be left out only when exactly one repo is open; with several open, omitting it is an error. Lists are capped and say so (`truncated`).
 
-Twelve tools and one prompt:
+Thirteen tools and one prompt:
 
 | Tool | Returns |
 | --- | --- |
@@ -70,6 +70,7 @@ Twelve tools and one prompt:
 | `search_entities {query, wholeWord?}` | entities matching by name, table or property; `wholeWord` needs a whole identifier word; `next` |
 | `entity {name}` | fields, relations `out` (this entity holds the FK) and `in`, mirroring shapes with drift, a summary of mentions; `next` |
 | `refs {entity, via?}` | where an entity is mentioned: `file:line`, enclosing `Type.method` |
+| `shapes {mirrors?, paired?, kind?, prefix?}` | declared type shapes with `mirrors` / `mirrorSource` / field `drift`; sorted by name; works with no entities |
 | `routes {prefix?}` | routes with `file:line`, the handler when psq knows it, and whether any client call matched; `next` |
 | `client_calls {component?}` | client HTTP calls with the component they attribute to and the route they matched |
 | `warnings` | extraction warnings plus `records` (`{code, file, line, about, text}` per warning) and `byCode` (count and distinct files per code; both absent on graphs stored before typed warnings), `cannotSee`, the standing list of what psq cannot see in this repo; `coverage` |
@@ -87,7 +88,21 @@ so a healthy repo's caller can see partial or not-read facets. On a repo with no
 entities every JSON result carries it: `entity`, `refs`, `flow` and `areas`
 answer `{error: "no-entities", coverage, graphDigest}` as a normal result (not an
 MCP error), with the full per-facet block; `search_entities` answers an empty
-`hits` with `coverage`.
+`hits` with `coverage`; `shapes` answers normally (a repo with no schema still
+declares shapes), every item unpaired, with `coverage`.
+
+Every projected fact carries its provenance beside it, under the graph's own
+field name: `source` on routes (`routes`, `overview`), components (`overview`)
+and `refs` items; `matchSource` beside `matches` and `componentsSource` beside
+`components` on client calls (`client_calls`, and `overview`'s per-component
+calls); `calledSource` beside `calledAt` on `flow` hops (the edge that reached
+the hop: `declared` when the call site names the method, `inferred` for an
+implementer reached by interface dispatch); `mirrorSource` beside `mirrors` on
+shapes (`entity`, `shapes`). A nullable fact's provenance is `null` exactly
+when the fact is. The brief's `Provenance:` line, under the counts line,
+tallies the same fields per family (routes, calls, client calls, component
+attribution, components, entity refs), lists only families with at least one
+fact, and asks that `inferred` facts be cited as psq's inference.
 
 ### Identity
 
@@ -162,6 +177,7 @@ PSQ_NO_CORPUS=1 pnpm test      # includes apps/mcp/test
 ```
 
 Handlers are tested directly against the `mini-efcore-refs`,
-`mini-fullstack-react`, `mini-aspnet-routes` and `mini-types-only` (0 entities)
-fixtures, and one suite drives the real server over the SDK's in-memory
+`mini-fullstack-react`, `mini-aspnet-routes`, `mini-node`, `mini-react`,
+`mini-fullstack-csharp`, `mini-efcore-primary-ctor`, `mini-client-base` and
+`mini-types-only` (0 entities) fixtures, and one suite drives the real server over the SDK's in-memory
 transport.

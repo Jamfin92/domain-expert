@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { WarningCode } from "@psq/schema";
 import { Workspace } from "../../server/src/workspace.js";
-import { INSTRUCTION } from "../src/brief.js";
+import { INSTRUCTION, provenanceLine } from "../src/brief.js";
 import { blindSpots, cap, LIMITS } from "../src/common.js";
 import { CAP, resolveRepo, tools, type Ctx, type Next, type ToolName } from "../src/tools.js";
-import { MINI_EFCORE_REFS, MINI_FULLSTACK_REACT, MINI_TYPES_ONLY } from "../../../test/fixtures.js";
+import { MINI_EFCORE_REFS, MINI_FULLSTACK_REACT, MINI_REACT, MINI_TYPES_ONLY, NOT_A_PROJECT } from "../../../test/fixtures.js";
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), "../../../test/fixtures");
 const MINI_ASPNET_ROUTES = resolve(FIXTURES, "mini-aspnet-routes");
@@ -164,7 +164,7 @@ describe("routes", () => {
     const admin = tools.routes.run(ctx, { prefix: "/api/admin" }) as Json;
     expect(admin.routes).toEqual([
       {
-        method: "POST", path: "/api/admin/cards", cite: "server.ts:25", calledByClient: true,
+        method: "POST", path: "/api/admin/cards", cite: "server.ts:25", source: "declared", calledByClient: true,
         handler: { type: "server", method: "<inline>", file: "server.ts", line: 25 },
         handlerCite: "server.ts:25",
       },
@@ -426,6 +426,154 @@ describe("brief", () => {
   it("is deterministic", () => {
     openRefs();
     expect(tools.brief.run(ctx, {})).toBe(tools.brief.run(ctx, {}));
+  });
+});
+
+describe("provenance on projected facts (P2c-ii)", () => {
+  it("overview client calls carry matchSource beside matches, and the nested attribution source", () => {
+    openReact();
+    const o = tools.overview.run(ctx, {}) as Json;
+    const calls = o.components.flatMap((c: Json) => c.clientCalls);
+    expect(calls.find((c: Json) => c.cite === "src/components/admin/Card.tsx:13")).toMatchObject({
+      matches: "POST /api/admin/cards", matchSource: "inferred", componentsSource: "declared",
+    });
+    expect(calls.find((c: Json) => c.cite === "src/components/admin/Panel.tsx:15")).toMatchObject({
+      matches: null, matchSource: null, componentsSource: "declared",
+    });
+    // Reached through a reference walk: attributed to both Card components, inferred.
+    const walked = calls.filter((c: Json) => c.cite === "src/lib/save-card.ts:7");
+    expect(walked).toHaveLength(2);
+    for (const c of walked) expect(c).toMatchObject({ matchSource: "inferred", componentsSource: "inferred" });
+    expect(o.components.every((c: Json) => c.source === "inferred")).toBe(true);
+  });
+
+  it("client_calls carry matchSource and componentsSource", () => {
+    tools.open_repo.run(ctx, { path: MINI_REACT });
+    const calls = (tools.client_calls.run(ctx, {}) as Json).calls;
+    const at = (cite: string): Json => calls.find((c: Json) => c.cite === cite);
+    expect(at("src/components/HomePage.tsx:6")).toMatchObject({
+      matches: null, matchSource: null, components: ["src/components/HomePage.tsx#HomePage"], componentsSource: "declared",
+    });
+    expect(at("src/services/api.ts:9")).toMatchObject({
+      components: ["src/components/UserList.tsx#UserList"], componentsSource: "inferred",
+    });
+    expect(at("src/lib/boot.ts:2")).toMatchObject({ components: [], componentsSource: null });
+    ctx.workspace.closeAll();
+    openReact();
+    const fs = (tools.client_calls.run(ctx, {}) as Json).calls;
+    expect(fs.find((c: Json) => c.cite === "src/lib/boot.ts:5")).toMatchObject({
+      matches: "GET /api/cards", matchSource: "inferred", components: [], componentsSource: null,
+    });
+  });
+
+  it("refs items carry source", () => {
+    openRefs();
+    const r = tools.refs.run(ctx, { entity: "Course" }) as Json;
+    expect(r.refs.length).toBeGreaterThan(0);
+    expect(r.refs[0]).toMatchObject({ via: expect.any(String), source: "inferred" });
+  });
+
+  it("overview routes and the routes tool share the route projection", () => {
+    tools.open_repo.run(ctx, { path: MINI_ASPNET_ROUTES });
+    const o = tools.overview.run(ctx, {}) as Json;
+    const routes = o.routeGroups.flatMap((x: Json) => x.routes);
+    expect(routes.length).toBeGreaterThan(0);
+    expect(routes.every((r: Json) => r.source === "attribute")).toBe(true);
+  });
+});
+
+describe("brief provenance line", () => {
+  const CITE = " Cite `inferred` facts as psq's inference, never as what the repo states.";
+  const provLines = (b: string): string[] => b.split("\n").filter((l) => l.startsWith("Provenance:"));
+  const briefOf = (path: string): string => {
+    ctx.workspace.closeAll();
+    tools.open_repo.run(ctx, { path });
+    return tools.brief.run(ctx, {}) as string;
+  };
+
+  it("pins the exact line on fixtures with each family", () => {
+    expect(provLines(briefOf(MINI_ASPNET_ROUTES))).toEqual([
+      "Provenance: routes 30 attribute; calls 16 declared, 6 inferred (2 of them ambiguous); entity refs 10 inferred." + CITE,
+    ]);
+    expect(provLines(briefOf(MINI_FULLSTACK_REACT))).toEqual([
+      "Provenance: routes 2 declared; client calls 6 of 8 matched (6 inferred); " +
+        "component attribution 6 declared, 1 inferred; components 4 inferred." + CITE,
+    ]);
+    expect(provLines(briefOf(MINI_REACT))).toEqual([
+      "Provenance: client calls 0 of 24 matched; component attribution 4 declared, 7 inferred; components 15 inferred." + CITE,
+    ]);
+    expect(provLines(briefOf(MINI_TYPES_ONLY))).toEqual([
+      "Provenance: no routes, calls, client calls, components or entity refs.",
+    ]);
+    expect(provLines(briefOf(NOT_A_PROJECT))).toEqual([
+      "Provenance: no routes, calls, client calls, components or entity refs.",
+    ]);
+  });
+
+  it("sits directly after the counts line, above the Areas header", () => {
+    for (const path of [MINI_ASPNET_ROUTES, MINI_TYPES_ONLY]) {
+      const lines = briefOf(path).split("\n");
+      const at = lines.findIndex((l) => l.startsWith("Provenance:"));
+      expect(lines[at - 1]).toMatch(/^Provider `/);
+      expect(lines[at + 1]).toBe("");
+      expect(at).toBeLessThan(lines.findIndex((l) => l.startsWith("## Areas")));
+    }
+  });
+
+  // A hand-built graph: every family, mixed sources, so the grammar is pinned
+  // in full rather than as each fixture happens to fill it.
+  const r = (source: string): Json => ({ method: "GET", path: "/x", file: "a.cs", line: 1, source });
+  const call = (source: string, ambiguous?: boolean): Json => ({
+    from: { type: "A", method: "a", file: "a.cs" }, to: { type: "B", method: "b" }, line: 1, source,
+    ...(ambiguous ? { ambiguous: true } : {}),
+  });
+  const cc = (matchSource: string | null, componentsSource: string | null): Json => ({
+    method: "GET", path: "/x", file: "c.ts", line: 1, enclosing: null,
+    matches: matchSource === null ? null : "GET /x", matchSource,
+    components: componentsSource === null ? [] : ["c.tsx#C"], componentsSource,
+  });
+  const comp = (source: string): Json => ({ key: "c.tsx#C", name: "C", file: "c.tsx", line: 1, source });
+  const ref = (source: string): Json => ({ entity: "E", file: "a.cs", line: 1, type: "A", method: "a", via: "entityName", source });
+
+  it("renders every family in a fixed order, sources in FactSource order, zero buckets omitted", () => {
+    // Asymmetric on purpose: every bucket in a family has its own count, and the
+    // matched calls' matchSource split (1 declared, 2 inferred) differs from the
+    // attributed calls' componentsSource split (3 declared, 1 inferred), so a
+    // swapped label or a cross-read field changes the line.
+    const g: Json = {
+      routes: [r("declared"), r("attribute"), r("declared")],
+      calls: [call("inferred", true), call("declared"), call("inferred", true), call("inferred")],
+      clientCalls: [
+        cc("inferred", "declared"), cc("inferred", "declared"), cc("declared", "declared"),
+        cc(null, "inferred"), cc(null, null),
+      ],
+      components: [comp("inferred"), comp("inferred")],
+      entityRefs: [ref("declared"), ref("inferred"), ref("declared")],
+    };
+    expect(provenanceLine(g)).toBe(
+      "Provenance: routes 1 attribute, 2 declared; calls 1 declared, 3 inferred (2 of them ambiguous); " +
+        "client calls 3 of 5 matched (1 declared, 2 inferred); component attribution 3 declared, 1 inferred; " +
+        "components 2 inferred; entity refs 2 declared, 1 inferred." + CITE,
+    );
+  });
+
+  it("renders only present families, and the Cite clause only when something is inferred", () => {
+    const g: Json = {
+      routes: [r("declared"), r("declared")],
+      calls: [],
+      clientCalls: [cc(null, null)],
+      components: [],
+      entityRefs: [ref("declared")],
+    };
+    expect(provenanceLine(g)).toBe("Provenance: routes 2 declared; client calls 0 of 1 matched; entity refs 1 declared.");
+    // No call edges at all (`calls` absent) is an absent family too.
+    expect(provenanceLine({ ...g, calls: undefined })).toBe(provenanceLine(g));
+    expect(provenanceLine({ ...g, calls: [call("declared")] })).toBe(
+      "Provenance: routes 2 declared; calls 1 declared; client calls 0 of 1 matched; entity refs 1 declared.",
+    );
+    expect(provenanceLine({ routes: [], calls: [], clientCalls: [], components: [], entityRefs: [] } as Json)).toBe(
+      "Provenance: no routes, calls, client calls, components or entity refs.",
+    );
   });
 });
 
