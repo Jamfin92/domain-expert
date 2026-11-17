@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { EXTRACTOR_VERSION, digestOf, extractWithDigest } from "@psq/extract";
+import { EXTRACTOR_VERSION, digestOf, extractWithDigest, recordsOf } from "@psq/extract";
 import { invariants, layout, layout3d, mermaid, type Layout, type Layout3D } from "@psq/graph";
 import {
   buildBank,
@@ -9,7 +9,9 @@ import {
   DEFAULT_SEED,
   type SeededDb,
 } from "@psq/quiz";
-import type { Coverage, EntityGraph, GradeResult, Question, Section } from "@psq/schema";
+import type {
+  Coverage, EntityGraph, GradeResult, ProviderBasis, Question, Section, WarningRecord,
+} from "@psq/schema";
 import {
   STORE_VERSION,
   deleteEnvelope,
@@ -77,6 +79,8 @@ export interface RehydrateStatus {
 /**
  * `open()`'s refusal of a repo with no entities. Carries the graph's coverage
  * so a caller can say WHY psq found no schema, not just that it found none.
+ * Over HTTP (`POST /api/repos`) it becomes a 400 with the body
+ * `{ error: <message>, code: "no-entities", coverage }`.
  */
 export class NoEntitiesError extends Error {
   readonly code = "no-entities" as const;
@@ -109,6 +113,14 @@ export interface RepoSummary {
   warnings: string[];
   seededRows: number;
   openedAt: string;
+  /**
+   * What psq read, from the graph. Always present; null when the graph does
+   * not carry it (a hand-built or pre-P2 graph). `warningRecords` follows
+   * `recordsOf`: null unless there is exactly one record per `warnings` string.
+   */
+  coverage: Coverage | null;
+  providerBasis: ProviderBasis | null;
+  warningRecords: WarningRecord[] | null;
 }
 
 /**
@@ -402,6 +414,9 @@ export class Workspace {
       warnings: r.graph.warnings,
       seededRows: [...r.seeded.rowCounts.values()].reduce((a, b) => a + b, 0),
       openedAt: r.openedAt,
+      coverage: r.graph.coverage ?? null,
+      providerBasis: r.graph.providerBasis ?? null,
+      warningRecords: recordsOf(r.graph) ?? null,
     };
   }
 
@@ -412,8 +427,10 @@ export class Workspace {
    *
    * `allowEmpty` lets a graph with no entities through. Off by default: the
    * server's quiz has nothing to ask of such a repo, so the HTTP API and
-   * rehydrate keep refusing it. The MCP opts in, because routes, shapes and
-   * client calls are still worth reading when psq found no schema.
+   * rehydrate keep refusing it — the refusal is a `NoEntitiesError`, which
+   * HTTP sends as 400 `{ error, code: "no-entities", coverage }`. The MCP opts
+   * in, because routes, shapes and client calls are still worth reading when
+   * psq found no schema.
    */
   open(
     rawPath: string,

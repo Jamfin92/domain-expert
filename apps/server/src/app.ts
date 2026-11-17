@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import express, {
   type Express, type NextFunction, type Request, type Response,
 } from "express";
-import { Workspace } from "./workspace.js";
+import { NoEntitiesError, Workspace } from "./workspace.js";
 import { drift } from "@psq/extract";
 import { areasFor, refsFor, routeFlow, searchEntities, MATCH_FIELDS } from "@psq/graph";
 import { RefVia, Section } from "@psq/schema";
@@ -43,12 +43,23 @@ function fail(res: Response, status: number, message: string): void {
   res.status(status).json({ error: message });
 }
 
-/** Wrap a handler so a thrown Error becomes a clean 400 rather than a stack. */
+/**
+ * Wrap a handler so a thrown Error becomes a clean 400 rather than a stack.
+ *
+ * `NoEntitiesError` is the one error whose body carries more than `error`:
+ * `{ error, code: "no-entities", coverage }`. `error` stays the human message
+ * (the web client shows it as-is); `code` is the machine field. Every other
+ * error keeps the bare `{ error }` body.
+ */
 function handler(fn: (req: Request, res: Response) => void) {
   return (req: Request, res: Response): void => {
     try {
       fn(req, res);
     } catch (err) {
+      if (err instanceof NoEntitiesError) {
+        res.status(400).json({ error: err.message, code: err.code, coverage: err.coverage });
+        return;
+      }
       fail(res, 400, err instanceof Error ? err.message : String(err));
     }
   };
@@ -131,6 +142,7 @@ export function createApp(
     res.json({ repos: workspace.list() });
   });
 
+  // A repo with no entities is refused 400 with `{ error, code: "no-entities", coverage }`.
   app.post("/api/repos", handler((req, res) => {
     const body = req.body as { path?: unknown; seed?: unknown; rows?: unknown };
     if (typeof body.path !== "string" || body.path.trim() === "") {

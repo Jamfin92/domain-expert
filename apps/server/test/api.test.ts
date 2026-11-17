@@ -38,6 +38,13 @@ describe("opening a repo", () => {
     });
     expect(res.body.repo.questions).toBeGreaterThan(30);
     expect(res.body.repo.seededRows).toBeGreaterThan(100);
+    // P2c-iii D2: the summary carries what psq read, so a consumer of this one
+    // call can say how complete the read was.
+    expect(res.body.repo.coverage.entities.status).toBe("complete");
+    expect(res.body.repo.providerBasis.csFiles).toBeGreaterThan(0);
+    expect(res.body.repo.providerBasis.packageJson).toBe(false);
+    expect(Array.isArray(res.body.repo.warningRecords)).toBe(true);
+    expect(res.body.repo.warningRecords).toHaveLength(res.body.repo.warnings.length);
   });
 
   it("explains itself when the path is wrong, rather than throwing a stack", async () => {
@@ -48,6 +55,16 @@ describe("opening a repo", () => {
     const blank = await request(app).post("/api/repos").send({});
     expect(blank.status).toBe(400);
     expect(blank.body.error).toContain("path to a repo");
+  });
+
+  it("other 400s carry only `error`: the no-entities body does not leak onto them", async () => {
+    const missing = await request(app).post("/api/repos").send({ path: "/nope/not/here" });
+    expect(missing.status).toBe(400);
+    expect(Object.keys(missing.body)).toEqual(["error"]);
+
+    const blank = await request(app).post("/api/repos").send({});
+    expect(blank.status).toBe(400);
+    expect(Object.keys(blank.body)).toEqual(["error"]);
   });
 
   it("says so plainly, and says why, when a repo has no model psq can read", async () => {
@@ -62,13 +79,22 @@ describe("opening a repo", () => {
     expect(res.body.error).toContain("TypeScript files");
     // sqlite-ddl keeps the raw-DDL / ORM advice.
     expect(res.body.error).toContain("ORM-defined schema");
+    // P2c-iii D1: `error` stays the human message; `code` is the machine field,
+    // and the coverage says WHY, facet by facet.
+    expect(res.body.code).toBe("no-entities");
+    expect(Object.keys(res.body).sort()).toEqual(["code", "coverage", "error"]);
+    expect(res.body.coverage.entities.status).toBe("none-found");
+    expect(Object.keys(res.body.coverage)).toHaveLength(9);
   });
 
   it("reopening replaces the old copy instead of leaking a database", async () => {
     const first = await openMini();
     const second = await openMini();
     expect(second).toBe(first);
-    expect((await request(app).get("/api/repos")).body.repos).toHaveLength(1);
+    const repos = (await request(app).get("/api/repos")).body.repos;
+    expect(repos).toHaveLength(1);
+    // Not `.not.toBeNull()`: that passes on an ABSENT key (undefined).
+    expect(repos[0]).toHaveProperty("coverage.entities.status", "complete");
   });
 
   it("closes a repo and forgets its sessions", async () => {
@@ -550,6 +576,10 @@ describe("a Node repo over the API", () => {
   it("opens through the same endpoint as a .NET repo", async () => {
     const res = await request(app).post("/api/repos").send({ path: MINI_NODE });
     expect(res.body.repo).toMatchObject({ name: "mini-node", entities: 4, warnings: [] });
+    expect(res.body.repo.providerBasis.tsFiles).toBeGreaterThan(0);
+    expect(res.body.repo.providerBasis.csFiles).toBe(0);
+    // The fixture directory has no package.json: measured, not assumed.
+    expect(res.body.repo.providerBasis.packageJson).toBe(false);
   });
 
   it("serves the shapes and their drift, and the HTTP surface", async () => {

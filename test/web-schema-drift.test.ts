@@ -2,13 +2,16 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { EntityGraph, FactSource, Route } from "@psq/schema";
+import {
+  ClientCall, Component, Coverage, CoverageStatus, EntityGraph, EntityRef, FacetCoverage, FactSource,
+  ProviderBasis, Route, Shape, SkipReason, WarningCode, WarningRecord,
+} from "@psq/schema";
 
 /**
  * A drift pin between the wire schema and the hand-written client mirror.
  *
  * `apps/web` takes no workspace deps on purpose (stated at
- * `apps/web/src/lib/api.ts:33-34`), so every shape the server sends is restated
+ * `apps/web/src/lib/api.ts:39-40`), so every shape the server sends is restated
  * there by hand, and `call<T>()` ends in `return body as T` — no runtime
  * validation. That makes the divergence silent by construction: the mirror can
  * fall behind `@psq/schema` without a single test going red.
@@ -22,14 +25,21 @@ import { EntityGraph, FactSource, Route } from "@psq/schema";
  * the first ENUM pin: the web `FactSource` union against the schema enum, and
  * (7b) that the web `Route.source` is typed by it.
  *
- * The seven schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
+ * Cases 8-15 (P2c-iii) pin the provenance types the client now reads —
+ * `WarningRecord`, `Coverage`, `FacetCoverage` (+ its `skipped` element as
+ * `SkipEntry`), `ProviderBasis`, their three enums — the P2c-i source fields
+ * on `ClientCall` / `EntityRef` / `UiComponent` / `Shape`, and the web
+ * `RepoSummary` against the SERVER's `RepoSummary` (text against text: the
+ * server type is a TS interface, not a zod schema).
+ *
+ * The four schema-only EntityGraph fields are an explicit ALLOWLIST, not a "should be
  * identical" pin: the gap is real and deliberate today, so the assertion is
- * that the gap is exactly these seven. It reddens when the gap widens (a new
+ * that the gap is exactly these four. It reddens when the gap widens (a new
  * schema field the client never learns about) AND when it narrows (a field
  * mirrored in the client without shrinking this list on purpose).
  *
  * Parser tolerance, measured rather than assumed. Tolerant of (still parses to
- * the same 10): field reordering, one field per line, line comments, JSDoc
+ * the same 13): field reordering, one field per line, line comments, JSDoc
  * blocks inside the body, multi-line union types, `?:` optional fields, a
  * missing final semicolon. FALSE RED on: the opening brace on its own line,
  * TWO spaces before the brace, commas used as member separators (valid TS —
@@ -42,6 +52,7 @@ import { EntityGraph, FactSource, Route } from "@psq/schema";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const API_TS = resolve(HERE, "../apps/web/src/lib/api.ts");
+const WORKSPACE_TS = resolve(HERE, "../apps/server/src/workspace.ts");
 
 /** Field names declared by `EntityGraph` in `@psq/schema`. */
 const SCHEMA_FIELDS = [
@@ -69,23 +80,23 @@ const WEB_FIELDS = [
   "clientCalls",
   "components",
   "contextName",
+  "coverage",
   "entities",
   "entityRefs",
   "provider",
+  "providerBasis",
   "relations",
   "repo",
   "routes",
+  "warningRecords",
   "warnings",
 ].sort();
 
 /** Schema fields the client deliberately does not mirror. */
 // `calls` and `unresolvedCalls` are the C# call graph. The Flow view draws it, but from the
 // server's /flow endpoint (`Flow`, mirrored in api.ts), so the client never reads the raw edges.
-// `coverage` and `providerBasis` (P2a) are produced by extraction; apps/web consumes neither yet.
-// `warningRecords` (P2b) is the typed twin of `warnings`; the web keeps reading the strings (P2c).
-const NOT_MIRRORED = [
-  "calls", "coverage", "kind", "providerBasis", "shapes", "unresolvedCalls", "warningRecords",
-].sort();
+// `shapes` arrives on its own endpoint (`/shapes`, with `drift` added), never inside the graph.
+const NOT_MIRRORED = ["calls", "kind", "shapes", "unresolvedCalls"].sort();
 
 const ENTITY_GRAPH_MARKER = "export interface EntityGraph {";
 const ROUTE_MARKER = "export interface Route {";
@@ -182,7 +193,7 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     // The guard above passes vacuously on a body with zero segments (an empty
     // or unfound interface), so it is paired with a check that the parse found
     // something. This clause is a DIAGNOSTIC AID, not the detection mechanism:
-    // `toEqual` against a 10-element pinned list already fails on an empty
+    // `toEqual` against a 13-element pinned list already fails on an empty
     // parse. Its value is the message — "empty list" reads differently from
     // "list with an extra name", which is what tells an empty parse (M2) apart
     // from a deliberately mirrored field (M3).
@@ -190,7 +201,7 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     expect(webFields).toEqual(WEB_FIELDS);
   });
 
-  it("3. the fields the client does not mirror are exactly the known seven", () => {
+  it("3. the fields the client does not mirror are exactly the known four", () => {
     const schemaOnly = Object.keys(EntityGraph.shape)
       .filter((k) => !webFields.includes(k))
       .sort();
@@ -245,5 +256,103 @@ describe("apps/web mirrors the EntityGraph the server actually sends", () => {
     const open = source.indexOf(ROUTE_MARKER);
     const body = source.slice(open, source.indexOf("}", open));
     expect(/^\s*source\s*:\s*FactSource\s*;/m.test(body)).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // P2c-iii: provenance types (cases 8-15)
+  // ---------------------------------------------------------------------------
+
+  /** Parse one named interface out of api.ts with the shared guards; returns its sorted fields. */
+  function webInterface(marker: string, from = source): string[] {
+    const p = parseWebEntityGraphFields(from, marker);
+    expect(p.markerCount, `expected exactly one \`${marker}\``).toBe(1);
+    expect(p.unparsed).toEqual([]);
+    return p.fields;
+  }
+
+  /** The body text of one named interface, for type pins like 7b. */
+  function webBody(marker: string): string {
+    const open = source.indexOf(marker);
+    expect(open, `expected \`${marker}\``).toBeGreaterThan(-1);
+    return source.slice(open, source.indexOf("}", open));
+  }
+
+  /**
+   * Case 7's four assertions, generalised: exactly one `export type NAME =`
+   * declaration, its quoted literals harvested, a positive control, and
+   * equality with the zod enum's options.
+   */
+  function enumMirror(name: string, options: readonly string[], control: string): void {
+    const decl = new RegExp(`^export type ${name} =[^;]*;`, "m").exec(source);
+    expect(decl, `expected one \`export type ${name} = ...;\` in apps/web/src/lib/api.ts`).not.toBeNull();
+    expect(source.match(new RegExp(`^export type ${name} =`, "gm"))).toHaveLength(1);
+    const web = [...decl![0].matchAll(/"([^"]*)"/g)].map((m) => m[1]!).sort();
+    expect(web).toContain(control);
+    expect(web).toEqual([...options].sort());
+  }
+
+  it("8. the web WarningRecord mirrors @psq/schema's WarningRecord exactly", () => {
+    const fields = webInterface("export interface WarningRecord {");
+    expect(fields).toContain("code");
+    expect(fields).toEqual(Object.keys(WarningRecord.shape).sort());
+  });
+
+  it("9. the web Coverage lists exactly @psq/schema's nine facets", () => {
+    const fields = webInterface("export interface Coverage {");
+    expect(fields).toHaveLength(9);
+    expect(fields).toEqual(Object.keys(Coverage.shape).sort());
+  });
+
+  // `FacetCoverage` is a ZodEffects (it carries a `.refine`): `.shape` on it is
+  // undefined, so the inner object is read through `.innerType()`. A wrong
+  // accessor throws in `Object.keys` rather than passing vacuously.
+  const facetShape = FacetCoverage.innerType().shape;
+
+  it("10. the web FacetCoverage mirrors @psq/schema's FacetCoverage exactly", () => {
+    const fields = webInterface("export interface FacetCoverage {");
+    expect(fields).toContain("status");
+    expect(fields).toEqual(Object.keys(facetShape).sort());
+  });
+
+  it("11. the web ProviderBasis mirrors @psq/schema's ProviderBasis exactly", () => {
+    const fields = webInterface("export interface ProviderBasis {");
+    expect(fields).toHaveLength(8);
+    expect(fields).toEqual(Object.keys(ProviderBasis.shape).sort());
+  });
+
+  it("12. the web SkipEntry mirrors FacetCoverage.skipped's element exactly", () => {
+    const fields = webInterface("export interface SkipEntry {");
+    expect(fields).toContain("why");
+    expect(fields).toEqual(Object.keys(facetShape.skipped.element.shape).sort());
+  });
+
+  it("13. the web CoverageStatus / SkipReason / WarningCode unions list exactly the schema enums", () => {
+    enumMirror("CoverageStatus", CoverageStatus.options, "none-found");
+    enumMirror("SkipReason", SkipReason.options, "walk-limit");
+    enumMirror("WarningCode", WarningCode.options, "no-schema");
+  });
+
+  it("14. the web ClientCall / EntityRef / UiComponent / Shape mirror the schema, sources typed FactSource", () => {
+    expect(webInterface("export interface ClientCall {")).toEqual(Object.keys(ClientCall.shape).sort());
+    expect(webInterface("export interface EntityRef {")).toEqual(Object.keys(EntityRef.shape).sort());
+    expect(webInterface("export interface UiComponent {")).toEqual(Object.keys(Component.shape).sort());
+    // `GET /:id/shapes` sends `{ ...shape, drift }`, so the web Shape carries one extra key.
+    expect(webInterface("export interface Shape {")).toEqual([...Object.keys(Shape.shape), "drift"].sort());
+
+    expect(/^\s*source\s*:\s*FactSource\s*;/m.test(webBody("export interface UiComponent {"))).toBe(true);
+    expect(/(^|;)\s*source\s*:\s*FactSource\s*;/m.test(webBody("export interface EntityRef {"))).toBe(true);
+    const call = webBody("export interface ClientCall {");
+    expect(/\bmatchSource\s*:\s*FactSource\s*\|\s*null\s*;/.test(call)).toBe(true);
+    expect(/\bcomponentsSource\s*:\s*FactSource\s*\|\s*null\s*;/.test(call)).toBe(true);
+    expect(/\bmirrorSource\s*:\s*FactSource\s*\|\s*null\s*;/.test(webBody("export interface Shape {"))).toBe(true);
+  });
+
+  it("15. the web RepoSummary declares exactly the server's RepoSummary keys", () => {
+    const marker = "export interface RepoSummary {";
+    const server = webInterface(marker, readFileSync(WORKSPACE_TS, "utf8"));
+    const web = webInterface(marker);
+    expect(server).toContain("coverage");
+    expect(web).toContain("coverage");
+    expect(web).toEqual(server);
   });
 });

@@ -5,6 +5,8 @@
  * the client never holds anything it could cheat with.
  */
 
+import { errorFromResponse } from "./api-error";
+
 export interface RepoSummary {
   id: string;
   path: string;
@@ -16,6 +18,10 @@ export interface RepoSummary {
   warnings: string[];
   seededRows: number;
   openedAt: string;
+  /** Mirrors the server's `RepoSummary` (test/web-schema-drift.test.ts case 15); null when unknown. */
+  coverage: Coverage | null;
+  providerBasis: ProviderBasis | null;
+  warningRecords: WarningRecord[] | null;
 }
 
 export interface LayoutNode {
@@ -109,12 +115,16 @@ export interface ClientCall {
   enclosing: string | null;
   /** The matched route's raw "METHOD path", or null when unmatched. */
   matches: string | null;
+  /** How psq matched the route; null exactly when `matches` is. */
+  matchSource: FactSource | null;
   /**
    * Component keys (`UiComponent.key`) this call attributes to, sorted. Empty
    * when the call is genuinely unowned; two or more when a shared helper is
    * reached from several components.
    */
   components: string[];
+  /** How psq attributed the components; null exactly when `components` is empty. */
+  componentsSource: FactSource | null;
 }
 /**
  * The server calls this `Component`. Renamed here because a bare `Component`
@@ -122,12 +132,91 @@ export interface ClientCall {
  */
 export interface UiComponent {
   key: string; name: string; file: string; line: number;
+  source: FactSource;
 }
 export interface EntityGraph {
   repo: string; provider: string; contextName: string | null;
   entities: Entity[]; relations: Relation[]; warnings: string[];
   clientCalls: ClientCall[]; components: UiComponent[];
   routes: Route[]; entityRefs: EntityRef[];
+  warningRecords?: WarningRecord[];
+  coverage?: Coverage;
+  providerBasis?: ProviderBasis;
+}
+
+/*
+ * Provenance types; mirror `@psq/schema` (P2a/P2b). test/web-schema-drift.test.ts
+ * pins every one of them (cases 8-13). Kept as NAMED interfaces with
+ * `;`-separated members and no nested object literals, because the drift
+ * parser is brace-depth-naive.
+ */
+export type CoverageStatus = "complete" | "partial" | "not-read" | "none-found";
+export type SkipReason =
+  | "test-file" | "migrations" | "declaration" | "walk-limit" | "other-project" | "unreadable";
+export type WarningCode =
+  | "cs-unbalanced-body"
+  | "cs-member-not-terminated"
+  | "cs-type-header-not-terminated"
+  | "route-inherited-not-read"
+  | "route-area-not-read"
+  | "route-template-not-literal"
+  | "route-action-name-not-literal"
+  | "route-accept-verbs"
+  | "route-verb-undecided"
+  | "route-any-verb"
+  | "route-conventional"
+  | "route-template-invalid"
+  | "route-action-name-undecided"
+  | "route-minimal-api"
+  | "type-ambiguous"
+  | "cs-unreadable"
+  | "dbcontext-election"
+  | "dbset-type-missing"
+  | "entity-no-key"
+  | "dbcontext-empty"
+  | "shape-mirror-ambiguous"
+  | "tsconfig-diagnostic"
+  | "tsconfig-references-partial"
+  | "tsconfig-fallback-scan"
+  | "walk-limit"
+  | "no-schema"
+  | "ddl-substitution-literal"
+  | "ddl-candidate-failed"
+  | "ddl-relation-ambiguous"
+  | "shape-unresolved"
+  | "route-regex"
+  | "client-base-unreadable"
+  | "client-call-ambiguous"
+  | "ref-key-collision"
+  | "ref-no-ast"
+  | "node-root-ambiguous"
+  | "two-entity-languages"
+  | "shapes-unpaired"
+  | "no-reader";
+/** One `FacetCoverage.skipped` entry. */
+export interface SkipEntry {
+  why: SkipReason; count: number;
+}
+export interface FacetCoverage {
+  status: CoverageStatus; readers: string[]; roots: string[]; filesRead: number;
+  skipped: SkipEntry[]; reason: string | null;
+}
+/** Nine facets, in the schema's order. */
+export interface Coverage {
+  entities: FacetCoverage; relations: FacetCoverage; shapes: FacetCoverage;
+  routes: FacetCoverage; clientCalls: FacetCoverage; components: FacetCoverage;
+  entityRefs: FacetCoverage; calls: FacetCoverage; pairing: FacetCoverage;
+}
+/** What on disk decided `provider`. */
+export interface ProviderBasis {
+  csFiles: number; csprojFiles: number; tsFiles: number;
+  testOnlyCs: number; testOnlyCsproj: number; testOnlyTs: number;
+  packageJson: boolean; tsconfig: boolean;
+}
+/** The typed twin of one `warnings` string. */
+export interface WarningRecord {
+  code: WarningCode; file: string | null; line: number | null; about: string | null;
+  text: string;
 }
 
 export interface ShapeField {
@@ -146,6 +235,8 @@ export interface Shape {
   fields: ShapeField[]; members: string[];
   discriminator: string | null;
   mirrors: string | null;
+  /** How psq paired it; null exactly when `mirrors` is. */
+  mirrorSource: FactSource | null;
   /** Present only when the shape is paired; null otherwise. */
   drift: Drift | null;
 }
@@ -172,6 +263,7 @@ export interface Route {
 export interface EntityRef {
   entity: string; file: string; line: number; type: string; method: string;
   via: "entityName" | "dbSetName";
+  source: FactSource;
 }
 export interface EntitySearchHit {
   name: string; tableName: string; namespace: string | null; file: string;
@@ -234,7 +326,7 @@ export interface RouteFlowResult {
   flows: Array<{ route: { file: string; line: number }; flow: Flow | null }>;
 }
 
-class ApiError extends Error {}
+export { ApiError } from "./api-error";
 
 /**
  * A hosted psq requires a bearer token on every /api call. It is entered once
@@ -302,15 +394,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     body = text;
   }
-  if (!res.ok) {
-    const message =
-      res.status === 401
-        ? NEEDS_TOKEN
-        : body && typeof body === "object" && "error" in body
-          ? String((body as { error: unknown }).error)
-          : `Request failed (${res.status})`;
-    throw new ApiError(message);
-  }
+  if (!res.ok) throw errorFromResponse(res.status, body, NEEDS_TOKEN);
   return body as T;
 }
 

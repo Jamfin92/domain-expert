@@ -14,15 +14,26 @@ import {
 } from "../src/lib/flow.js";
 import type { ClientCall, EntityRef, Route, UiComponent } from "../src/lib/api.js";
 
-const comp = (file: string, name: string): UiComponent => ({ key: `${file}#${name}`, name, file, line: 3 });
+const comp = (file: string, name: string): UiComponent => ({
+  key: `${file}#${name}`, name, file, line: 3, source: "inferred",
+});
 const route = (method: string, path: string, over: Partial<Route> = {}): Route => ({
   method, path, file: "srv/routes.ts", line: 10, source: "declared", ...over,
 });
-const call = (over: Partial<ClientCall> & { file: string; line: number }): ClientCall => ({
-  method: "GET", path: "/api/x", enclosing: null, matches: null, components: [], ...over,
-});
+// Sources are computed AFTER the spread: callers set `matches` / `components`
+// through `over`, and each source is null exactly when its fact is (schema
+// invariant). A caller may still override either source explicitly.
+const call = (over: Partial<ClientCall> & { file: string; line: number }): ClientCall => {
+  const c = { method: "GET", path: "/api/x", enclosing: null, matches: null, components: [], ...over };
+  return {
+    matchSource: c.matches === null ? null : "inferred",
+    componentsSource: c.components.length === 0 ? null : "inferred",
+    ...c,
+  };
+};
 const ref = (over: Partial<EntityRef>): EntityRef => ({
-  entity: "Student", file: "C/S.cs", line: 5, type: "SController", method: "Index", via: "entityName", ...over,
+  entity: "Student", file: "C/S.cs", line: 5, type: "SController", method: "Index", via: "entityName",
+  source: "inferred", ...over,
 });
 
 describe("componentAreas", () => {

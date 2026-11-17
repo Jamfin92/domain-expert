@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Loader2, X } from "lucide-react";
-import { api, type PublicQuestion, type RepoSummary, type Section } from "@/lib/api";
+import {
+  api, ApiError, type Coverage, type PublicQuestion, type RepoSummary, type Section,
+} from "@/lib/api";
+import { coverageCaveatText, coverageCaveats, coverageHeadline } from "@/lib/coverage";
 import { desktop, isDesktop } from "@/lib/desktop";
 import { Dashboard } from "@/views/Dashboard";
 import { Quiz } from "@/views/Quiz";
@@ -15,12 +18,25 @@ interface Session {
   questions: PublicQuestion[];
 }
 
+/** The banner's content: the message, plus the coverage a no-entities refusal carries. */
+interface ErrorState {
+  message: string;
+  coverage: Coverage | null;
+}
+
+function toErrorState(e: unknown): ErrorState {
+  return e instanceof ApiError
+    ? { message: e.message, coverage: e.coverage }
+    : { message: e instanceof Error ? e.message : String(e), coverage: null };
+}
+
 export function App(): React.ReactElement {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [path, setPath] = useState("");
   const [opening, setOpening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null);
+  const fail = useCallback((e: unknown) => setError(toErrorState(e)), []);
   const [session, setSession] = useState<Session | null>(null);
 
   const refresh = useCallback(async () => {
@@ -30,8 +46,8 @@ export function App(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    void refresh().catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [refresh]);
+    void refresh().catch(fail);
+  }, [refresh, fail]);
 
   const open = useCallback(
     async (target: string) => {
@@ -44,12 +60,12 @@ export function App(): React.ReactElement {
         setActiveId(repo.id);
         setPath("");
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        fail(err);
       } finally {
         setOpening(false);
       }
     },
-    [refresh],
+    [refresh, fail],
   );
 
   /**
@@ -68,10 +84,10 @@ export function App(): React.ReactElement {
         const res = await api.startQuiz(activeId, n, { sections });
         setSession({ id: res.session.id, questions: res.questions });
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        fail(err);
       }
     },
-    [activeId],
+    [activeId, fail],
   );
 
   const active = repos.find((r) => r.id === activeId) ?? null;
@@ -148,9 +164,21 @@ export function App(): React.ReactElement {
 
       <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-4">
         {error ? (
-          <Card className="mb-4 border-destructive/40">
+          <Card className="mb-4 border-destructive/40" data-psq="error-banner">
             <CardContent className="flex items-start justify-between gap-4 pt-6 text-sm">
-              <span className="whitespace-pre-wrap text-destructive">{error}</span>
+              <div className="space-y-1">
+                <span className="whitespace-pre-wrap text-destructive">{error.message}</span>
+                {error.coverage ? (
+                  // The entities reason is already the message's first sentence,
+                  // so only the headline and the caveat rows are added here.
+                  <div className="space-y-0.5 text-xs text-muted-foreground">
+                    <p>{coverageHeadline(error.coverage)}</p>
+                    {coverageCaveats(error.coverage).map((row) => (
+                      <p key={row.facet}>{coverageCaveatText(row)}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <Button variant="ghost" size="sm" onClick={() => setError(null)}>
                 Dismiss
               </Button>

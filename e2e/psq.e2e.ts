@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { join } from "node:path";
 import type { Page } from "playwright-core";
 import { BROWSER } from "./browser.js";
 import {
-  analyzeFixture, startHarness, webBuilt, FIXTURE, FULLSTACK_REACT_FIXTURE, NODE_FIXTURE,
+  analyzeFixture, startHarness, webBuilt, FIXTURE, FULLSTACK_REACT_FIXTURE, NODE_FIXTURE, REPO_ROOT,
   type Harness,
 } from "./harness.js";
 
@@ -379,6 +380,20 @@ describe.skipIf(reason !== "")(`psq end to end`, () => {
     await page.click('button:has-text("Analyze")');
     await page.waitForSelector("text=No such directory", { timeout: 15_000 });
     expect(await page.locator("text=at Object").count()).toBe(0);
+    await page.close();
+  });
+
+  // P2c-iii D4: the no-entities 400 carries its coverage, and the banner says
+  // how much psq read. Same input as the api test: this repo's own packages/.
+  it("says why when a repo has no entities, with its coverage", async () => {
+    const page = await h.newPage();
+    await page.goto(h.url, { waitUntil: "networkidle" });
+    await page.fill('input[placeholder*="/path/to"]', join(REPO_ROOT, "packages"));
+    await page.click('button:has-text("Analyze")');
+    await page.waitForSelector("text=No entities found", { timeout: 30_000 });
+    const banner = page.locator('[data-psq="error-banner"]');
+    await expect.poll(() => banner.innerText()).toMatch(/Read \d of 9 facets in full/);
+    expect(await banner.innerText()).toContain("No entities found");
     await page.close();
   });
 });

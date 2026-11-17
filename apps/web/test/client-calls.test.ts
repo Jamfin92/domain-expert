@@ -3,17 +3,25 @@ import { componentLabel, groupCallsByComponent } from "../src/lib/client-calls.j
 import type { ClientCall, UiComponent } from "../src/lib/api.js";
 
 function comp(key: string, name: string, file: string, line = 1): UiComponent {
-  return { key, name, file, line };
+  return { key, name, file, line, source: "inferred" };
 }
 
+// Sources are computed AFTER the spread: callers set `matches` / `components`
+// through `over`, and each source is null exactly when its fact is (schema
+// invariant). A caller may still override either source explicitly.
 function call(over: Partial<ClientCall> & { file: string; line: number }): ClientCall {
-  return {
+  const c = {
     method: "GET",
     path: "/api/x",
     enclosing: null,
     matches: null,
     components: [],
     ...over,
+  };
+  return {
+    matchSource: c.matches === null ? null : "inferred",
+    componentsSource: c.components.length === 0 ? null : "inferred",
+    ...c,
   };
 }
 

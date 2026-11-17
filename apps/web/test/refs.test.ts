@@ -3,7 +3,8 @@ import { groupRefs, refsState } from "../src/lib/refs.js";
 import type { EntityRef } from "../src/lib/api.js";
 
 const ref = (over: Partial<EntityRef>): EntityRef => ({
-  entity: "Student", file: "C/A.cs", line: 1, type: "A", method: "M", via: "entityName", ...over,
+  entity: "Student", file: "C/A.cs", line: 1, type: "A", method: "M", via: "entityName",
+  source: "inferred", ...over,
 });
 
 describe("groupRefs", () => {

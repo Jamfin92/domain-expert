@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { componentLabel, groupCallsByComponent } from "@/lib/client-calls";
+import { coverageCaveatText, coverageCaveats, coverageHeadline, warningItems } from "@/lib/coverage";
 import { desktop, isDesktop } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
 
@@ -552,8 +553,12 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
               </div>
             ) : repo.warnings.length > 0 ? (
               <ul className="space-y-1 text-xs text-[var(--warning)]">
-                {repo.warnings.slice(0, 6).map((w) => (
-                  <li key={w}>{w}</li>
+                {/* Index key: the string key collided on duplicate warnings, and a static list needs no identity. */}
+                {warningItems(repo).map(({ code, text }, i) => (
+                  <li key={i}>
+                    {code ? <code className="mr-1 font-mono text-[10px]">[{code}]</code> : null}
+                    {text}
+                  </li>
                 ))}
               </ul>
             ) : (
@@ -563,6 +568,24 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
                 </p>
                 <p>Parsed with no warnings. Select an entity to inspect it.</p>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="gap-3 py-4" data-psq="coverage">
+          <CardHeader className="px-4">
+            <CardTitle className="text-sm">Coverage</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 px-4 text-xs text-muted-foreground">
+            {repo.coverage ? (
+              <>
+                <p>{coverageHeadline(repo.coverage)}</p>
+                {coverageCaveats(repo.coverage).map((row) => (
+                  <p key={row.facet} className="text-[var(--warning)]">{coverageCaveatText(row)}</p>
+                ))}
+              </>
+            ) : (
+              <p>Coverage not recorded for this snapshot.</p>
             )}
           </CardContent>
         </Card>

@@ -3,7 +3,7 @@ import { areaGroups, flowCaveat, flowRows, leadsTo } from "../src/lib/areas.js";
 import type { AreaEdge, AreasResult, Flow, FlowNode, Route, UiComponent } from "../src/lib/api.js";
 
 const route = (method: string, path: string): Route => ({ method, path, file: "S.cs", line: 1, source: "attribute" });
-const comp = (key: string): UiComponent => ({ key, name: key, file: "a.tsx", line: 1 });
+const comp = (key: string): UiComponent => ({ key, name: key, file: "a.tsx", line: 1, source: "inferred" });
 const edge = (kind: AreaEdge["kind"], from: string, to: string, ...evidence: string[]): AreaEdge => ({
   kind, from, to, evidence,
 });

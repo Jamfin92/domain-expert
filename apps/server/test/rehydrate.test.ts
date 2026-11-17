@@ -12,7 +12,7 @@ import {
   readEnvelope,
   type StoredRepo,
 } from "../src/store.js";
-import { MINI_EFCORE, MINI_EFCORE_EMPTY_CONTEXT, MINI_EFCORE_REFS, MINI_NODE } from "../../../test/fixtures.js";
+import { MINI_EFCORE, MINI_EFCORE_EMPTY_CONTEXT, MINI_EFCORE_REFS, MINI_NODE, MINI_REACT } from "../../../test/fixtures.js";
 
 /**
  * The read side. Every test here builds a real store by opening a real
@@ -829,4 +829,26 @@ describe("P2a-ii: the refusal message and the stored-empty-graph path", () => {
     expect(existsSync(envelopePath(state, id))).toBe(true);
     expect(log.join("\n")).toContain(`${id} failed — the stored graph has no entities`);
   }, 60_000);
+});
+
+describe("P2c-iii D2: the summary's provenance survives a restart", () => {
+  it("coverage, providerBasis and warningRecords equal their pre-restart values", async () => {
+    const state = tmp("state");
+    // MINI_REACT carries two warnings, so the records leg is non-trivial.
+    const w1 = ws(state);
+    const before = w1.summarize(w1.open(copyOf(MINI_REACT)));
+    expect(before.coverage?.entities).toBeDefined();
+    expect(before.providerBasis?.tsFiles).toBeGreaterThan(0);
+    expect(before.warningRecords).toHaveLength(2);
+
+    const w2 = ws(state);
+    await w2.rehydrate();
+    expect(w2.rehydrateStatus()).toMatchObject({ state: "done", loaded: 1 });
+    const repo = w2.get(before.id);
+    expect(repo).toBeDefined();
+    const after = w2.summarize(repo!);
+    expect(after.coverage).toEqual(before.coverage);
+    expect(after.providerBasis).toEqual(before.providerBasis);
+    expect(after.warningRecords).toEqual(before.warningRecords);
+  });
 });
