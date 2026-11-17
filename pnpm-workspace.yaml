@@ -9,3 +9,5 @@ packages:
 # Same fix other local pnpm repos need.
 allowBuilds:
   esbuild: true
+# Refuse versions published less than 7 days ago (security-audit P7.8, 2026-10-24).
+minimumReleaseAge: 10080
