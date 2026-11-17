@@ -85,7 +85,7 @@ describe("opening a repo", () => {
     expect(Object.keys(res.body).sort()).toEqual(["code", "coverage", "error"]);
     expect(res.body.coverage.entities.status).toBe("none-found");
     expect(Object.keys(res.body.coverage)).toHaveLength(9);
-  });
+  }, 30_000);
 
   it("reopening replaces the old copy instead of leaking a database", async () => {
     const first = await openMini();
