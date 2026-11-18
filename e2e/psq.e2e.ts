@@ -396,6 +396,29 @@ describe.skipIf(reason !== "")(`psq end to end`, () => {
     expect(await banner.innerText()).toContain("No entities found");
     await page.close();
   });
+
+  // P2d D6: the Coverage card in a real browser.
+  it("states the coverage headline on the Dashboard", async () => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url);
+    const card = page.locator('[data-psq="coverage"]');
+    await expect.poll(() => card.innerText()).toContain("Read 6 of 9 facets in full · 0 partial · 3 not read");
+    await page.close();
+  });
+
+  it("groups the coverage caveats that share a reason into one line naming every facet", async () => {
+    const page = await h.newPage();
+    await analyzeFixture(page, h.url, join(REPO_ROOT, "test/fixtures/mini-react"));
+    const card = page.locator('[data-psq="coverage"]');
+    await expect.poll(() => card.innerText()).toContain("Read ");
+    // The headline is the first line; every later <p> is one caveat line.
+    const lines = card.locator("p");
+    await expect.poll(() => lines.count()).toBe(2);
+    const caveat = (await lines.nth(1).innerText()).trim();
+    expect(caveat).toMatch(/^entities, relations, shapes, routes, clientCalls, components, pairing: partial — /);
+    expect(caveat).toContain("(skipped 1 other-project)");
+    await page.close();
+  });
 });
 
 /** Answer whichever question is on screen, without caring what is right. */

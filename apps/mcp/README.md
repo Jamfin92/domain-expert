@@ -98,8 +98,10 @@ and `refs` items; `matchSource` beside `matches` and `componentsSource` beside
 calls); `calledSource` beside `calledAt` on `flow` hops (the edge that reached
 the hop: `declared` when the call site names the method, `inferred` for an
 implementer reached by interface dispatch); `mirrorSource` beside `mirrors` on
-shapes (`entity`, `shapes`). A nullable fact's provenance is `null` exactly
-when the fact is. The brief's `Provenance:` line, under the counts line,
+shapes (`entity`, `shapes`); `calledByClientSource` beside `calledByClient` on
+`routes` items (the `matchSource` of the first matching client call ordered
+by file, then line, not the strongest or the last match; `null` when no client call matches). A nullable fact's
+provenance is `null` exactly when the fact is. The brief's `Provenance:` line, under the counts line,
 tallies the same fields per family (routes, calls, client calls, component
 attribution, components, entity refs), lists only families with at least one
 fact, and asks that `inferred` facts be cited as psq's inference.

@@ -165,10 +165,43 @@ describe("routes", () => {
     expect(admin.routes).toEqual([
       {
         method: "POST", path: "/api/admin/cards", cite: "server.ts:25", source: "declared", calledByClient: true,
+        calledByClientSource: "inferred",
         handler: { type: "server", method: "<inline>", file: "server.ts", line: 25 },
         handlerCite: "server.ts:25",
       },
     ]);
+  });
+
+  // P2d D3: the FIRST matching client call in (file, line) order gives the
+  // source. Every match on real data is `inferred`, so the graph is perturbed.
+  it("takes calledByClientSource from the first matching client call in (file, line) order", () => {
+    const id = openReact();
+    const g = ctx.workspace.get(id)!.graph;
+    const route = (key: string): Json =>
+      (tools.routes.run(ctx, {}) as Json).routes.find((r: Json) => `${r.method} ${r.path}` === key);
+    const matching = (key: string) =>
+      g.clientCalls.filter((c) => c.matches === key).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+
+    // Both matches declared: the answer is the matches' own source, not a constant.
+    const post = matching("POST /api/admin/cards");
+    expect(post).toHaveLength(2);
+    for (const c of post) c.matchSource = "declared";
+    expect(route("POST /api/admin/cards")).toMatchObject({ calledByClient: true, calledByClientSource: "declared" });
+
+    // Only the LAST of four declared: "first" says inferred; "strongest" and "last" would say declared.
+    const get = matching("GET /api/cards");
+    expect(get.map((c) => `${c.file}:${c.line}`)).toEqual([
+      "src/components/admin/Panel.tsx:14", "src/components/shop/Panel.tsx:8", "src/lib/boot.ts:5", "src/lib/save-card.ts:7",
+    ]);
+    get[3]!.matchSource = "declared";
+    expect(route("GET /api/cards")).toMatchObject({ calledByClient: true, calledByClientSource: "inferred" });
+
+    // Position, not graph order: reversing the graph's list changes nothing.
+    g.clientCalls.reverse();
+    expect(route("GET /api/cards").calledByClientSource).toBe("inferred");
+    get[0]!.matchSource = "declared";
+    get[3]!.matchSource = "inferred";
+    expect(route("GET /api/cards").calledByClientSource).toBe("declared");
   });
 
   it("passes through a handler when the graph has one, and works without", () => {

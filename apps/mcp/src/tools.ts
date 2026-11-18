@@ -3,7 +3,7 @@ import { z } from "zod";
 import { byCode, drift, recordsOf } from "@psq/extract";
 import { mermaid, refsFor, searchEntities, MATCH_FIELDS } from "@psq/graph";
 import { RefVia, ShapeKind } from "@psq/schema";
-import type { Route } from "@psq/schema";
+import type { FactSource, Route } from "@psq/schema";
 // `@psq/server` exports only its app; the Workspace (open, extract, id,
 // layout, mermaid) is the existing store of opened repos and is reused as-is.
 import { Workspace, type OpenRepo } from "../../server/src/workspace.js";
@@ -461,7 +461,9 @@ export const tools = {
         .sort((a, b) => cmp(a.name, b.name) || cmp(a.file, b.file));
       const shown = cap(all, CAP.shapes);
       // "Not computed cross-stack" vs "paired and found none": `counts.unpaired` mixes both.
-      const note = LIMITS.mirrors.see(g);
+      // Read over the FILTERED list (before the cap), so a filter that leaves no
+      // unpaired shape carries no note about unpaired shapes.
+      const note = LIMITS.mirrors.see({ ...g, shapes: all });
       return stamp(repo, {
         mirrors: mirrors ?? null,
         paired: paired ?? null,
@@ -497,6 +499,13 @@ export const tools = {
       const all = repo.graph.routes.filter((r) => prefix === undefined || r.path.startsWith(prefix));
       const shown = cap(all, CAP.routes);
       const called = new Set(repo.graph.clientCalls.map((c) => c.matches));
+      // `calledByClientSource`: the `matchSource` of the FIRST matching client
+      // call ordered by file, then line: not the strongest and not the last match.
+      const firstMatch = new Map<string, FactSource | null>();
+      const byPosition = [...repo.graph.clientCalls].sort((a, b) => cmp(a.file, b.file) || a.line - b.line);
+      for (const c of byPosition) {
+        if (c.matches !== null && !firstMatch.has(c.matches)) firstMatch.set(c.matches, c.matchSource);
+      }
       const next: Next[] = [];
       if (shown.omitted > 0) {
         // No `offset` yet (P3): narrow by a longer prefix, largest group first.
@@ -538,6 +547,7 @@ export const tools = {
         routes: shown.items.map((r) => ({
           ...routeItem(r),
           calledByClient: called.has(`${r.method} ${r.path}`),
+          calledByClientSource: firstMatch.get(`${r.method} ${r.path}`) ?? null,
         })),
         next,
       });

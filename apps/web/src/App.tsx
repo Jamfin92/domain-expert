@@ -174,7 +174,7 @@ export function App(): React.ReactElement {
                   <div className="space-y-0.5 text-xs text-muted-foreground">
                     <p>{coverageHeadline(error.coverage)}</p>
                     {coverageCaveats(error.coverage).map((row) => (
-                      <p key={row.facet}>{coverageCaveatText(row)}</p>
+                      <p key={row.key}>{coverageCaveatText(row)}</p>
                     ))}
                   </div>
                 ) : null}

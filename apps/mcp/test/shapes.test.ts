@@ -192,3 +192,31 @@ describe("shapes tool on other repos", () => {
     }
   });
 });
+
+// P2d D2: the note speaks about the shapes the caller asked for. It is read
+// over the FILTERED list (before the cap), so a filter that leaves no unpaired
+// shape carries no note about unpaired shapes.
+describe("shapes note follows the filter", () => {
+  it("mini-node: present unfiltered and on paired:false, absent on paired:true and on an empty filter", () => {
+    open(MINI_NODE);
+    expect(shapes().note).toBe(FOUND_NONE);
+    expect(shapes({ paired: false }).note).toBe(FOUND_NONE);
+    const pairedOnly = shapes({ paired: true });
+    expect(pairedOnly.total).toBe(3);
+    expect(pairedOnly).not.toHaveProperty("note");
+    const nothing = shapes({ prefix: "NoShapeHasThisPrefix" });
+    expect(nothing.total).toBe(0);
+    expect(nothing).not.toHaveProperty("note");
+  });
+
+  it("mini-fullstack-csharp: the cross-stack note is present unfiltered, absent on paired:true and on an empty filter", () => {
+    open(MINI_FULLSTACK_CSHARP);
+    expect(shapes().note).toBe(CROSS_STACK);
+    const pairedOnly = shapes({ paired: true });
+    expect(pairedOnly.total).toBeGreaterThan(0);
+    expect(pairedOnly).not.toHaveProperty("note");
+    const nothing = shapes({ prefix: "NoShapeHasThisPrefix" });
+    expect(nothing.total).toBe(0);
+    expect(nothing).not.toHaveProperty("note");
+  });
+});

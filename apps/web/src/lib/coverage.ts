@@ -43,23 +43,53 @@ export function coverageRows(c: Coverage): CoverageRow[] {
 }
 
 /**
- * The rows a reader should be told about: a `partial` read, or a skip that
- * left input unread. NOT caveats: `none-found` (the reader ran to completion),
- * `not-read` (that facet was not read; counted in the headline instead) and policy skips.
+ * One caveat line: every facet that shares a RENDERED (status, reason, skip
+ * text). The skip text carries counts, so the same reason with different skip
+ * counts stays two lines. `facets` keeps the coverage object's facet order.
  */
-export function coverageCaveats(c: Coverage): CoverageRow[] {
-  return coverageRows(c).filter(
-    (r) => r.status === "partial" || r.skipped.some((s) => CAVEAT_SKIPS.has(s.why)),
-  );
+export interface CoverageCaveat {
+  /** Stable React key: the joined facet names (unique, since a facet is in one group). */
+  key: string;
+  facets: (keyof Coverage)[];
+  status: CoverageStatus;
+  reason: string | null;
+  /** The caveat skips as rendered, `1 walk-limit, 2 other-project`; "" when none. */
+  skips: string;
 }
 
-/** `routes: partial — <reason> (skipped 1 walk-limit, 2 other-project)`; only caveat skips are listed. */
-export function coverageCaveatText(row: CoverageRow): string {
-  const skips = row.skipped.filter((s) => CAVEAT_SKIPS.has(s.why));
+/** Only caveat skips, in the MCP brief's `N why` grammar. */
+const skipText = (row: CoverageRow): string =>
+  row.skipped.filter((s) => CAVEAT_SKIPS.has(s.why)).map((s) => `${s.count} ${s.why}`).join(", ");
+
+/**
+ * The lines a reader should be told about: a `partial` read, or a skip that
+ * left input unread. NOT caveats: `none-found` (the reader ran to completion),
+ * `not-read` (that facet was not read; counted in the headline instead) and policy skips.
+ * Facets with the same rendered status, reason and skip text share one line,
+ * placed where its first facet falls.
+ */
+export function coverageCaveats(c: Coverage): CoverageCaveat[] {
+  const groups = new Map<string, CoverageCaveat>();
+  for (const r of coverageRows(c)) {
+    if (!(r.status === "partial" || r.skipped.some((s) => CAVEAT_SKIPS.has(s.why)))) continue;
+    const skips = skipText(r);
+    const id = JSON.stringify([r.status, r.reason, skips]);
+    const g = groups.get(id);
+    if (g) g.facets.push(r.facet);
+    else groups.set(id, { key: "", facets: [r.facet], status: r.status, reason: r.reason, skips });
+  }
+  return [...groups.values()].map((g) => ({ ...g, key: g.facets.join(",") }));
+}
+
+/**
+ * `routes: partial — <reason> (skipped 1 walk-limit, 2 other-project)`; only caveat skips are listed.
+ * A shared line names its facets comma-separated: `entities, routes: partial — <reason>`.
+ */
+export function coverageCaveatText(row: CoverageCaveat): string {
   return (
-    `${row.facet}: ${row.status}` +
+    `${row.facets.join(", ")}: ${row.status}` +
     (row.reason ? ` — ${row.reason}` : "") +
-    (skips.length > 0 ? ` (skipped ${skips.map((s) => `${s.count} ${s.why}`).join(", ")})` : "")
+    (row.skips !== "" ? ` (skipped ${row.skips})` : "")
   );
 }
 

@@ -581,7 +581,7 @@ export function Dashboard({ repo, onStartQuiz }: Props): React.ReactElement {
               <>
                 <p>{coverageHeadline(repo.coverage)}</p>
                 {coverageCaveats(repo.coverage).map((row) => (
-                  <p key={row.facet} className="text-[var(--warning)]">{coverageCaveatText(row)}</p>
+                  <p key={row.key} className="text-[var(--warning)]">{coverageCaveatText(row)}</p>
                 ))}
               </>
             ) : (

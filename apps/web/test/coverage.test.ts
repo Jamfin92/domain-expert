@@ -72,7 +72,7 @@ describe("coverageCaveats", () => {
   });
 
   it("is exactly the partial facet and the facet with a walk-limit skip", () => {
-    expect(coverageCaveats(mixed).map((r) => r.facet)).toEqual(["routes", "components"]);
+    expect(coverageCaveats(mixed).map((r) => r.facets)).toEqual([["routes"], ["components"]]);
   });
 
   it("does not count none-found, not-read, or a policy (test-file) skip as a caveat", () => {
@@ -86,9 +86,9 @@ describe("coverageCaveats", () => {
 
   it("counts unreadable and other-project skips as caveats", () => {
     expect(coverageCaveats(clean({ calls: complete({ skipped: [{ why: "unreadable", count: 1 }] }) }))
-      .map((r) => r.facet)).toEqual(["calls"]);
+      .map((r) => r.facets)).toEqual([["calls"]]);
     expect(coverageCaveats(clean({ routes: complete({ skipped: [{ why: "other-project", count: 2 }] }) }))
-      .map((r) => r.facet)).toEqual(["routes"]);
+      .map((r) => r.facets)).toEqual([["routes"]]);
   });
 });
 
@@ -112,6 +112,67 @@ describe("coverageCaveatText", () => {
     }));
     expect(coverageCaveatText(row!))
       .toBe("calls: partial — two projects not read (skipped 2 other-project, 1 unreadable)");
+  });
+});
+
+describe("coverageCaveats grouping (P2d D5)", () => {
+  const shared = "tsconfig.json: 2 referenced projects; reading only tsconfig.app.json";
+  // `filesRead` differs per facet on purpose: it is not part of the rendered line, so it must not split a group.
+  const otherProject = (count: number, filesRead = 4) => complete({
+    status: "partial", reason: shared, filesRead,
+    skipped: [{ why: "other-project", count }, { why: "test-file", count: 9 }],
+  });
+
+  it("puts facets that share a rendered reason on one line, in facet order, beside a distinct reason", () => {
+    // Overrides are written routes, entities, calls, shapes, but spreading clean() first keeps
+    // clean()'s key positions: groups and their facets follow the object's key order (entities, shapes, routes).
+    const c = {
+      ...clean(),
+      routes: otherProject(2, 11),
+      entities: otherProject(2, 23),
+      // Same status and the same skip text as the three: only the reason differs, so it must stay its own line.
+      calls: complete({
+        status: "partial", reason: "solution lists 3 projects; reading only Api.csproj", filesRead: 5,
+        skipped: [{ why: "other-project", count: 2 }],
+      }),
+      shapes: otherProject(2, 37),
+    } satisfies Coverage;
+    const rows = coverageCaveats(c);
+    expect(rows.map((r) => r.facets)).toEqual([["entities", "shapes", "routes"], ["calls"]]);
+    expect(rows.map((r) => r.key)).toEqual(["entities,shapes,routes", "calls"]);
+    expect(rows.map(coverageCaveatText)).toEqual([
+      `entities, shapes, routes: partial — ${shared} (skipped 2 other-project)`,
+      "calls: partial — solution lists 3 projects; reading only Api.csproj (skipped 2 other-project)",
+    ]);
+  });
+
+  it("keeps the same reason with different skip counts as two lines", () => {
+    const rows = coverageCaveats(clean({ entities: otherProject(1), routes: otherProject(3) }));
+    expect(rows.map(coverageCaveatText)).toEqual([
+      `entities: partial — ${shared} (skipped 1 other-project)`,
+      `routes: partial — ${shared} (skipped 3 other-project)`,
+    ]);
+  });
+
+  it("keeps the same reason under two statuses as two lines", () => {
+    const rows = coverageCaveats(clean({
+      entities: otherProject(1),
+      routes: complete({ reason: shared, skipped: [{ why: "other-project", count: 1 }] }),
+    }));
+    expect(rows.map((r) => r.facets)).toEqual([["entities"], ["routes"]]);
+  });
+
+  it("collapses mini-react's seven identical rows to one line naming all seven", () => {
+    // mini-react's coverage as extracted: seven facets share one reason and one skip.
+    const one = complete({ status: "partial", reason: shared, skipped: [{ why: "other-project", count: 1 }] });
+    const c = clean({
+      entities: one, relations: one, shapes: one, routes: one, clientCalls: one, components: one, pairing: one,
+    });
+    const rows = coverageCaveats(c);
+    expect(rows).toHaveLength(1);
+    expect(coverageCaveatText(rows[0]!)).toBe(
+      `entities, relations, shapes, routes, clientCalls, components, pairing: partial — ${shared} (skipped 1 other-project)`,
+    );
   });
 });
 

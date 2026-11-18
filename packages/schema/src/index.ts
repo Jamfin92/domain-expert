@@ -468,7 +468,10 @@ export type UnresolvedCalls = z.infer<typeof UnresolvedCalls>;
  *              nothing about recall)
  * partial    = the reader ran but knowingly left eligible input out (walk limit
  *              hit, referenced projects not read, cross-stack pairing not computed)
- * not-read   = no reader for this facet ran under this provider
+ * not-read   = this facet was not read: no reader for it runs under this
+ *              provider; or its reader runs only after a prerequisite (e.g. a
+ *              DbContext is elected) and that did not happen; or there was
+ *              nothing to read (e.g. pairing with no entities or no shapes)
  * none-found = the reader ran to completion and produced zero facts
  */
 export const CoverageStatus = z.enum(["complete", "partial", "not-read", "none-found"]);
